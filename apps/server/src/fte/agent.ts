@@ -18,6 +18,7 @@ import { conversationMembers } from "../services/chat";
 import { notify, usersWithPerm } from "../services/notify";
 import { chat, modelConfigured } from "./model";
 import { openMcpSession } from "./mcp";
+import { transcribeMessage } from "./voice";
 import { skillIndex } from "./skills";
 import { SUMMARY_PROMPT, systemPrompt } from "./prompts";
 
@@ -97,6 +98,14 @@ async function buildHistory(conversationId: string, soraId: string): Promise<Cha
     // buyer
     const parts: unknown[] = [];
     const ids = Array.isArray(m.fileIds) ? (m.fileIds as string[]) : [];
+    if (m.kind === "voice" && ids.length) {
+      // heard once by Muse Spark Open, then Sora works from the transcript (no audio on every tool step)
+      const t = await transcribeMessage(m.id);
+      if (t?.transcript) {
+        out.unshift({ role: "user", content: `[Voice note from the buyer${t.language ? ` (${t.language})` : ""}, transcript]: ${t.transcript}${text ? `\n${text}` : ""}` });
+        continue;
+      }
+    }
     if ((m.kind === "image" || m.kind === "voice") && ids.length) {
       for (const fid of ids.slice(0, 3)) {
         const [f] = await db().select().from(s.files).where(eq(s.files.id, fid)).limit(1);

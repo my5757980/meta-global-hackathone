@@ -15,7 +15,7 @@ export interface ChatMsg {
   kind: string;
   body: string;
   fileIds: string[];
-  meta: { cards?: ChatCard[]; holder?: string } | null;
+  meta: { cards?: ChatCard[]; holder?: string; transcript?: string; language?: string } | null;
   createdAt: string;
   sender: { id: string; name: string; kind: string; title?: string | null } | null;
 }
@@ -32,7 +32,15 @@ export function useConversation(conversationId: string | null, initial: ChatMsg[
     [conversationId],
   );
   const onTyping = useCallback((t: { conversationId: string; on: boolean }) => t.conversationId === conversationId && setTyping(t.on), [conversationId]);
+  const onMeta = useCallback(
+    (e: { id: string; conversationId: string; meta: ChatMsg["meta"] }) => {
+      if (e.conversationId !== conversationId) return;
+      setMessages((prev) => prev.map((x) => (x.id === e.id ? { ...x, meta: { ...(x.meta ?? {}), ...(e.meta ?? {}) } } : x)));
+    },
+    [conversationId],
+  );
   useLiveEvent("message", onMessage);
+  useLiveEvent("message.meta", onMeta);
   useLiveEvent("typing", onTyping);
   return { messages, setMessages, typing };
 }
@@ -190,7 +198,14 @@ export function MessageList({ messages, meId, typing, perspective = "buyer" }: {
               )}
               {m.kind === "image" && m.fileIds?.length > 0 && <ImageGrid msg={m} />}
               {m.kind === "voice" && m.fileIds?.length > 0 && (
-                <audio controls preload="none" src={`/api/chat/media/${m.fileIds[0]}?m=${m.id}`} className="mt-1 h-10 w-64 max-w-full" />
+                <div className="mt-1">
+                  <audio controls preload="none" src={`/api/chat/media/${m.fileIds[0]}?m=${m.id}`} className="h-10 w-64 max-w-full" />
+                  {m.meta?.transcript ? (
+                    <p className="mt-1 max-w-xs text-xs text-slate-500 italic">“{m.meta.transcript}”{m.meta.language ? ` · ${m.meta.language}` : ""}</p>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-slate-400">Transcribing…</p>
+                  )}
+                </div>
               )}
               {m.meta?.cards?.length ? <Cards cards={m.meta.cards} mine={mine} /> : null}
               {isSora && m.body && perspective === "buyer" && <SpeakButton text={m.body} />}

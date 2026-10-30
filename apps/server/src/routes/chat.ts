@@ -9,6 +9,7 @@ import { isStaff, requireAuth, requirePerm } from "../auth/session";
 import { canSeeConversation, deskConversations, ensureCustomerConversation, listMessages, markRead, postMessage, setHolder } from "../services/chat";
 import { saveFile } from "../services/files";
 import { triggerSora } from "../fte/agent";
+import { transcribeMessage } from "../fte/voice";
 import { audit } from "../services/audit";
 
 export const chatRouter = Router();
@@ -66,6 +67,7 @@ chatRouter.post(
       await setHolder(conv.id, "human", { id: u.id, name: u.name });
     }
     const msg = await postMessage({ conversationId: conv.id, senderUserId: u.id, kind: body.kind, body: body.body, fileIds: body.fileIds });
+    if (body.kind === "voice") void transcribeMessage(msg.id); // start hearing it at once (also useful to staff)
     if (!isStaff(u) && conv.kind === "customer") {
       const [fresh] = await db().select({ holder: s.chatConversations.holder }).from(s.chatConversations).where(eq(s.chatConversations.id, conv.id)).limit(1);
       if (fresh?.holder === "fte") triggerSora(conv.id, { kind: "message" });
