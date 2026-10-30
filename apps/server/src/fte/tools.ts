@@ -357,10 +357,12 @@ const BASE_TOOLS: ToolDef[] = [
       amount_jpy: z.number().int().positive().optional(),
     },
     async run(a, ctx) {
+      // resolve the lot BEFORE the transaction: PGlite has one connection, so a db() call inside tx waits forever
+      const lotId = a.lot_id ? (await resolveLot(a.lot_id)).id : null;
       const row = await db().transaction(async (tx) => {
         const [ap] = await tx
           .insert(s.approvals)
-          .values({ kind: String(a.kind), requestedBy: ctx.principalUserId, conversationId: ctx.conversationId ?? null, quoteId: (a.quote_id as string) ?? null, lotId: a.lot_id ? (await resolveLot(a.lot_id)).id : null, payload: { discountPct: a.discount_pct ?? null, amountJpy: a.amount_jpy ?? null }, reason: String(a.reason) })
+          .values({ kind: String(a.kind), requestedBy: ctx.principalUserId, conversationId: ctx.conversationId ?? null, quoteId: (a.quote_id as string) ?? null, lotId, payload: { discountPct: a.discount_pct ?? null, amountJpy: a.amount_jpy ?? null }, reason: String(a.reason) })
           .returning();
         await audit(tx, { actorUserId: ctx.principalUserId, actorKind: ctx.principalKind, action: "approval.requested", entity: "approval", entityId: ap!.id, summary: `Asked approval (${a.kind}${a.discount_pct ? ` ${a.discount_pct}%` : ""}): ${String(a.reason).slice(0, 120)}`, conversationId: ctx.conversationId, fteRunId: ctx.runId });
         return ap!;
@@ -371,7 +373,7 @@ const BASE_TOOLS: ToolDef[] = [
   },
   {
     name: "handover_to_human",
-    description: "Hand this conversation to a human team member with a short summary. Use for complaints, refunds, legal or payment disputes, anything outside policy, or when the buyer asks for a person. After this you stop replying here.",
+    description: "Hand this conversation to a human team member with a short summary. Call it FIRST, before replying, for complaints, refunds, legal threats or payment disputes, anything outside policy, or when the buyer asks for a person — do not ask the buyer for details first, the colleague will. After this you stop replying here.",
     input: { reason: z.string().min(3).max(300), summary: z.string().min(10).max(1500) },
     async run(a, ctx) {
       if (!ctx.conversationId) throw new ToolError("No conversation to hand over");

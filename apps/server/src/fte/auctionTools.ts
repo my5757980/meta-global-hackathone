@@ -1,5 +1,5 @@
 /** Sora's auction tools: search lots, open one, read its sheet (vision), check past prices, bid inside the envelope. */
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
 import * as s from "../db/schema";
@@ -60,12 +60,29 @@ export const AUCTION_TOOLS: ToolDef[] = [
     },
     async run(a) {
       const policy = await pricingPolicy();
-      const r = await listLots({ make: a.make as string, model: a.model as string, modelCode: a.model_code as string, priceMax: a.max_start_price_jpy as number, yearMin: a.min_year as number, mileageMax: a.max_mileage_km as number, saleDate: a.sale_date as string, sort: (a.sort as never) ?? "price_asc", limit: 30 });
-      let items = r.items;
+      const sort = ((a.sort as string) ?? "price_asc") as "price_asc" | "year_desc" | "mileage_asc" | "lot";
+      // buyers say "Hiace" or "Prado"; the lots say "Hiace Van" / "Land Cruiser Prado". An exact name wins, else every model that contains the words.
+      let models: (string | undefined)[] = [a.model as string | undefined];
+      if (a.model) {
+        const q = String(a.model).trim();
+        const like = await db()
+          .selectDistinct({ m: s.auctionLots.model })
+          .from(s.auctionLots)
+          .where(and(ilike(s.auctionLots.model, `%${q.replace(/[%_\\]/g, (ch) => `\\${ch}`)}%`), a.make ? ilike(s.auctionLots.make, String(a.make)) : undefined))
+          .limit(5);
+        const exact = like.find((x) => x.m.toLowerCase() === q.toLowerCase());
+        if (like.length) models = exact ? [exact.m] : like.map((x) => x.m);
+      }
+      const found = await Promise.all(models.map((model) => listLots({ make: a.make as string, model, modelCode: a.model_code as string, priceMax: a.max_start_price_jpy as number, yearMin: a.min_year as number, mileageMax: a.max_mileage_km as number, saleDate: a.sale_date as string, sort, limit: 30 })));
+      let items = found.flatMap((r) => r.items);
+      if (found.length > 1) {
+        const key = { price_asc: (l: (typeof items)[number]) => Number(l.startPriceJpy), year_desc: (l: (typeof items)[number]) => -l.year, mileage_asc: (l: (typeof items)[number]) => l.mileageKm, lot: (l: (typeof items)[number]) => l.lotNo }[sort];
+        items.sort((x, y) => key(x) - key(y));
+      }
       if (a.min_grade) items = items.filter((l) => Number.parseFloat(l.grade) >= Number(a.min_grade));
       items = items.slice(0, (a.limit as number) ?? 4);
       return {
-        total_matches: r.total,
+        total_matches: found.reduce((n, r) => n + r.total, 0),
         results: items.map((l) => ({
           lot_id: l.id,
           lot_no: l.lotNo,

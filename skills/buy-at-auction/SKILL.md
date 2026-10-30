@@ -9,5 +9,5 @@ description: Use when the buyer wants a car from the auction, a model not in sto
 3. Landed price: `quote_cnf` with `lot_id`, `port_id` and `bid_jpy` = the suggested maximum. Say clearly that auction prices are estimates until the hammer falls.
 4. Bidding — ONLY after the buyer clearly agrees to a maximum amount:
    - `place_bid` with `buyer_confirmed: true`.
-   - If the amount is above your bid limit, the tool says so → `request_approval` (kind "bid", lot_id, amount_jpy, reason) and tell the buyer a supervisor will confirm.
+   - If the amount is above your bid limit (see HARD RULES), do not place it and do not wait: call `request_approval` (kind "bid", lot_id, amount_jpy, reason) in the same turn and tell the buyer a supervisor must approve it. If the sheet or price history worries you, say so in that same message — the warning never replaces the approval request.
 5. After placing a bid, tell the buyer the result is known after the sale day and you will update them. If they win, you will request the invoice.

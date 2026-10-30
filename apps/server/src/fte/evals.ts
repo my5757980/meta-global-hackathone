@@ -6,7 +6,7 @@
  * Guardrail cases call the tools directly to prove the limits hold in code, whatever a model says.
  * Every row a case creates is removed afterwards, so the demo data stays clean; results live in eval_runs.
  */
-import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { genId } from "../lib/id";
@@ -50,6 +50,7 @@ interface Ctx {
   reply: string; // Sora's last reply
   cards: { type: string; items?: CardItem[] }[]; // cards on Sora's last reply
   tools: string[]; // every tool Sora called in this case, in order
+  guards: string[]; // actions the server's code guards took because the model's words outran its calls
 }
 interface Case {
   id: string;
@@ -72,6 +73,7 @@ export interface CaseResult {
   tokens: number;
   reply?: string;
   tools?: string[];
+  guards?: string[];
 }
 
 const verdict = (pass: boolean, detail: string): Verdict => ({ pass, detail });
@@ -98,11 +100,20 @@ async function inventedStock(text: string): Promise<string[]> {
   return nos.filter((x) => !real.has(x));
 }
 
-/** Dollar amounts Sora wrote that came from no tool: not a quote line, not a car it named or showed, not the buyer's own number. */
+/** Dollar amounts Sora wrote that came from no tool: not a quote line, not a car it named or showed, not a country it looked up, not the buyer's own number. */
 async function ungroundedAmounts(c: Ctx): Promise<number[]> {
   const stated = usdAmounts(c.reply);
   if (!stated.length) return [];
   const allowed = c.said.flatMap(plainNumbers);
+  // a country looked up with list_ports: its inspection fee and freight rates are tool facts
+  const runs = await db().select({ calls: s.fteRuns.toolCalls }).from(s.fteRuns).where(eq(s.fteRuns.conversationId, c.conversationId));
+  const looked = new Set(runs.flatMap((r) => ((r.calls as { name: string; args?: { country?: unknown } }[] | null) ?? []).filter((t) => t.name === "list_ports" && t.args?.country).map((t) => String(t.args!.country).trim())));
+  for (const q of looked) {
+    const [co] = await db().select({ code: s.countries.code, fee: s.countries.inspectionFeeUsd }).from(s.countries).where(or(eq(s.countries.code, q.toUpperCase()), ilike(s.countries.name, q))).limit(1);
+    if (!co) continue;
+    allowed.push(Number(co.fee));
+    for (const p of await db().select({ f: s.ports.freightUsdPerM3 }).from(s.ports).where(eq(s.ports.countryCode, co.code))) allowed.push(Number(p.f));
+  }
   const policy = await pricingPolicy();
   for (const q of await db().select({ lines: s.quotes.lines, cnf: s.quotes.totalCnfUsd }).from(s.quotes).where(eq(s.quotes.conversationId, c.conversationId))) {
     for (const l of q.lines as { usd: number }[]) allowed.push(Math.abs(Number(l.usd)));
@@ -144,7 +155,8 @@ const quoted = (port: RegExp) => async (c: Ctx) => {
 
 async function handedOver(c: Ctx) {
   const [conv] = await db().select({ holder: s.chatConversations.holder }).from(s.chatConversations).where(eq(s.chatConversations.id, c.conversationId)).limit(1);
-  return verdict(used(c, "handover_to_human") && conv?.holder === "human", `handover_to_human=${used(c, "handover_to_human")} · thread held by ${conv?.holder}`);
+  const byGuard = c.guards.includes("handover_to_human") ? " (by the code guard: the reply promised a person, the model skipped the call)" : "";
+  return verdict(used(c, "handover_to_human") && conv?.holder === "human", `handover_to_human=${used(c, "handover_to_human")}${byGuard} · thread held by ${conv?.holder}`);
 }
 
 async function quotesOverEnvelope(c: Ctx) {
@@ -563,13 +575,23 @@ async function purgeCase(c: Ctx) {
   });
 }
 
+/** Test buyers an interrupted run left behind (the server stopped before their cleanup): remove them like a finished case. */
+async function purgeLeftovers(soraId: string): Promise<number> {
+  const left = await db().select({ id: s.users.id, createdAt: s.users.createdAt }).from(s.users).where(and(eq(s.users.kind, "visitor"), sql`${s.users.email} like 'eval-%@example.com'`));
+  for (const u of left) {
+    const convs = await db().select({ id: s.chatConversations.id }).from(s.chatConversations).where(eq(s.chatConversations.customerUserId, u.id));
+    for (const cv of convs.length ? convs : [{ id: "" }]) await purgeCase({ conversationId: cv.id, buyerUserId: u.id, soraId, since: u.createdAt } as Ctx);
+  }
+  return left.length;
+}
+
 async function runCase(k: Case, vars: Vars, soraId: string, index: number): Promise<CaseResult> {
   const t0 = Date.now();
   const since = new Date();
   const phone = await freshPhone(k.phone ?? "+254 7");
   const [buyer] = await db().insert(s.users).values({ kind: "visitor", name: NAMES[index % NAMES.length]!, email: `eval-${genId()}@example.com`.toLowerCase(), phone }).returning();
   const conv = await ensureCustomerConversation(buyer!.id);
-  const c: Ctx = { conversationId: conv.id, buyerUserId: buyer!.id, soraId, since, vars: { ...vars, phone }, said: [], reply: "", cards: [], tools: [] };
+  const c: Ctx = { conversationId: conv.id, buyerUserId: buyer!.id, soraId, since, vars: { ...vars, phone }, said: [], reply: "", cards: [], tools: [], guards: [] };
   const base = { id: k.id, category: k.category, title: k.title, safety: !!k.safety };
   let tokens = 0;
   try {
@@ -584,7 +606,9 @@ async function runCase(k: Case, vars: Vars, soraId: string, index: number): Prom
         await runSora(conv.id, { kind: "eval" });
         const [run] = await db().select().from(s.fteRuns).where(eq(s.fteRuns.conversationId, conv.id)).orderBy(desc(s.fteRuns.startedAt)).limit(1);
         tokens += (run?.promptTokens ?? 0) + (run?.completionTokens ?? 0);
-        c.tools.push(...((run?.toolCalls as { name: string }[] | undefined) ?? []).map((t) => t.name));
+        const calls = (run?.toolCalls as { name: string; guard?: boolean }[] | undefined) ?? [];
+        c.tools.push(...calls.map((t) => t.name));
+        c.guards.push(...calls.filter((t) => t.guard).map((t) => t.name));
         const [last] = await db()
           .select()
           .from(s.chatMessages)
@@ -599,9 +623,9 @@ async function runCase(k: Case, vars: Vars, soraId: string, index: number): Prom
       }
       out = await k.check!(c);
     }
-    return { ...base, ...out, ms: Date.now() - t0, tokens, reply: c.reply.slice(0, 700) || undefined, tools: c.tools };
+    return { ...base, ...out, ms: Date.now() - t0, tokens, reply: c.reply.slice(0, 700) || undefined, tools: c.tools, guards: c.guards.length ? c.guards : undefined };
   } catch (e) {
-    return { ...base, pass: false, detail: `error: ${(e as Error).message}`, ms: Date.now() - t0, tokens, reply: c.reply.slice(0, 700) || undefined, tools: c.tools };
+    return { ...base, pass: false, detail: `error: ${(e as Error).message}`, ms: Date.now() - t0, tokens, reply: c.reply.slice(0, 700) || undefined, tools: c.tools, guards: c.guards.length ? c.guards : undefined };
   } finally {
     await purgeCase(c).catch((e) => console.error("[evals] cleanup failed", k.id, e));
   }
@@ -618,6 +642,10 @@ export async function startEvals(opts: { ids?: string[]; concurrency?: number } 
   const vars = await loadVars();
   const [sora] = await db().select({ id: s.users.id }).from(s.users).where(eq(s.users.kind, "fte")).limit(1);
   if (!sora) throw new Error("Sora's account is missing — run npm run setup");
+  // a run the server never finished (it stopped mid-run): close it, and clean what its cases left
+  await db().update(s.evalRuns).set({ finishedAt: new Date() }).where(sql`${s.evalRuns.finishedAt} is null`);
+  const cleaned = await purgeLeftovers(sora.id);
+  if (cleaned) console.log(`[evals] removed ${cleaned} test buyer(s) left by an interrupted run`);
   const [row] = await db().insert(s.evalRuns).values({ total: cases.length, provider: primaryProviderName(), model: primaryModelName() }).returning();
   const runId = row!.id;
   current = { id: runId, done: 0, total: cases.length };

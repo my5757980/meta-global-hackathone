@@ -21,8 +21,10 @@ import { openMcpSession } from "./mcp";
 import { transcribeMessage } from "./voice";
 import { skillIndex } from "./skills";
 import { SUMMARY_PROMPT, systemPrompt } from "./prompts";
+import { promisesPerson } from "./guards";
 
 const MAX_STEPS = 8;
+
 const running = new Map<string, Promise<void>>();
 const again = new Set<string>();
 
@@ -190,7 +192,7 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
   if (trigger.note) messages.push({ role: "user", content: `[System event for you to act on now: ${trigger.note}]` });
 
   const mcp = await openMcpSession({ principalUserId: sora.id, principalName: sora.name, principalKind: "fte", conversationId, buyerUserId: conv.customerUserId, runId: run!.id });
-  const toolCalls: { name: string; args: unknown; ok: boolean; ms: number; preview: string }[] = [];
+  const toolCalls: { name: string; args: unknown; ok: boolean; ms: number; preview: string; guard?: true }[] = [];
   let promptTokens = 0;
   let completionTokens = 0;
   let provider = "";
@@ -253,6 +255,15 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
         }
       }
       if (step === MAX_STEPS - 1) finalText = "Let me check this with a colleague and come back to you shortly.";
+    }
+    if (!handedOver && finalText && promisesPerson(finalText)) {
+      const last = [...messages].reverse().find((m) => m.role === "user");
+      const said = typeof last?.content === "string" ? last.content : Array.isArray(last?.content) ? last.content.map((p) => ("text" in p ? p.text : "")).join(" ") : "";
+      const args = { reason: "promised a person", summary: `Sora told the buyer a colleague is joining but did not hand over, so the server did. Buyer's last message: "${said.slice(0, 600)}"` };
+      const ct = Date.now();
+      const res = await mcp.call("handover_to_human", args);
+      toolCalls.push({ name: "handover_to_human", args, ok: res.ok, ms: Date.now() - ct, preview: `[guard] ${res.text.slice(0, 280)}`, guard: true });
+      if (res.ok) handedOver = true;
     }
     if (lastSearch) {
       const vc = vehicleCard(lastSearch as never, finalText);

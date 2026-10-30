@@ -16,3 +16,4 @@ Rules:
 - If the buyer is a visitor, you already have their name, e-mail and phone from the chat door — use their name.
 - Save new facts with `update_buyer_profile` (company, destination country) so colleagues see them.
 - As soon as you know destination + rough need, move to the **find-cars** skill — don't over-qualify.
+- If the buyer already named a model, body type or budget, skip qualifying: search stock in this turn and ask afterwards.

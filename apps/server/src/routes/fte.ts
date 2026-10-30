@@ -28,7 +28,13 @@ fteRouter.get(
       db().select({ n: sql<number>`count(*)::int` }).from(s.auditLog).where(and(eq(s.auditLog.actorKind, "fte"), eq(s.auditLog.action, "invoice.requested"), gt(s.auditLog.createdAt, since))),
       db().select({ n: sql<number>`count(*)::int` }).from(s.auditLog).where(and(eq(s.auditLog.actorKind, "fte"), eq(s.auditLog.action, "chat.handover"), gt(s.auditLog.createdAt, since))),
       db().select().from(s.approvals).where(eq(s.approvals.status, "pending")).orderBy(desc(s.approvals.createdAt)),
-      db().select({ id: s.evalRuns.id, total: s.evalRuns.total, passed: s.evalRuns.passed, startedAt: s.evalRuns.startedAt, finishedAt: s.evalRuns.finishedAt }).from(s.evalRuns).orderBy(desc(s.evalRuns.startedAt)).limit(1),
+      // the last COMPLETE run: one still going (or stopped early) would read as failures
+      db()
+        .select({ id: s.evalRuns.id, total: s.evalRuns.total, passed: s.evalRuns.passed, startedAt: s.evalRuns.startedAt, finishedAt: s.evalRuns.finishedAt })
+        .from(s.evalRuns)
+        .where(sql`${s.evalRuns.finishedAt} is not null and jsonb_array_length(${s.evalRuns.results}) = ${s.evalRuns.total}`)
+        .orderBy(desc(s.evalRuns.startedAt))
+        .limit(1),
     ]);
     const pendingInvoices = await db()
       .select({ id: s.invoices.id, number: s.invoices.number, consignee: s.invoices.consigneeName, total: s.invoices.totalCnfUsd, createdAt: s.invoices.createdAt })
@@ -121,7 +127,7 @@ fteRouter.get(
   h(async (req) => {
     requirePerm(req, "fte.console");
     const runs = await db()
-      .select({ id: s.evalRuns.id, startedAt: s.evalRuns.startedAt, finishedAt: s.evalRuns.finishedAt, total: s.evalRuns.total, passed: s.evalRuns.passed, provider: s.evalRuns.provider, model: s.evalRuns.model })
+      .select({ id: s.evalRuns.id, startedAt: s.evalRuns.startedAt, finishedAt: s.evalRuns.finishedAt, total: s.evalRuns.total, passed: s.evalRuns.passed, done: sql<number>`jsonb_array_length(${s.evalRuns.results})::int`, provider: s.evalRuns.provider, model: s.evalRuns.model })
       .from(s.evalRuns)
       .orderBy(desc(s.evalRuns.startedAt))
       .limit(20);
