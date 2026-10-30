@@ -1,0 +1,120 @@
+import { Router } from "express";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { z } from "zod";
+import { db } from "../db/client";
+import * as s from "../db/schema";
+import { forbidden, h, notFound, parse } from "../lib/http";
+import { requireAuth, type AuthUser } from "../auth/session";
+import { getFile } from "../services/files";
+
+export const accountRouter = Router();
+
+/** Leads that belong to this signed-in customer (linked account, or the same e-mail). */
+async function myLeadIds(u: AuthUser): Promise<string[]> {
+  if (u.kind !== "customer") return [];
+  const rows = await db()
+    .select({ id: s.leads.id })
+    .from(s.leads)
+    .where(or(eq(s.leads.customerUserId, u.id), u.email ? sql`lower(${s.leads.email}) = lower(${u.email})` : sql`false`));
+  return rows.map((r) => r.id);
+}
+
+/** Customer-safe invoice shape: internal figures (push price, FX, M3 rate, costs, rejection notes) never leave the CRM. */
+async function invoiceForCustomer(invId: string) {
+  const [inv] = await db().select().from(s.invoices).where(eq(s.invoices.id, invId)).limit(1);
+  if (!inv) return null;
+  const vehicles = await db().select().from(s.invoiceVehicles).where(eq(s.invoiceVehicles.invoiceId, inv.id)).orderBy(s.invoiceVehicles.position);
+  const payments = await db().select().from(s.payments).where(eq(s.payments.invoiceId, inv.id)).orderBy(s.payments.receivedDate);
+  const [port] = inv.consigneePortId ? await db().select().from(s.ports).where(eq(s.ports.id, inv.consigneePortId)).limit(1) : [];
+  const total = Number(inv.totalCnfUsd);
+  const paid = Math.round(payments.reduce((a, p) => a + Number(p.amountUsd), 0) * 100) / 100;
+  const vs = [];
+  for (const v of vehicles) {
+    const progress = await db().select({ stage: s.vehicleProgress.stage, date: s.vehicleProgress.stageDate, note: s.vehicleProgress.note }).from(s.vehicleProgress).where(eq(s.vehicleProgress.invoiceVehicleId, v.id)).orderBy(s.vehicleProgress.createdAt);
+    const [unit] = await db().select({ id: s.units.id }).from(s.units).where(eq(s.units.invoiceVehicleId, v.id)).limit(1);
+    const docs = unit
+      ? await db().select({ id: s.unitDocuments.id, folder: s.unitDocuments.folder, fileId: s.unitDocuments.fileId, name: s.files.originalName, mime: s.files.mime, size: s.files.size }).from(s.unitDocuments).innerJoin(s.files, eq(s.files.id, s.unitDocuments.fileId)).where(eq(s.unitDocuments.unitId, unit.id)).orderBy(s.unitDocuments.folder)
+      : [];
+    vs.push({ id: v.id, label: `${v.year ?? ""} ${v.unitLabel}`.trim(), color: v.color, chassisNo: v.chassisNo, transmission: v.transmission, fuel: v.fuel, cnfUsd: Number(v.cnfUsd), progress, documents: docs });
+  }
+  return {
+    id: inv.id,
+    number: inv.number,
+    status: inv.status === "pending" ? "awaiting_approval" : inv.status,
+    createdAt: inv.createdAt,
+    approvedAt: inv.approvedAt,
+    consigneeName: inv.consigneeName,
+    port: port?.name ?? null,
+    advancePercent: inv.advancePercent,
+    totals: { total, advance: Math.round(((total * inv.advancePercent) / 100) * 100) / 100, paid, balance: Math.round((total - paid) * 100) / 100 },
+    payments: payments.map((p) => ({ date: p.receivedDate, amountUsd: Number(p.amountUsd) })),
+    vehicles: vs,
+  };
+}
+
+accountRouter.get(
+  "/invoices",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const leadIds = await myLeadIds(u);
+    if (!leadIds.length) return [];
+    const invs = await db().select({ id: s.invoices.id }).from(s.invoices).where(and(inArray(s.invoices.leadId, leadIds), inArray(s.invoices.status, ["pending", "approved", "sent"]))).orderBy(desc(s.invoices.createdAt));
+    const out = [];
+    for (const i of invs) out.push(await invoiceForCustomer(i.id));
+    return out.filter(Boolean);
+  }),
+);
+
+accountRouter.get(
+  "/invoices/:id",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const leadIds = await myLeadIds(u);
+    const [inv] = await db().select({ id: s.invoices.id, leadId: s.invoices.leadId, status: s.invoices.status }).from(s.invoices).where(eq(s.invoices.id, String(req.params.id))).limit(1);
+    if (!inv || !leadIds.includes(inv.leadId) || inv.status === "rejected") throw notFound();
+    return invoiceForCustomer(inv.id);
+  }),
+);
+
+/** A document of the customer's own vehicle — ownership checked through unit → invoice → lead. */
+accountRouter.get(
+  "/files/:fileId",
+  h(async (req, res) => {
+    const u = requireAuth(req);
+    const leadIds = await myLeadIds(u);
+    const [row] = await db()
+      .select({ leadId: s.invoices.leadId })
+      .from(s.unitDocuments)
+      .innerJoin(s.units, eq(s.units.id, s.unitDocuments.unitId))
+      .innerJoin(s.invoices, eq(s.invoices.id, s.units.invoiceId))
+      .where(eq(s.unitDocuments.fileId, String(req.params.fileId)))
+      .limit(1);
+    if (!row || !leadIds.includes(row.leadId)) throw notFound();
+    const f = await getFile(String(req.params.fileId));
+    if (!f) throw notFound();
+    res.setHeader("Content-Type", f.mime);
+    res.setHeader("Content-Disposition", `${req.query.download ? "attachment" : "inline"}; filename="${(f.originalName ?? "document").replace(/"/g, "")}"`);
+    res.sendFile(f.abs);
+    return undefined;
+  }),
+);
+
+accountRouter.get(
+  "/profile",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const [p] = await db().select({ name: s.users.name, email: s.users.email, phone: s.users.phone, company: s.users.company, countryCode: s.users.countryCode, city: s.users.city, address: s.users.address, kind: s.users.kind }).from(s.users).where(eq(s.users.id, u.id)).limit(1);
+    return p;
+  }),
+);
+
+accountRouter.put(
+  "/profile",
+  h(async (req) => {
+    const u = requireAuth(req);
+    if (u.kind !== "customer") throw forbidden();
+    const b = parse(z.object({ name: z.string().trim().min(2).max(80), phone: z.string().trim().min(6).max(30), company: z.string().trim().max(120).optional(), countryCode: z.string().length(2).optional(), city: z.string().max(80).optional(), address: z.string().max(200).optional() }), req.body);
+    await db().update(s.users).set({ ...b, updatedAt: new Date() }).where(eq(s.users.id, u.id));
+    return { ok: true };
+  }),
+);

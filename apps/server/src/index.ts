@@ -14,6 +14,7 @@ import { authRouter } from "./routes/auth";
 import { chatRouter } from "./routes/chat";
 import { crmRouter } from "./routes/crm";
 import { fteRouter } from "./routes/fte";
+import { accountRouter } from "./routes/account";
 import { mountMcp } from "./fte/mcp";
 import { registerSoraHandlers } from "./fte/handlers";
 import { loadSkills } from "./fte/skills";
@@ -46,6 +47,7 @@ async function main() {
   app.use("/api/chat", chatRouter);
   app.use("/api/crm", crmRouter);
   app.use("/api/fte", fteRouter);
+  app.use("/api/account", accountRouter);
 
   app.get(
     "/api/stream",

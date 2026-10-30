@@ -1,0 +1,177 @@
+import { useState } from "react";
+import { Link, useParams } from "react-router";
+import { useQuery } from "@tanstack/react-query";
+import { Bot, Calendar, Check, ChevronLeft, ChevronRight, Cog, Fuel, Gauge, Heart, MapPin, ShoppingCart, X } from "lucide-react";
+import { api } from "../lib/api";
+import { km, usd } from "../lib/format";
+import type { VehicleCard as V } from "../lib/site";
+import { Badge, Button, Card, Empty, Skeleton } from "../ui";
+import { VehicleGrid } from "./VehicleCard";
+import { openChatWith } from "../chat/ChatWidget";
+
+interface Vehicle extends V {
+  refNo: string;
+  modelCode: string;
+  chassisNo: string;
+  month: number;
+  engineCc: number;
+  steering: string;
+  doors: number;
+  seats: number;
+  lengthMm: number;
+  widthMm: number;
+  heightMm: number;
+  m3: number;
+  features: string[];
+  description: string;
+  shortDesc: string;
+  images: string[];
+  videoUrl: string | null;
+}
+
+export default function VehiclePage() {
+  const { slug } = useParams();
+  const q = useQuery({ queryKey: ["vehicle", slug], queryFn: () => api.get<{ vehicle: Vehicle; related: V[] }>(`/api/public/vehicles/${slug}`) });
+  const [img, setImg] = useState(0);
+  const [viewer, setViewer] = useState(false);
+  if (q.isLoading)
+    return (
+      <div className="container-page grid gap-6 py-8 lg:grid-cols-2">
+        <Skeleton className="aspect-[16/10]" />
+        <Skeleton className="h-96" />
+      </div>
+    );
+  if (!q.data) return <div className="container-page py-16"><Empty title="This car is not available" action={<Link to="/shop" className="font-semibold text-brand-700">Back to the shop</Link>} /></div>;
+  const v = q.data.vehicle;
+  const discounted = v.discountPriceUsd != null && Number(v.discountPriceUsd) < Number(v.priceUsd);
+  const specs: [string, React.ReactNode][] = [
+    ["Stock no.", v.stockNo],
+    ["Ref no.", v.refNo],
+    ["Make / model", `${v.brand} ${v.model}`],
+    ["Chassis code", v.modelCode],
+    ["Year / month", `${v.year} / ${String(v.month ?? 1).padStart(2, "0")}`],
+    ["Mileage", km(v.mileageKm)],
+    ["Engine", v.engineCc ? `${v.engineCc.toLocaleString("en-US")} cc` : "Electric"],
+    ["Fuel", v.fuel],
+    ["Transmission", v.transmission],
+    ["Drive", v.drive],
+    ["Steering", `${v.steering}-hand drive`],
+    ["Body type", v.bodyType],
+    ["Colour", v.color],
+    ["Doors / seats", `${v.doors} / ${v.seats}`],
+    ["Dimensions", `${v.lengthMm} × ${v.widthMm} × ${v.heightMm} mm`],
+    ["Volume (freight)", `${Number(v.m3).toFixed(2)} m³`],
+    ["Location", v.location],
+  ];
+  return (
+    <div className="container-page py-6">
+      <nav className="mb-4 text-sm text-slate-500">
+        <Link to="/shop" className="inline-flex items-center gap-1 hover:text-brand-700">
+          <ChevronLeft className="size-4" /> Back to stock
+        </Link>
+      </nav>
+      <div className="grid gap-6 lg:grid-cols-[1.25fr_1fr]">
+        <div>
+          <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <button onClick={() => setViewer(true)} className="block w-full" aria-label="Open full-screen photos">
+              <img src={v.images[img]} alt={v.title} className="aspect-[16/10] w-full object-cover" />
+            </button>
+            {v.images.length > 1 && (
+              <>
+                <button onClick={() => setImg((img - 1 + v.images.length) % v.images.length)} className="absolute top-1/2 left-2 -translate-y-1/2 rounded-full bg-white/90 p-2 shadow" aria-label="Previous photo">
+                  <ChevronLeft className="size-5" />
+                </button>
+                <button onClick={() => setImg((img + 1) % v.images.length)} className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full bg-white/90 p-2 shadow" aria-label="Next photo">
+                  <ChevronRight className="size-5" />
+                </button>
+              </>
+            )}
+            <span className="absolute bottom-2 left-2 rounded-lg bg-slate-900/70 px-2 py-0.5 text-xs text-white">
+              {img + 1} / {v.images.length} · illustration
+            </span>
+          </div>
+          <div className="scrollbar-thin mt-3 flex gap-2 overflow-x-auto">
+            {v.images.map((src, i) => (
+              <button key={src} onClick={() => setImg(i)} className={`shrink-0 overflow-hidden rounded-xl ring-2 ${i === img ? "ring-brand-500" : "ring-transparent"}`}>
+                <img src={src} alt="" className="h-16 w-28 object-cover" />
+              </button>
+            ))}
+          </div>
+          <Card className="mt-6">
+            <h2 className="text-lg font-semibold text-slate-900">Specifications</h2>
+            <dl className="mt-3 grid gap-x-6 sm:grid-cols-2">
+              {specs.map(([k, val]) => (
+                <div key={k} className="flex justify-between gap-3 border-b border-slate-100 py-2 text-sm">
+                  <dt className="text-slate-500">{k}</dt>
+                  <dd className="text-right font-medium text-slate-900">{val}</dd>
+                </div>
+              ))}
+            </dl>
+          </Card>
+          {v.features?.length > 0 && (
+            <Card className="mt-4">
+              <h2 className="text-lg font-semibold text-slate-900">Features</h2>
+              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                {v.features.map((f) => (
+                  <li key={f} className="flex items-center gap-2 text-sm text-slate-700">
+                    <Check className="size-4 text-emerald-600" /> {f}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+          <Card className="mt-4">
+            <h2 className="text-lg font-semibold text-slate-900">Description</h2>
+            <p className="mt-2 text-sm leading-relaxed text-slate-700">{v.description}</p>
+          </Card>
+        </div>
+        <div>
+          <Card className="lg:sticky lg:top-20">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={v.status === "available" ? "green" : "amber"}>{v.status === "available" ? "Available" : v.status === "reserved" ? "Reserved" : "Sold"}</Badge>
+              <Badge tone="gray">{v.stockNo}</Badge>
+            </div>
+            <h1 className="mt-3 text-xl font-bold text-slate-900 sm:text-2xl">{v.title}</h1>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-600 sm:grid-cols-4">
+              <span className="flex items-center gap-1.5"><Calendar className="size-4 text-slate-400" /> {v.year}</span>
+              <span className="flex items-center gap-1.5"><Gauge className="size-4 text-slate-400" /> {km(v.mileageKm)}</span>
+              <span className="flex items-center gap-1.5"><Fuel className="size-4 text-slate-400" /> {v.fuel}</span>
+              <span className="flex items-center gap-1.5"><Cog className="size-4 text-slate-400" /> {v.transmission}</span>
+            </div>
+            <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+              {discounted && <p className="text-sm text-slate-400 line-through">{usd(v.priceUsd)}</p>}
+              <p className="text-3xl font-extrabold text-brand-700">{usd(discounted ? v.discountPriceUsd : v.priceUsd)}</p>
+              <p className="text-xs text-slate-500">FOB Japan · <MapPin className="inline size-3" /> {v.location}</p>
+            </div>
+            <Button size="lg" className="mt-4 w-full" onClick={() => openChatWith(`Hi Sora, what is the C&F price of ${v.stockNo} (${v.title}) to my port?`)}>
+              <Bot className="size-5" /> Ask Sora the price to my port
+            </Button>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <Button variant="secondary" onClick={() => openChatWith(`I'd like to reserve ${v.stockNo}.`)}>
+                <ShoppingCart className="size-4" /> Reserve
+              </Button>
+              <Button variant="secondary" onClick={() => openChatWith(`Please tell me about the condition of ${v.stockNo}.`)}>
+                <Heart className="size-4" /> Ask about it
+              </Button>
+            </div>
+            <p className="mt-4 text-xs text-slate-500">C&F quotes include inspection (where required) and freight to your port. Import duty and port charges at destination are paid locally.</p>
+          </Card>
+        </div>
+      </div>
+      {q.data.related.length > 0 && (
+        <section className="mt-12">
+          <h2 className="mb-4 text-xl font-bold text-slate-900">Related vehicles</h2>
+          <VehicleGrid items={q.data.related.slice(0, 4)} />
+        </section>
+      )}
+      {viewer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4" onClick={() => setViewer(false)}>
+          <button className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white" aria-label="Close viewer">
+            <X className="size-6" />
+          </button>
+          <img src={v.images[img]} alt={v.title} className="max-h-full max-w-full object-contain" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+    </div>
+  );
+}
