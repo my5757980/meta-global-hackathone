@@ -6,6 +6,14 @@ import type { Request, Response } from "express";
  */
 const clients = new Map<string, Set<Response>>();
 
+type PresenceFn = (userId: string, online: boolean) => void;
+const presenceFns: PresenceFn[] = [];
+const presenceFn = { call: (userId: string, online: boolean) => presenceFns.forEach((fn) => fn(userId, online)) };
+/** Told when a user's first tab connects or their last tab closes (green dot on / off, calls end). */
+export function onPresence(fn: PresenceFn) {
+  presenceFns.push(fn);
+}
+
 export function openStream(req: Request, res: Response, userId: string) {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -15,13 +23,18 @@ export function openStream(req: Request, res: Response, userId: string) {
   });
   res.write(`event: hello\ndata: {}\n\n`);
   let set = clients.get(userId);
+  const first = !set;
   if (!set) clients.set(userId, (set = new Set()));
   set.add(res);
+  if (first) presenceFn.call(userId, true);
   const ping = setInterval(() => res.write(`: ping\n\n`), 25_000);
   req.on("close", () => {
     clearInterval(ping);
     set!.delete(res);
-    if (set!.size === 0) clients.delete(userId);
+    if (set!.size === 0) {
+      clients.delete(userId);
+      presenceFn.call(userId, false);
+    }
   });
 }
 

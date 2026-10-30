@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { Bot, CheckCheck, ChevronLeft, ChevronRight, FileText, Mic, Paperclip, Send, Ship, Square, Volume2, X } from "lucide-react";
+import { Bot, CheckCheck, ChevronLeft, ChevronRight, FileText, Mic, Paperclip, Phone, Send, Ship, Square, Video, Volume2, X } from "lucide-react";
 import { resizeImage, WavRecorder } from "./media";
 import type { ChatCard } from "@autofte/shared";
 import { api } from "../lib/api";
@@ -165,7 +165,7 @@ function SpeakButton({ text }: { text: string }) {
   );
 }
 
-export function MessageList({ messages, meId, typing, perspective = "buyer" }: { messages: ChatMsg[]; meId: string | null; typing?: boolean; perspective?: "buyer" | "staff" }) {
+export function MessageList({ messages, meId, typing, perspective = "buyer" }: { messages: ChatMsg[]; meId: string | null; typing?: boolean; perspective?: "buyer" | "staff" | "team" }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -179,7 +179,19 @@ export function MessageList({ messages, meId, typing, perspective = "buyer" }: {
               {m.body}
             </p>
           );
-        const mine = perspective === "buyer" ? m.senderUserId === meId : m.sender?.kind !== "customer" && m.sender?.kind !== "visitor";
+        if (m.kind === "call") {
+          const meta = m.meta as { media?: string; status?: string } | null;
+          const missed = meta?.status !== "ended";
+          return (
+            <p key={m.id} className={clsx("mx-auto flex w-fit max-w-[90%] items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold", missed ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700")}>
+              {meta?.media === "video" ? <Video className="size-3.5" /> : <Phone className="size-3.5" />} {m.body}
+              <span className="font-normal text-slate-500">
+                · {m.sender?.name ?? ""} · {time(m.createdAt)}
+              </span>
+            </p>
+          );
+        }
+        const mine = perspective === "staff" ? m.sender?.kind !== "customer" && m.sender?.kind !== "visitor" : m.senderUserId === meId;
         const isSora = m.sender?.kind === "fte";
         return (
           <div key={m.id} className={clsx("flex gap-2", mine ? "flex-row-reverse" : "flex-row")}>
@@ -187,6 +199,7 @@ export function MessageList({ messages, meId, typing, perspective = "buyer" }: {
             <div className={clsx("max-w-[85%]", mine && "items-end")}>
               {!mine && perspective === "buyer" && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{isSora ? "Sora · AI sales executive" : m.sender?.name}</p>}
               {perspective === "staff" && <p className={clsx("mb-0.5 text-[11px] font-semibold", isSora ? "text-violet-600" : "text-slate-500", mine && "text-right")}>{isSora ? "Sora (AI)" : m.sender?.name}</p>}
+              {perspective === "team" && !mine && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{m.sender?.name}</p>}
               {m.body && (
                 <div
                   className={clsx(
@@ -232,7 +245,7 @@ export function MessageList({ messages, meId, typing, perspective = "buyer" }: {
   );
 }
 
-export function Composer({ conversationId, onSent, initial, placeholder }: { conversationId: string; onSent?: (m: ChatMsg) => void; initial?: string; placeholder?: string }) {
+export function Composer({ conversationId, onSent, initial, placeholder, soraHint = true }: { conversationId: string; onSent?: (m: ChatMsg) => void; initial?: string; placeholder?: string; soraHint?: boolean }) {
   const [text, setText] = useState(initial ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -356,9 +369,11 @@ export function Composer({ conversationId, onSent, initial, placeholder }: { con
           )}
         </div>
       )}
-      <p className="mt-1 flex items-center gap-1 px-1 text-[10px] text-slate-400">
-        <Bot className="size-3" /> Sora is an AI built with Muse Spark Open · voice notes in Urdu or English · a person approves every invoice
-      </p>
+      {soraHint && (
+        <p className="mt-1 flex items-center gap-1 px-1 text-[10px] text-slate-400">
+          <Bot className="size-3" /> Sora is an AI built with Muse Spark Open · voice notes in Urdu or English · a person approves every invoice
+        </p>
+      )}
     </div>
   );
 }

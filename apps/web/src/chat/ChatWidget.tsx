@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Maximize2, MessageCircle, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { useLiveStream } from "../lib/sse";
+import { useLiveEvent, useLiveStream } from "../lib/sse";
 import { Avatar, Button, Field, Input, Spinner } from "../ui";
 import { Composer, MessageList, useConversation, type ChatMsg } from "./ChatThread";
+import { CallButtons } from "./calls";
 
 type OpenListener = (text?: string) => void;
 let openListener: OpenListener | null = null;
@@ -59,10 +60,15 @@ export function ChatPanel({ draft, onClose, full }: { draft?: string; onClose?: 
   useLiveStream(!!me);
   const mine = useQuery({
     queryKey: ["chat-mine", me?.id],
-    queryFn: () => api.get<{ conversation: { id: string; holder: string }; messages: ChatMsg[] }>("/api/chat/mine"),
+    queryFn: () => api.get<{ conversation: { id: string; holder: string }; messages: ChatMsg[]; agent: { id: string; name: string; title: string | null; online: boolean } | null }>("/api/chat/mine"),
     enabled: !!me && me.kind !== "staff",
   });
+  // a colleague joining / leaving, or going on / off line, changes the banner and the call button
+  const reload = useCallback(() => void qc.invalidateQueries({ queryKey: ["chat-mine"] }), [qc]);
+  useLiveEvent("holder", reload);
+  useLiveEvent("presence", reload);
   const conv = mine.data?.conversation ?? null;
+  const agent = mine.data?.agent ?? null;
   const { messages, setMessages, typing } = useConversation(conv?.id ?? null, mine.data?.messages ?? []);
   useEffect(() => {
     if (mine.data) setMessages(mine.data.messages);
@@ -118,7 +124,14 @@ export function ChatPanel({ draft, onClose, full }: { draft?: string; onClose?: 
             )}
             <MessageList messages={messages} meId={me.id} typing={typing} />
           </div>
-          {conv.holder === "human" && <p className="bg-amber-50 px-3 py-1 text-center text-[11px] text-amber-800">A team member is with you in this chat.</p>}
+          {conv.holder === "human" && (
+            <div className="flex items-center justify-center gap-2 bg-amber-50 px-3 py-1 text-[11px] text-amber-800">
+              <span>
+                {agent ? `${agent.name}${agent.title ? ` (${agent.title})` : ""} is with you in this chat${agent.online ? " · online" : ""}.` : "A team member is with you in this chat."}
+              </span>
+              {agent && <CallButtons conversationId={conv.id} peerName={agent.name} disabled={agent.online ? null : `${agent.name} is offline right now`} className="[&_button]:p-1" />}
+            </div>
+          )}
           <Composer conversationId={conv.id} initial={draft} onSent={(m) => setMessages((p) => (p.some((x) => x.id === m.id) ? p : [...p, m]))} />
         </>
       )}

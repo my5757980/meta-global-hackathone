@@ -6,7 +6,9 @@ import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, forbidden, h, notFound, parse } from "../lib/http";
 import { isStaff, requireAuth, requirePerm } from "../auth/session";
-import { canSeeConversation, deskConversations, ensureCustomerConversation, listMessages, markRead, postMessage, setHolder } from "../services/chat";
+import { addToGroup, canSeeConversation, createGroup, deskConversations, ensureCustomerConversation, ensureStaffDm, listMessages, markRead, postMessage, removeFromGroup, renameGroup, setHolder, teamDirectory } from "../services/chat";
+import { signalCall, startCall } from "../services/calls";
+import { isOnline } from "../services/sse";
 import { saveFile } from "../services/files";
 import { triggerSora } from "../fte/agent";
 import { transcribeMessage } from "../fte/voice";
@@ -24,15 +26,108 @@ chatRouter.get(
     const conv = await ensureCustomerConversation(u.id, req.query.channel === "app" ? "app" : "web");
     const messages = await listMessages(conv.id, { limit: 80 });
     await markRead(conv.id, u.id);
-    return { conversation: conv, messages };
+    // the colleague holding the chat (a buyer can call them while they are online)
+    const [agent] = conv.holder === "human" && conv.assignedUserId ? await db().select({ id: s.users.id, name: s.users.name, title: s.users.title }).from(s.users).where(eq(s.users.id, conv.assignedUserId)).limit(1) : [];
+    return { conversation: conv, messages, agent: agent ? { ...agent, online: isOnline(agent.id) } : null };
   }),
 );
 
 chatRouter.get(
   "/conversations",
   h(async (req) => {
+    if (req.query.scope === "team") {
+      const u = requireAuth(req);
+      if (!isStaff(u)) throw forbidden();
+      return deskConversations(u, "team");
+    }
     const u = requirePerm(req, "chat.desk");
     return deskConversations(u, req.query.scope === "all" ? "all" : "mine");
+  }),
+);
+
+/** Team chat: colleagues with green dots, private DMs, groups. */
+chatRouter.get(
+  "/team",
+  h(async (req) => {
+    const u = requireAuth(req);
+    if (!isStaff(u)) throw forbidden();
+    return teamDirectory(u.id);
+  }),
+);
+
+chatRouter.post(
+  "/dm",
+  h(async (req) => {
+    const u = requireAuth(req);
+    if (!isStaff(u)) throw forbidden();
+    const b = parse(z.object({ userId: z.string().min(1).max(40) }), req.body);
+    return ensureStaffDm(u, b.userId);
+  }),
+);
+
+chatRouter.post(
+  "/groups",
+  h(async (req) => {
+    const u = requirePerm(req, "chat.groups");
+    const b = parse(z.object({ title: z.string().trim().min(2).max(80), memberIds: z.array(z.string().max(40)).min(1).max(50) }), req.body);
+    return createGroup(u, b.title, b.memberIds);
+  }),
+);
+
+chatRouter.patch(
+  "/groups/:id",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const b = parse(z.object({ title: z.string().trim().min(2).max(80) }), req.body);
+    await renameGroup(u, String(req.params.id), b.title);
+    return { ok: true };
+  }),
+);
+
+chatRouter.post(
+  "/groups/:id/members",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const b = parse(z.object({ userIds: z.array(z.string().max(40)).min(1).max(50) }), req.body);
+    await addToGroup(u, String(req.params.id), b.userIds);
+    return { ok: true };
+  }),
+);
+
+chatRouter.delete(
+  "/groups/:id/members/:userId",
+  h(async (req) => {
+    const u = requireAuth(req);
+    await removeFromGroup(u, String(req.params.id), String(req.params.userId));
+    return { ok: true };
+  }),
+);
+
+chatRouter.post(
+  "/groups/:id/leave",
+  h(async (req) => {
+    const u = requireAuth(req);
+    await removeFromGroup(u, String(req.params.id), u.id);
+    return { ok: true };
+  }),
+);
+
+/** Voice / video call in a conversation (1:1). The browsers connect directly; we ring and relay. */
+chatRouter.post(
+  "/conversations/:id/calls",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const b = parse(z.object({ media: z.enum(["audio", "video"]).default("audio") }), req.body ?? {});
+    return startCall(u, String(req.params.id), b.media);
+  }),
+);
+
+chatRouter.post(
+  "/calls/:id/signal",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const b = parse(z.object({ type: z.enum(["accept", "decline", "end", "offer", "answer", "ice"]), data: z.unknown().optional() }), req.body);
+    return signalCall(u, String(req.params.id), b.type, b.data);
   }),
 );
 
@@ -43,9 +138,9 @@ chatRouter.get(
     const conv = await canSeeConversation(u, String(req.params.id));
     const messages = await listMessages(conv.id, { limit: 100 });
     const [customer] = conv.customerUserId ? await db().select({ id: s.users.id, name: s.users.name, email: s.users.email, phone: s.users.phone, kind: s.users.kind, countryCode: s.users.countryCode, company: s.users.company }).from(s.users).where(eq(s.users.id, conv.customerUserId)).limit(1) : [];
-    const members = await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind, title: s.users.title, lastSeenAt: s.users.lastSeenAt }).from(s.chatMembers).innerJoin(s.users, eq(s.users.id, s.chatMembers.userId)).where(eq(s.chatMembers.conversationId, conv.id));
+    const members = await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind, title: s.users.title, lastSeenAt: s.users.lastSeenAt, role: s.chatMembers.role }).from(s.chatMembers).innerJoin(s.users, eq(s.users.id, s.chatMembers.userId)).where(eq(s.chatMembers.conversationId, conv.id));
     await markRead(conv.id, u.id).catch(() => {});
-    return { conversation: conv, messages, customer: customer ?? null, members };
+    return { conversation: conv, messages, customer: customer ? { ...customer, online: isOnline(customer.id) } : null, members: members.map((m) => ({ ...m, online: isOnline(m.id) })) };
   }),
 );
 

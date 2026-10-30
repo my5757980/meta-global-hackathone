@@ -6,6 +6,7 @@ import { useLiveStream } from "../lib/sse";
 import { useSite } from "../lib/site";
 import { clsx } from "../ui";
 import { ChatWidget } from "../chat/ChatWidget";
+import { CallLayer } from "../chat/calls";
 
 const NAV = [
   { to: "/", label: "Home" },
@@ -166,6 +167,7 @@ export function SiteLayout() {
       </main>
       <Footer />
       {loc.pathname !== "/chat" && (!me || me.kind !== "staff") && <ChatWidget />}
+      {me && <CallLayer />}
     </div>
   );
 }

@@ -1,12 +1,31 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, NavLink, Navigate, Outlet, useLocation } from "react-router";
+import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Bell, Bot, Car, FileText, Gavel, Globe, LayoutDashboard, LogOut, Menu, MessagesSquare, ShieldCheck, Users, X } from "lucide-react";
+import { BarChart3, Bell, BellRing, Bot, Car, FileText, Gavel, Globe, LayoutDashboard, LogOut, Menu, MessagesSquare, ShieldCheck, Users, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth, usePresencePing } from "../lib/auth";
 import { useLiveEvent, useLiveStream } from "../lib/sse";
 import { ago } from "../lib/format";
+import { askDesktopNotify, desktopNotifyState, notifyDesktop } from "../lib/desktopNotify";
+import { CallLayer } from "../chat/calls";
+import type { ChatMsg } from "../chat/ChatThread";
 import { Avatar, Spinner, clsx } from "../ui";
+
+/** OS pop-ups for new chat messages and notifications while the tab is in the background. */
+function useDesktopAlerts(meId: string | undefined) {
+  const nav = useNavigate();
+  const onMessage = useCallback(
+    (m: ChatMsg) => {
+      if (!meId || !m.senderUserId || m.senderUserId === meId || m.kind === "system" || m.kind === "call") return;
+      const what = m.kind === "image" ? "📷 Picture" : m.kind === "voice" ? "🎤 Voice note" : m.body.replace(/[*#_`>]/g, "");
+      notifyDesktop(m.sender?.name ?? "New message", what, () => nav(`/desk?c=${m.conversationId}`), { tag: m.conversationId });
+    },
+    [meId, nav],
+  );
+  const onNotification = useCallback((n: { title: string; body: string | null; link: string | null }) => notifyDesktop(n.title, n.body ?? "", () => n.link && nav(n.link)), [nav]);
+  useLiveEvent("message", onMessage);
+  useLiveEvent("notification", onNotification);
+}
 
 interface Notif {
   id: string;
@@ -24,6 +43,7 @@ export function StaffLayout() {
   const loc = useLocation();
   useLiveStream(!!me);
   usePresencePing(!!me);
+  useDesktopAlerts(me?.id);
   useEffect(() => setMenu(false), [loc.pathname]);
   if (loading)
     return (
@@ -140,6 +160,7 @@ export function StaffLayout() {
           <Outlet />
         </main>
       </div>
+      <CallLayer />
     </div>
   );
 }
@@ -159,6 +180,7 @@ function NotificationBell() {
   const q = useQuery({ queryKey: ["notifications"], queryFn: () => api.get<{ items: Notif[]; unread: number }>("/api/crm/notifications") });
   const onNotif = useCallback(() => void qc.invalidateQueries({ queryKey: ["notifications"] }), [qc]);
   useLiveEvent("notification", onNotif);
+  const [alerts, setAlerts] = useState(desktopNotifyState());
   return (
     <div className="relative">
       <button onClick={() => setOpen((o) => !o)} className="relative rounded-lg p-2 text-slate-600 hover:bg-slate-100" aria-label="Notifications">
@@ -179,6 +201,12 @@ function NotificationBell() {
               Mark all read
             </button>
           </div>
+          {alerts === "default" && (
+            <button onClick={async () => setAlerts(await askDesktopNotify())} className="flex w-full items-center gap-2 border-b border-slate-100 bg-amber-50 px-4 py-2 text-left text-xs font-semibold text-amber-800 hover:bg-amber-100">
+              <BellRing className="size-4" /> Turn on desktop alerts for new chats, calls and approvals
+            </button>
+          )}
+          {alerts === "denied" && <p className="border-b border-slate-100 px-4 py-2 text-[11px] text-slate-500">Desktop alerts are blocked in this browser's site settings.</p>}
           <div className="scrollbar-thin max-h-96 overflow-y-auto">
             {q.data?.items.length ? (
               q.data.items.map((n) => (

@@ -6,7 +6,7 @@ let es: EventSource | null = null;
 let retry = 1000;
 let wanted = false;
 
-const EVENTS = ["message", "message.meta", "typing", "notification", "holder", "read", "fte.run", "call"];
+const EVENTS = ["message", "message.meta", "typing", "notification", "holder", "read", "fte.run", "call", "presence"];
 
 function connect() {
   if (!wanted || es) return;
