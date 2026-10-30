@@ -39,6 +39,10 @@ const LeadDetail = lazy(() => import("./crm/LeadDetail"));
 const Invoices = lazy(() => import("./crm/Invoices"));
 const InvoiceDetail = lazy(() => import("./crm/InvoiceDetail"));
 const Desk = lazy(() => import("./chat/Desk"));
+const ops = () => import("./crm/OpsPages");
+const UnitsPage = lazy(() => ops().then((m) => ({ default: m.UnitsPage })));
+const ReportsPage = lazy(() => ops().then((m) => ({ default: m.ReportsPage })));
+const UsersPage = lazy(() => ops().then((m) => ({ default: m.UsersPage })));
 const FteConsole = lazy(() => import("./fte/FteConsole"));
 
 const page = (el: React.ReactNode) => (
@@ -89,6 +93,9 @@ const router = createBrowserRouter([
       { path: "/crm/leads/:id", element: page(<LeadDetail />) },
       { path: "/crm/invoices", element: page(<Invoices />) },
       { path: "/crm/invoices/:id", element: page(<InvoiceDetail />) },
+      { path: "/crm/units", element: page(<UnitsPage />) },
+      { path: "/crm/reports", element: page(<ReportsPage />) },
+      { path: "/crm/users", element: page(<UsersPage />) },
       { path: "/desk", element: page(<Desk />) },
       { path: "/fte", element: page(<FteConsole />) },
     ],

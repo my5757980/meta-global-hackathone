@@ -1,11 +1,13 @@
 import { Link, useSearchParams } from "react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { LEAD_STATUS_LABELS } from "@autofte/shared";
-import { Bot } from "lucide-react";
+import { useState } from "react";
+import { Bot, Plus } from "lucide-react";
+import { NewLeadModal } from "./LeadForms";
 import { api, qs } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { date } from "../lib/format";
-import { Empty, Input, PageHeader, Pagination, Select, Skeleton, StatusBadge, Table } from "../ui";
+import { Button, Empty, Input, PageHeader, Pagination, Select, Skeleton, StatusBadge, Table } from "../ui";
 
 interface LeadRow {
   id: string;
@@ -25,6 +27,7 @@ interface LeadRow {
 export default function Leads() {
   const { can } = useAuth();
   const [sp, setSp] = useSearchParams();
+  const [newLead, setNewLead] = useState(false);
   const params = { q: sp.get("q") ?? "", status: sp.get("status") ?? "", agent: sp.get("agent") ?? "", page: Number(sp.get("page") ?? 1) };
   const q = useQuery({ queryKey: ["leads", params], queryFn: () => api.get<{ items: LeadRow[]; total: number; page: number; pageSize: number; agents: { id: string; name: string; kind: string; n: number }[] }>(`/api/crm/leads${qs(params)}`), placeholderData: keepPreviousData });
   const set = (k: string, v: string) => {
@@ -36,7 +39,8 @@ export default function Leads() {
   };
   return (
     <div>
-      <PageHeader title={can("crm.leads.view_all") ? "All leads" : "My leads"} subtitle="Every buyer, from the website chat, the app, Excel uploads and agents" />
+      <PageHeader title={can("crm.leads.view_all") ? "All leads" : "My leads"} subtitle="Every buyer, from the website chat, the app, Excel uploads and agents" actions={can("crm.leads.create") ? <Button onClick={() => setNewLead(true)}><Plus className="size-4" /> New lead</Button> : undefined} />
+      <NewLeadModal open={newLead} onClose={() => setNewLead(false)} />
       {q.data?.agents && q.data.agents.length > 0 && (
         <div className="scrollbar-thin mb-4 flex gap-2 overflow-x-auto pb-1">
           {q.data.agents.map((a) => (

@@ -1,0 +1,100 @@
+import ExcelJS from "exceljs";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { db } from "../db/client";
+import * as s from "../db/schema";
+
+const range = (from: string, to: string) => ({ start: new Date(`${from}T00:00:00Z`), end: new Date(new Date(`${to}T00:00:00Z`).getTime() + 86400_000) });
+
+export async function reportData(from: string, to: string) {
+  const { start, end } = range(from, to);
+  const leads = await db()
+    .select({ id: s.leads.id, customer: s.leads.customerName, contact: s.leads.contactPerson, country: s.leads.countryCode, status: s.leads.status, createdAt: s.leads.createdAt, agent: s.users.name, agentKind: s.users.kind, agentId: s.users.id })
+    .from(s.leads)
+    .leftJoin(s.users, eq(s.users.id, s.leads.ownerUserId))
+    .where(and(gte(s.leads.createdAt, start), lt(s.leads.createdAt, end)))
+    .orderBy(desc(s.leads.createdAt));
+  const invoices = await db()
+    .select({ id: s.invoices.id, number: s.invoices.number, consignee: s.invoices.consigneeName, status: s.invoices.status, total: s.invoices.totalCnfUsd, createdAt: s.invoices.createdAt, agent: s.users.name, agentKind: s.users.kind, agentId: s.users.id, vehicle: sql<string>`(select unit_label from invoice_vehicles v where v.invoice_id = ${s.invoices.id} order by position limit 1)`, chassis: sql<string>`(select chassis_no from invoice_vehicles v where v.invoice_id = ${s.invoices.id} order by position limit 1)` })
+    .from(s.invoices)
+    .leftJoin(s.users, eq(s.users.id, s.invoices.requestedBy))
+    .where(and(gte(s.invoices.createdAt, start), lt(s.invoices.createdAt, end)))
+    .orderBy(desc(s.invoices.createdAt));
+  const units = await db()
+    .select({ id: s.units.id, make: s.units.make, model: s.units.model, chassis: s.units.chassis, color: s.units.color, createdAt: s.units.createdAt, invoice: s.invoices.number })
+    .from(s.units)
+    .innerJoin(s.invoices, eq(s.invoices.id, s.units.invoiceId))
+    .where(and(gte(s.units.createdAt, start), lt(s.units.createdAt, end)));
+  const payments = await db()
+    .select({ total: sql<number>`coalesce(sum(${s.payments.amountUsd}),0)::float` })
+    .from(s.payments)
+    .where(and(gte(s.payments.createdAt, start), lt(s.payments.createdAt, end)));
+  const agents = new Map<string, { name: string; kind: string; leads: number; invoices: number; value: number }>();
+  for (const l of leads) {
+    if (!l.agentId) continue;
+    const a = agents.get(l.agentId) ?? { name: l.agent ?? "", kind: l.agentKind ?? "staff", leads: 0, invoices: 0, value: 0 };
+    a.leads++;
+    agents.set(l.agentId, a);
+  }
+  for (const i of invoices) {
+    if (!i.agentId) continue;
+    const a = agents.get(i.agentId) ?? { name: i.agent ?? "", kind: i.agentKind ?? "staff", leads: 0, invoices: 0, value: 0 };
+    a.invoices++;
+    if (i.status !== "rejected") a.value += Number(i.total);
+    agents.set(i.agentId, a);
+  }
+  return {
+    from,
+    to,
+    totals: { leads: leads.length, invoices: invoices.length, units: units.length, invoicedValue: Math.round(invoices.filter((i) => i.status !== "rejected").reduce((x, i) => x + Number(i.total), 0) * 100) / 100, received: Math.round((payments[0]?.total ?? 0) * 100) / 100 },
+    perAgent: [...agents.entries()].map(([id, a]) => ({ id, ...a, value: Math.round(a.value * 100) / 100 })).sort((x, y) => y.value - x.value),
+    leads: leads.slice(0, 300),
+    invoices,
+    units,
+  };
+}
+
+function sheet(wb: ExcelJS.Workbook, name: string, cols: { header: string; key: string; width?: number }[], rows: Record<string, unknown>[]) {
+  const ws = wb.addWorksheet(name);
+  ws.columns = cols.map((c) => ({ ...c, width: c.width ?? 18 }));
+  ws.getRow(1).font = { bold: true };
+  ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEEF2F7" } };
+  rows.forEach((r) => ws.addRow(r));
+  return ws;
+}
+
+export async function reportXlsx(from: string, to: string): Promise<Buffer> {
+  const d = await reportData(from, to);
+  const wb = new ExcelJS.Workbook();
+  sheet(wb, "Summary", [{ header: "Metric", key: "k", width: 28 }, { header: "Value", key: "v", width: 18 }], [
+    { k: "Period", v: `${from} → ${to}` },
+    { k: "Leads", v: d.totals.leads },
+    { k: "Invoices", v: d.totals.invoices },
+    { k: "Units", v: d.totals.units },
+    { k: "Invoiced value (USD)", v: d.totals.invoicedValue },
+    { k: "Payments received (USD)", v: d.totals.received },
+  ]);
+  sheet(wb, "Per agent", [{ header: "Agent", key: "name", width: 24 }, { header: "Leads", key: "leads" }, { header: "Invoices", key: "invoices" }, { header: "Value (USD)", key: "value" }], d.perAgent.map((a) => ({ ...a, name: a.kind === "fte" ? `${a.name} (Digital FTE)` : a.name })));
+  sheet(wb, "Leads", [{ header: "Customer", key: "customer", width: 28 }, { header: "Contact", key: "contact", width: 22 }, { header: "Country", key: "country", width: 10 }, { header: "Status", key: "status" }, { header: "Agent", key: "agent", width: 20 }, { header: "Created", key: "createdAt", width: 22 }], d.leads);
+  sheet(wb, "Invoices", [{ header: "Invoice", key: "number" }, { header: "Consignee", key: "consignee", width: 28 }, { header: "Vehicle", key: "vehicle", width: 28 }, { header: "Chassis", key: "chassis" }, { header: "C&F (USD)", key: "total" }, { header: "Status", key: "status" }, { header: "Agent", key: "agent", width: 20 }, { header: "Created", key: "createdAt", width: 22 }], d.invoices);
+  sheet(wb, "Units", [{ header: "Invoice", key: "invoice" }, { header: "Make", key: "make" }, { header: "Model", key: "model", width: 22 }, { header: "Chassis", key: "chassis" }, { header: "Colour", key: "color" }, { header: "Added", key: "createdAt", width: 22 }], d.units);
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+/** Manager's full backup: every CRM table in one workbook. */
+export async function backupXlsx(): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const leads = await db().select().from(s.leads);
+  const invoices = await db().select().from(s.invoices);
+  const ivs = await db().select().from(s.invoiceVehicles);
+  const payments = await db().select().from(s.payments);
+  const units = await db().select().from(s.units);
+  const fin = await db().select().from(s.unitFinancials);
+  const toCols = (row?: Record<string, unknown>) => Object.keys(row ?? {}).map((k) => ({ header: k, key: k, width: 18 }));
+  sheet(wb, "Leads", toCols(leads[0]), leads);
+  sheet(wb, "Invoices", toCols(invoices[0]), invoices);
+  sheet(wb, "Invoice Vehicles", toCols(ivs[0]), ivs);
+  sheet(wb, "Payments", toCols(payments[0]), payments);
+  sheet(wb, "Units", toCols(units[0]), units);
+  sheet(wb, "Financial", toCols(fin[0]), fin);
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}

@@ -1,14 +1,16 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LEAD_STATUS_LABELS } from "@autofte/shared";
-import { Bot, ChevronLeft, Send } from "lucide-react";
+import { Bot, ChevronLeft, FilePlus2, Send } from "lucide-react";
+import { useAuth } from "../lib/auth";
+import { RequestInvoiceModal } from "./LeadForms";
 import { api } from "../lib/api";
 import { dateTime, usd2 } from "../lib/format";
-import { Avatar, Button, Card, Empty, Skeleton, StatusBadge, Textarea } from "../ui";
+import { Avatar, Button, Card, Empty, Select, Skeleton, StatusBadge, Textarea } from "../ui";
 
 interface LeadFull {
-  lead: { id: string; customerName: string; contactPerson: string; phone: string; email: string | null; address: string | null; status: string; source: string; createdAt: string };
+  lead: { id: string; customerName: string; contactPerson: string; phone: string; email: string | null; address: string | null; status: string; source: string; createdAt: string; countryCode: string | null; portId: string | null; ownerUserId: string | null };
   notes: { id: string; body: string; createdAt: string; author: string | null; authorKind: string | null }[];
   invoices: { id: string; number: string; status: string; totalCnfUsd: number; createdAt: string }[];
   country: { name: string } | null;
@@ -21,6 +23,9 @@ export default function LeadDetail() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["lead", id], queryFn: () => api.get<LeadFull>(`/api/crm/leads/${id}`) });
   const [note, setNote] = useState("");
+  const [req, setReq] = useState(false);
+  const { can, me } = useAuth();
+  const nav = useNavigate();
   if (q.isLoading) return <Skeleton className="h-96" />;
   if (!q.data) return <Empty title="Lead not found" />;
   const { lead } = q.data;
@@ -32,7 +37,31 @@ export default function LeadDetail() {
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold text-slate-900">{lead.customerName}</h1>
         <StatusBadge status={lead.status} label={LEAD_STATUS_LABELS[lead.status as keyof typeof LEAD_STATUS_LABELS]} />
+        <div className="ml-auto flex flex-wrap gap-2">
+          {can("crm.leads.status") && (
+            <Select
+              className="w-44"
+              value=""
+              onChange={async (e) => {
+                if (!e.target.value) return;
+                await api.post(`/api/crm/leads/${lead.id}/status`, { status: e.target.value });
+                await qc.invalidateQueries({ queryKey: ["lead", id] });
+              }}
+            >
+              <option value="">Change status…</option>
+              <option value="new">New</option>
+              <option value="in_progress">In progress</option>
+              <option value="closed">Closed</option>
+            </Select>
+          )}
+          {can("crm.invoices.request") && (lead.status === "in_progress" || lead.status === "new") && (lead.ownerUserId === me?.id || can("crm.leads.view_all")) && (
+            <Button onClick={() => setReq(true)}>
+              <FilePlus2 className="size-4" /> Request invoice
+            </Button>
+          )}
+        </div>
       </div>
+      {req && <RequestInvoiceModal lead={lead} onClose={() => setReq(false)} onDone={(invId) => nav(`/crm/invoices/${invId}`)} />}
       <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr]">
         <div className="space-y-4">
           <Card>

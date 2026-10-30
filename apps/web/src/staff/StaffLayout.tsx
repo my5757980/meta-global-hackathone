@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Navigate, Outlet, useLocation } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bot, FileText, Gavel, Globe, LayoutDashboard, LogOut, Menu, MessagesSquare, Users, X } from "lucide-react";
+import { BarChart3, Bell, Bot, Car, FileText, Gavel, Globe, LayoutDashboard, LogOut, Menu, MessagesSquare, ShieldCheck, Users, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth, usePresencePing } from "../lib/auth";
 import { useLiveEvent, useLiveStream } from "../lib/sse";
@@ -41,7 +41,13 @@ export function StaffLayout() {
         { to: "/crm", label: "Dashboard", icon: <LayoutDashboard className="size-4" />, show: can("crm.access"), end: true },
         { to: "/crm/leads", label: can("crm.leads.view_all") ? "All leads" : "My leads", icon: <Users className="size-4" />, show: can("crm.access") },
         { to: "/crm/invoices", label: "Invoices", icon: <FileText className="size-4" />, show: can("crm.access") },
+        { to: "/crm/units", label: "Units", icon: <Car className="size-4" />, show: can("crm.access") },
+        { to: "/crm/reports", label: "Reports", icon: <BarChart3 className="size-4" />, show: can("crm.reports.view") },
       ],
+    },
+    {
+      title: "Admin",
+      items: [{ to: "/crm/users", label: "Users", icon: <ShieldCheck className="size-4" />, show: can("crm.users.manage") }],
     },
     {
       title: "Customers",

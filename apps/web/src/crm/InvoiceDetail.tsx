@@ -5,6 +5,7 @@ import { Bot, Check, ChevronLeft, MessageSquare, Printer, ShieldCheck, X } from 
 import { api } from "../lib/api";
 import { dateTime, date, usd2 } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Modal, Skeleton, StatusBadge, Textarea } from "../ui";
+import { InvoiceOps } from "./InvoiceOps";
 
 interface Full {
   invoice: { id: string; number: string; status: string; consigneeName: string; consigneePhone: string; consigneeEmail: string | null; consigneeAddress: string | null; totalCnfUsd: number; totalPushUsd: number; advancePercent: number; rejectionNote: string | null; createdAt: string; approvedAt: string | null; m3Rate: number | null; exchangeRate: number | null; salesperson: string | null };
@@ -184,6 +185,7 @@ export default function InvoiceDetail() {
               <p className="mt-2 text-xs text-slate-400">Computed by the company price policy (not by the model).</p>
             </Card>
           )}
+          <InvoiceOps invoiceId={inv.id} status={inv.status} vehicles={d.vehicles} balance={d.totals.balance} />
           {inv.rejectionNote && (
             <Card className="border-rose-200 bg-rose-50">
               <p className="text-sm font-semibold text-rose-800">Internal rejection note</p>
