@@ -1,0 +1,145 @@
+import { Router } from "express";
+import multer from "multer";
+import { eq, inArray } from "drizzle-orm";
+import { z } from "zod";
+import { db } from "../db/client";
+import * as s from "../db/schema";
+import { bad, forbidden, h, notFound, parse } from "../lib/http";
+import { isStaff, requireAuth, requirePerm } from "../auth/session";
+import { canSeeConversation, deskConversations, ensureCustomerConversation, listMessages, markRead, postMessage, setHolder } from "../services/chat";
+import { saveFile } from "../services/files";
+import { triggerSora } from "../fte/agent";
+import { audit } from "../services/audit";
+
+export const chatRouter = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024, files: 10 } });
+
+/** The signed-in buyer's own conversation (customer or visitor). */
+chatRouter.get(
+  "/mine",
+  h(async (req) => {
+    const u = requireAuth(req);
+    if (isStaff(u)) throw bad("Staff use the desk");
+    const conv = await ensureCustomerConversation(u.id, req.query.channel === "app" ? "app" : "web");
+    const messages = await listMessages(conv.id, { limit: 80 });
+    await markRead(conv.id, u.id);
+    return { conversation: conv, messages };
+  }),
+);
+
+chatRouter.get(
+  "/conversations",
+  h(async (req) => {
+    const u = requirePerm(req, "chat.desk");
+    return deskConversations(u, req.query.scope === "all" ? "all" : "mine");
+  }),
+);
+
+chatRouter.get(
+  "/conversations/:id",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const conv = await canSeeConversation(u, String(req.params.id));
+    const messages = await listMessages(conv.id, { limit: 100 });
+    const [customer] = conv.customerUserId ? await db().select({ id: s.users.id, name: s.users.name, email: s.users.email, phone: s.users.phone, kind: s.users.kind, countryCode: s.users.countryCode, company: s.users.company }).from(s.users).where(eq(s.users.id, conv.customerUserId)).limit(1) : [];
+    const members = await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind, title: s.users.title, lastSeenAt: s.users.lastSeenAt }).from(s.chatMembers).innerJoin(s.users, eq(s.users.id, s.chatMembers.userId)).where(eq(s.chatMembers.conversationId, conv.id));
+    await markRead(conv.id, u.id).catch(() => {});
+    return { conversation: conv, messages, customer: customer ?? null, members };
+  }),
+);
+
+const sendSchema = z.object({ body: z.string().max(8000).default(""), kind: z.enum(["text", "image", "voice"]).default("text"), fileIds: z.array(z.string()).max(20).default([]) });
+
+chatRouter.post(
+  "/conversations/:id/messages",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const conv = await canSeeConversation(u, String(req.params.id));
+    const body = parse(sendSchema, req.body);
+    if (!body.body.trim() && !body.fileIds.length) throw bad("Empty message");
+    if (body.fileIds.length) {
+      const owned = await db().select({ id: s.files.id, owner: s.files.ownerUserId }).from(s.files).where(inArray(s.files.id, body.fileIds));
+      if (owned.length !== body.fileIds.length || owned.some((f) => f.owner !== u.id)) throw forbidden("Attach only your own uploads");
+    }
+    // a staff member writing in a thread Sora holds takes it over automatically
+    if (isStaff(u) && u.kind === "staff" && conv.kind === "customer" && conv.holder === "fte") {
+      await setHolder(conv.id, "human", { id: u.id, name: u.name });
+    }
+    const msg = await postMessage({ conversationId: conv.id, senderUserId: u.id, kind: body.kind, body: body.body, fileIds: body.fileIds });
+    if (!isStaff(u) && conv.kind === "customer") {
+      const [fresh] = await db().select({ holder: s.chatConversations.holder }).from(s.chatConversations).where(eq(s.chatConversations.id, conv.id)).limit(1);
+      if (fresh?.holder === "fte") triggerSora(conv.id, { kind: "message" });
+    }
+    return msg;
+  }),
+);
+
+chatRouter.post(
+  "/upload",
+  upload.array("files", 10),
+  h(async (req) => {
+    const u = requireAuth(req);
+    const files = (req.files as Express.Multer.File[]) ?? [];
+    if (!files.length) throw bad("No file");
+    const out = [];
+    for (const f of files) {
+      const mime = f.mimetype;
+      if (!/^(image\/(png|jpeg|webp)|audio\/(wav|x-wav|mpeg|ogg|webm|mp4|aac))$/.test(mime)) throw bad(`Unsupported file type ${mime}`);
+      const kind = mime.startsWith("image/") ? "chat-image" : "chat-voice";
+      out.push(await saveFile(f.buffer, { kind, mime: mime === "audio/x-wav" ? "audio/wav" : mime, originalName: f.originalname, ownerUserId: u.id }));
+    }
+    return { files: out.map((f) => ({ id: f.id })) };
+  }),
+);
+
+chatRouter.post(
+  "/conversations/:id/read",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const conv = await canSeeConversation(u, String(req.params.id));
+    await markRead(conv.id, u.id);
+    return { ok: true };
+  }),
+);
+
+chatRouter.post(
+  "/conversations/:id/takeover",
+  h(async (req) => {
+    const u = requirePerm(req, "chat.desk");
+    const conv = await canSeeConversation(u, String(req.params.id));
+    if (conv.kind !== "customer") throw bad("Only customer conversations");
+    await setHolder(conv.id, "human", { id: u.id, name: u.name });
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "chat.takeover", entity: "conversation", entityId: conv.id, summary: `${u.name} took over from Sora`, conversationId: conv.id });
+    return { ok: true };
+  }),
+);
+
+chatRouter.post(
+  "/conversations/:id/handback",
+  h(async (req) => {
+    const u = requirePerm(req, "chat.desk");
+    const conv = await canSeeConversation(u, String(req.params.id));
+    if (conv.kind !== "customer") throw bad("Only customer conversations");
+    await setHolder(conv.id, "fte", { id: u.id, name: u.name });
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "chat.handback", entity: "conversation", entityId: conv.id, summary: `${u.name} handed the conversation back to Sora`, conversationId: conv.id });
+    return { ok: true };
+  }),
+);
+
+/** Media of a chat message: only people in the conversation (or see-everything staff). */
+chatRouter.get(
+  "/media/:fileId",
+  h(async (req, res) => {
+    const u = requireAuth(req);
+    const [m] = await db().select().from(s.chatMessages).where(eq(s.chatMessages.id, String(req.query.m ?? ""))).limit(1);
+    if (!m || !(m.fileIds as string[]).includes(String(req.params.fileId))) throw notFound();
+    await canSeeConversation(u, m.conversationId);
+    const { getFile } = await import("../services/files");
+    const f = await getFile(String(req.params.fileId));
+    if (!f) throw notFound();
+    res.setHeader("Content-Type", f.mime);
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.sendFile(f.abs);
+    return undefined;
+  }),
+);
