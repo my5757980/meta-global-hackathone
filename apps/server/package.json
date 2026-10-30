@@ -1,0 +1,45 @@
+{
+  "name": "@autofte/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc --noEmit -p .",
+    "setup": "tsx src/cli/setup.ts",
+    "db:generate": "drizzle-kit generate",
+    "test": "vitest run",
+    "eval": "tsx ../../evals/run.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@autofte/shared": "*",
+    "@electric-sql/pglite": "^0.5.13",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@resvg/resvg-js": "^2.6.2",
+    "archiver": "^7.0.1",
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "drizzle-orm": "^0.45.4",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "openai": "^5.23.2",
+    "pdfkit": "^0.17.2",
+    "pg": "^8.16.3",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/archiver": "^6.0.3",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.3",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.5.2",
+    "@types/pdfkit": "^0.17.3",
+    "@types/pg": "^8.15.5",
+    "drizzle-kit": "^0.31.5",
+    "tsx": "^4.20.6",
+    "vitest": "^3.2.4"
+  }
+}
