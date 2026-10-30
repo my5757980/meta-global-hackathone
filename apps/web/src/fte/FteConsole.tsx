@@ -68,7 +68,7 @@ interface EvalIndex {
 export default function FteConsole() {
   const { can } = useAuth();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<"activity" | "approvals" | "envelope" | "skills" | "evals">("activity");
+  const [tab, setTab] = useState<"activity" | "approvals" | "envelope" | "skills" | "evals" | "schedule">("activity");
   const ov = useQuery({ queryKey: ["fte-overview"], queryFn: () => api.get<Overview>("/api/fte/overview") });
   const runs = useQuery({ queryKey: ["fte-runs"], queryFn: () => api.get<Run[]>("/api/fte/runs") });
   const onRun = useCallback(() => {
@@ -112,10 +112,12 @@ export default function FteConsole() {
             { value: "envelope", label: "Authority envelope" },
             { value: "skills", label: "Skills & tools" },
             { value: "evals", label: "Evals" },
+            { value: "schedule", label: "Schedule & clock" },
           ]}
         />
       </div>
       {tab === "evals" && <Evals canRun={can("fte.evals.run")} />}
+      {tab === "schedule" && <Schedule canMove={can("fte.envelope.manage")} />}
       {tab === "activity" && (
         <Card padded={false}>
           {runs.isLoading ? (
@@ -340,6 +342,89 @@ function EnvelopeEditor({ env, canEdit }: { env: Envelope; canEdit: boolean }) {
         </div>
       </form>
     </Card>
+  );
+}
+
+interface ClockState {
+  now: string;
+  offsetHours: number;
+  nextSaleDay: string | null;
+  pending: { id: string; dueAt: string; what: string }[];
+  settledLots?: number;
+  eventsRun?: number;
+}
+
+/** The demo clock: jump forward to watch tomorrow's work happen now (follow-ups, auction results). */
+function Schedule({ canMove }: { canMove: boolean }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["fte-clock"], queryFn: () => api.get<ClockState>("/api/fte/clock"), refetchInterval: 15000 });
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const move = async (body: { advanceHours?: number; reset?: boolean }) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.post<ClockState>("/api/fte/clock", body);
+      qc.setQueryData(["fte-clock"], r);
+      void qc.invalidateQueries({ queryKey: ["fte-runs"] });
+      setMsg(body.reset ? "Clock back to real time." : `Moved ${body.advanceHours} h forward · ${r.settledLots ?? 0} auction lots settled · ${r.eventsRun ?? 0} scheduled tasks ran — Sora is messaging the buyers now (see Live activity).`);
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const d = q.data;
+  if (!d) return <Skeleton className="h-40" />;
+  const inH = (iso: string) => {
+    const h = (new Date(iso).getTime() - new Date(d.now).getTime()) / 3600_000;
+    return h <= 0 ? "due now" : h < 24 ? `in ${Math.round(h)} h` : `in ${Math.round(h / 24)} d`;
+  };
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card>
+        <p className="flex items-center gap-2 font-semibold text-slate-900">
+          <Clock className="size-4 text-brand-600" /> Demo clock
+        </p>
+        <p className="mt-3 text-2xl font-bold text-slate-900">{new Date(d.now).toLocaleString("en-GB", { timeZone: "Asia/Tokyo", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</p>
+        <p className="text-sm text-slate-500">
+          Japan time · {d.offsetHours ? `${d.offsetHours} h ahead of real time` : "real time"} · next auction day {d.nextSaleDay ?? "—"}
+        </p>
+        {canMove ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {[1, 24, 72].map((h) => (
+              <Button key={h} variant="secondary" size="sm" disabled={busy} onClick={() => void move({ advanceHours: h })}>
+                +{h === 1 ? "1 hour" : `${h / 24} day${h > 24 ? "s" : ""}`}
+              </Button>
+            ))}
+            <Button variant="secondary" size="sm" disabled={busy || !d.offsetHours} onClick={() => void move({ reset: true })}>
+              Reset
+            </Button>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">Only the Supervisor moves the demo clock.</p>
+        )}
+        {msg && <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">{msg}</p>}
+        <p className="mt-4 text-xs text-slate-500">Moving the clock runs everything that falls due: quote follow-ups, follow-ups Sora scheduled itself, and auction days ending — lots are settled and Sora tells each buyer whether the bid won.</p>
+      </Card>
+      <Card>
+        <p className="flex items-center gap-2 font-semibold text-slate-900">
+          <Activity className="size-4 text-violet-600" /> Sora's upcoming follow-ups
+        </p>
+        {d.pending.length ? (
+          <ul className="mt-3 divide-y divide-slate-100">
+            {d.pending.map((p) => (
+              <li key={p.id} className="flex items-start justify-between gap-3 py-2 text-sm">
+                <span className="text-slate-700">{p.what}</span>
+                <Badge tone="violet">{inH(p.dueAt)}</Badge>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500">Nothing scheduled. Quotes and Sora's own promises appear here.</p>
+        )}
+      </Card>
+    </div>
   );
 }
 

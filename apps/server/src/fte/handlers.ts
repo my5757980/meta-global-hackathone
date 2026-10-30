@@ -2,12 +2,13 @@
  * Sora's reactions to platform events (the nervous system). Deterministic parts (cards, links) are
  * posted directly; Sora writes the human words.
  */
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { on, emit } from "../services/events";
 import { postMessage } from "../services/chat";
-import { envelope, siteSettings } from "../services/settings";
+import { envelope, now, siteSettings } from "../services/settings";
+import { notify } from "../services/notify";
 import { getInvoiceFull } from "../services/crm";
 import { triggerSora } from "./agent";
 
@@ -116,6 +117,17 @@ export function registerSoraHandlers() {
     if (!q) return;
     const [conv] = await db().select().from(s.chatConversations).where(eq(s.chatConversations.id, String(conversationId))).limit(1);
     if (!conv || conv.holder !== "fte") return;
+    // a lot whose sale is over: follow up only if we won it (then the buyer still has to confirm); the result message covers the rest
+    if (q.auctionLotId) {
+      const [lot] = await db().select({ status: s.auctionLots.status }).from(s.auctionLots).where(eq(s.auctionLots.id, q.auctionLotId)).limit(1);
+      if (lot && lot.status !== "upcoming") {
+        const [won] = await db().select({ id: s.auctionBids.id }).from(s.auctionBids).where(and(eq(s.auctionBids.lotId, q.auctionLotId), eq(s.auctionBids.status, "won"))).limit(1);
+        if (!won) return;
+      }
+    }
+    // a newer quote in the same chat replaces this one
+    const [newer] = await db().select({ id: s.quotes.id }).from(s.quotes).where(and(eq(s.quotes.conversationId, conv.id), gt(s.quotes.createdAt, q.createdAt))).limit(1);
+    if (newer) return;
     // only if the buyer has been silent since the quote and no invoice was requested from it
     const [lastBuyer] = await db().select().from(s.chatMessages).where(and(eq(s.chatMessages.conversationId, conv.id), eq(s.chatMessages.senderUserId, conv.customerUserId ?? ""))).orderBy(desc(s.chatMessages.createdAt)).limit(1);
     if (lastBuyer && lastBuyer.createdAt > q.createdAt) return;
@@ -123,10 +135,78 @@ export function registerSoraHandlers() {
     if (inv || !(await underDailyCap(conv.id))) return;
     triggerSora(conv.id, { kind: "event", note: `Follow-up: the buyer has not replied since your quote for ${q.title} (C&F $${Number(q.totalCnfUsd).toLocaleString("en-US")}). Send ONE short, friendly follow-up: ask if they have questions or want to reserve it; mention the quote is valid for 7 days. Do not be pushy.` });
   });
+
+  // a follow-up Sora scheduled for itself (schedule_follow_up)
+  on("sora.followup", async ({ conversationId, reason }) => {
+    const [conv] = await db().select().from(s.chatConversations).where(eq(s.chatConversations.id, String(conversationId))).limit(1);
+    if (!conv || conv.holder !== "fte" || !(await underDailyCap(conv.id))) return;
+    triggerSora(conv.id, { kind: "event", note: `Scheduled follow-up you set earlier: ${String(reason)}. Send the buyer ONE short, friendly message about it now.` });
+  });
+
+  // a car arrived that fits a wish Sora saved (save_buyer_request)
+  on("stock.match", async ({ requestId, vehicleId }) => {
+    const [r] = await db().select().from(s.buyerRequests).where(eq(s.buyerRequests.id, String(requestId))).limit(1);
+    if (!r?.active || (r.lastNotifiedAt && Date.now() - r.lastNotifiedAt.getTime() < 6 * 3600_000)) return;
+    const [v] = await db().select().from(s.vehicles).where(eq(s.vehicles.id, String(vehicleId))).limit(1);
+    if (!v || v.status !== "available") return;
+    const [conv] = r.conversationId
+      ? await db().select().from(s.chatConversations).where(eq(s.chatConversations.id, r.conversationId)).limit(1)
+      : await db().select().from(s.chatConversations).where(and(eq(s.chatConversations.kind, "customer"), eq(s.chatConversations.customerUserId, r.customerUserId))).limit(1);
+    if (!conv || conv.holder !== "fte") return;
+    await db().update(s.buyerRequests).set({ lastNotifiedAt: new Date() }).where(eq(s.buyerRequests.id, r.id));
+    triggerSora(conv.id, { kind: "event", note: `A car matching the buyer's saved wish just arrived in stock: ${v.stockNo} — ${v.title}, $${Number(v.discountPriceUsd ?? v.priceUsd).toLocaleString("en-US")} FOB. Tell them first (get_vehicle ${v.stockNo} for the details) and offer the landed price to their port.` });
+  });
+
+  // auction days are over: each buyer hears all their results in ONE message
+  on("bids.settled", async ({ bidIds }) => {
+    const ids = (bidIds as string[]) ?? [];
+    if (!ids.length) return;
+    const rows = await db().select({ b: s.auctionBids, lot: s.auctionLots }).from(s.auctionBids).innerJoin(s.auctionLots, eq(s.auctionLots.id, s.auctionBids.lotId)).where(inArray(s.auctionBids.id, ids));
+    const sora = await soraId();
+    const yen = (n: number | null) => (n == null ? "—" : `¥${n.toLocaleString("en-US")}`);
+    // Sora's bids: the bid.placed audit row knows which chat each was for
+    const soraLots = rows.filter((r) => r.b.userId === sora).map((r) => r.lot.id);
+    const placed = soraLots.length
+      ? await db()
+          .select({ lot: s.auditLog.entityId, conv: s.auditLog.conversationId })
+          .from(s.auditLog)
+          .where(and(eq(s.auditLog.action, "bid.placed"), eq(s.auditLog.actorUserId, sora), inArray(s.auditLog.entityId, soraLots), isNotNull(s.auditLog.conversationId)))
+          .orderBy(desc(s.auditLog.createdAt))
+      : [];
+    const convOfLot = new Map<string, string>();
+    for (const p of placed) if (p.lot && p.conv && !convOfLot.has(p.lot)) convOfLot.set(p.lot, p.conv);
+    const lines = new Map<string, string[]>();
+    for (const { b, lot } of rows) {
+      const won = b.status === "won";
+      const what = `lot ${lot.lotNo} (${lot.year} ${lot.make} ${lot.model}, sale day ${lot.saleDate})`;
+      let convId: string | null = null;
+      if (b.userId === sora) convId = convOfLot.get(lot.id) ?? null;
+      else {
+        await notify([b.userId], { type: won ? "bid_won" : "bid_lost", title: won ? `You won ${what}` : `Not won: ${what}`, body: won ? `Hammer price ${yen(lot.resultPriceJpy)} (your max ${yen(b.amountJpy)})` : `${lot.status === "unsold" ? "Not sold" : `Sold for ${yen(lot.resultPriceJpy)}`} — your max was ${yen(b.amountJpy)}`, link: `/auction/lots/${lot.id}` });
+        const [c] = await db().select({ id: s.chatConversations.id }).from(s.chatConversations).where(and(eq(s.chatConversations.kind, "customer"), eq(s.chatConversations.customerUserId, b.userId))).limit(1);
+        convId = c?.id ?? null;
+      }
+      if (!convId) continue;
+      const line = won ? `WON ${what} at ${yen(lot.resultPriceJpy)} (max bid ${yen(b.amountJpy)}) — landed price: quote_cnf with lot_id ${lot.id}, bid_jpy ${lot.resultPriceJpy}` : `NOT WON ${what}: ${lot.status === "unsold" ? "not sold" : `sold for ${yen(lot.resultPriceJpy)}`}, max bid ${yen(b.amountJpy)}`;
+      lines.set(convId, [...(lines.get(convId) ?? []), line]);
+    }
+    for (const [convId, ls] of lines) {
+      const [conv] = await db().select({ holder: s.chatConversations.holder }).from(s.chatConversations).where(eq(s.chatConversations.id, convId)).limit(1);
+      if (conv?.holder !== "fte") continue;
+      triggerSora(convId, {
+        kind: "event",
+        note: [
+          "AUCTION RESULTS for this buyer (these sale days are over):",
+          ...ls,
+          "Send ONE message covering every lot: for each win congratulate them and give the landed price to their port with quote_cnf, then ask them to confirm so you can request the invoice; for lots not won say so kindly and offer similar lots this week.",
+        ].join(" | "),
+      });
+    }
+  });
 }
 
 /** Called after a quote: schedule one follow-up on the (demo) clock. */
 export async function scheduleQuoteFollowUp(conversationId: string, quoteId: string) {
   const env0 = await envelope();
-  await emit("quote.followup", { conversationId, quoteId }, { dueAt: new Date(Date.now() + env0.followUpAfterHours * 3600_000) });
+  await emit("quote.followup", { conversationId, quoteId }, { dueAt: new Date((await now()).getTime() + env0.followUpAfterHours * 3600_000) });
 }

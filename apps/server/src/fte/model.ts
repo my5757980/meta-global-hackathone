@@ -46,7 +46,7 @@ export async function chat(opts: { messages: ChatCompletionMessageParam[]; tools
   if (!providers.length) throw new Error("No Meta model provider configured (set BASETEN_API_KEY in .env)");
   let lastErr: unknown;
   for (const p of providers) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 4; attempt++) {
       const t0 = Date.now();
       try {
         const r = await p.client.chat.completions.create({
@@ -70,8 +70,12 @@ export async function chat(opts: { messages: ChatCompletionMessageParam[]; tools
         };
       } catch (e) {
         lastErr = e;
-        if (!retryable(e)) break;
-        await new Promise((res) => setTimeout(res, 800 * (attempt + 1)));
+        if (!retryable(e) || attempt === 3) break;
+        // a rate limit needs real patience (the provider's Retry-After when given), other blips a short pause
+        const status = (e as { status?: number })?.status;
+        const after = Number((e as { headers?: Record<string, string> })?.headers?.["retry-after"]);
+        const wait = status === 429 ? (after > 0 ? Math.min(after, 20) * 1000 : 2000 * 2 ** attempt) : 800 * (attempt + 1);
+        await new Promise((res) => setTimeout(res, wait + Math.random() * 400));
       }
     }
   }

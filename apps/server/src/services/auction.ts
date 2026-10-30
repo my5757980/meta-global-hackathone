@@ -154,3 +154,55 @@ export async function placeBid(userId: string, lotId: string, amountJpy: number,
     return b!;
   });
 }
+
+/** A fixed number per lot (same lot, same answer) for the demo market. */
+function lotHash(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619) >>> 0;
+  return h;
+}
+
+/**
+ * The demo auction's hammer. Once a sale day is over on the (demo) clock every lot gets its result: the outside
+ * market's top bid is the lot's recent average ± up to 12% (fixed per lot), about one lot in seven goes unsold,
+ * and our highest bid wins when it reaches the market — paying the market price, not the whole maximum.
+ * Each bid becomes won / lost; one bids.settled event per batch lets Sora tell each buyer all results in one message.
+ */
+export async function settleAuctions(): Promise<number> {
+  const t = await today();
+  const due = await db()
+    .select({ id: s.auctionLots.id, startPriceJpy: s.auctionLots.startPriceJpy, avgPriceJpy: s.auctionLots.avgPriceJpy })
+    .from(s.auctionLots)
+    .where(and(eq(s.auctionLots.status, "upcoming"), sql`${s.auctionLots.saleDate} < ${t}`));
+  if (!due.length) return 0;
+  const bids = await db()
+    .select()
+    .from(s.auctionBids)
+    .where(and(inArray(s.auctionBids.lotId, due.map((l) => l.id)), eq(s.auctionBids.status, "active")))
+    .orderBy(desc(s.auctionBids.amountJpy), asc(s.auctionBids.createdAt));
+  const byLot = new Map<string, typeof bids>();
+  for (const b of bids) byLot.set(b.lotId, [...(byLot.get(b.lotId) ?? []), b]);
+  const { emit } = await import("./events");
+  const settled: string[] = [];
+  await db().transaction(async (tx) => {
+    for (const l of due) {
+      const h = lotHash(l.id);
+      const market = Math.max(l.startPriceJpy, Math.round(((l.avgPriceJpy ?? l.startPriceJpy * 1.3) * (0.88 + (h % 25) / 100)) / 1000) * 1000);
+      const lotBids = byLot.get(l.id) ?? [];
+      const top = lotBids[0];
+      const unsold = !top && h % 7 === 0;
+      const weWin = !!top && top.amountJpy >= market;
+      await tx
+        .update(s.auctionLots)
+        .set(unsold ? { status: "unsold", resultPriceJpy: null, highBidJpy: Math.round((l.startPriceJpy * 0.9) / 1000) * 1000 } : { status: "sold", resultPriceJpy: market, highBidJpy: Math.max(market, top?.amountJpy ?? 0) })
+        .where(eq(s.auctionLots.id, l.id));
+      for (const b of lotBids) {
+        await tx.update(s.auctionBids).set({ status: weWin && b.id === top!.id ? "won" : "lost" }).where(eq(s.auctionBids.id, b.id));
+        settled.push(b.id);
+      }
+    }
+    // one event for the whole batch, so each buyer hears all their results in one message
+    if (settled.length) await emit("bids.settled", { bidIds: settled }, { tx });
+  });
+  return due.length;
+}

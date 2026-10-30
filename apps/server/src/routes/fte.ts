@@ -1,20 +1,75 @@
 import { Router } from "express";
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { EnvelopeSchema } from "@autofte/shared";
 import { z } from "zod";
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { conflict, h, notFound, parse } from "../lib/http";
 import { requirePerm } from "../auth/session";
-import { envelope, putSetting } from "../services/settings";
+import { envelope, getSetting, now, putSetting } from "../services/settings";
 import { audit } from "../services/audit";
-import { emit } from "../services/events";
+import { emit, processDue } from "../services/events";
+import { settleAuctions } from "../services/auction";
 import { loadSkills } from "../fte/skills";
 import { TOOLS } from "../fte/tools";
 import { primaryModelName, modelConfigured } from "../fte/model";
 import { CASES, CATEGORIES, evalProgress, startEvals } from "../fte/evals";
 
 export const fteRouter = Router();
+
+/**
+ * Demo clock: jump time forward so a judge sees tomorrow's work happen now — quote follow-ups, follow-ups Sora
+ * scheduled itself, auction days ending (results, won / lost messages). Everything due on the new time runs at once.
+ */
+async function clockState() {
+  const [t, off] = await Promise.all([now(), getSetting("demo.clockOffsetMs", 0)]);
+  const pending = await db().select().from(s.events).where(and(eq(s.events.status, "pending"), inArray(s.events.type, ["quote.followup", "sora.followup"]))).orderBy(asc(s.events.dueAt)).limit(12);
+  const convIds = [...new Set(pending.map((e) => String((e.payload as { conversationId?: string }).conversationId ?? "")).filter(Boolean))];
+  const names = convIds.length
+    ? new Map((await db().select({ id: s.chatConversations.id, name: s.users.name }).from(s.chatConversations).leftJoin(s.users, eq(s.users.id, s.chatConversations.customerUserId)).where(inArray(s.chatConversations.id, convIds))).map((r) => [r.id, r.name ?? "buyer"]))
+    : new Map<string, string>();
+  const quoteIds = pending.filter((e) => e.type === "quote.followup").map((e) => String((e.payload as { quoteId?: string }).quoteId ?? ""));
+  const quotes = quoteIds.length ? new Map((await db().select({ id: s.quotes.id, title: s.quotes.title }).from(s.quotes).where(inArray(s.quotes.id, quoteIds))).map((q) => [q.id, q.title])) : new Map<string, string>();
+  const [upcoming] = (await db().select({ next: sql<string | null>`min(${s.auctionLots.saleDate})::text` }).from(s.auctionLots).where(eq(s.auctionLots.status, "upcoming"))) as [{ next: string | null }];
+  return {
+    now: t.toISOString(),
+    offsetHours: Math.round((Number(off) || 0) / 3600_000),
+    nextSaleDay: upcoming?.next ?? null,
+    pending: pending.map((e) => {
+      const p = e.payload as { conversationId?: string; quoteId?: string; reason?: string };
+      const who = names.get(String(p.conversationId)) ?? "a buyer";
+      return { id: e.id, dueAt: e.dueAt, what: e.type === "quote.followup" ? `Follow up ${who} about the quote for ${quotes.get(String(p.quoteId)) ?? "a car"}` : `${who}: ${p.reason ?? "follow-up"}` };
+    }),
+  };
+}
+
+fteRouter.get(
+  "/clock",
+  h(async (req) => {
+    requirePerm(req, "fte.console");
+    return clockState();
+  }),
+);
+
+fteRouter.post(
+  "/clock",
+  h(async (req) => {
+    const u = requirePerm(req, "fte.envelope.manage");
+    const b = parse(z.object({ advanceHours: z.number().min(1).max(720).optional(), reset: z.boolean().optional() }), req.body ?? {});
+    const cur = Number(await getSetting("demo.clockOffsetMs", 0)) || 0;
+    const next = b.reset ? 0 : cur + (b.advanceHours ?? 0) * 3600_000;
+    await putSetting("demo.clockOffsetMs", next);
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "demo.clock", summary: b.reset ? `${u.name} reset the demo clock` : `${u.name} moved the demo clock forward ${b.advanceHours} h` });
+    const settled = await settleAuctions();
+    let ran = 0;
+    for (let i = 0; i < 5; i++) {
+      const n = await processDue(50);
+      ran += n;
+      if (n < 50) break;
+    }
+    return { ...(await clockState()), settledLots: settled, eventsRun: ran };
+  }),
+);
 
 fteRouter.get(
   "/overview",

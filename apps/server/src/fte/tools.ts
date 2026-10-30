@@ -38,6 +38,7 @@ const actorOf = (ctx: ToolCtx): Actor => ({ userId: ctx.principalUserId, kind: c
 import { ToolError } from "./errors";
 export { ToolError };
 import { AUCTION_TOOLS, lotRef, resolveLot } from "./auctionTools";
+import { FOLLOW_TOOLS } from "./followTools";
 import { getLot } from "../services/auction";
 
 const money = (n: number | null | undefined) => (n == null ? null : Math.round(Number(n) * 100) / 100);
@@ -457,7 +458,7 @@ const BASE_TOOLS: ToolDef[] = [
   },
 ];
 
-export const TOOLS: ToolDef[] = [...BASE_TOOLS, ...AUCTION_TOOLS];
+export const TOOLS: ToolDef[] = [...BASE_TOOLS, ...AUCTION_TOOLS, ...FOLLOW_TOOLS];
 
 export async function runTool(name: string, args: Record<string, unknown>, ctx: ToolCtx): Promise<{ ok: boolean; result: unknown }> {
   const def = TOOLS.find((t) => t.name === name);

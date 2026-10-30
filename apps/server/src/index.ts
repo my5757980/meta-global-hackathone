@@ -83,6 +83,11 @@ async function main() {
     console.log(`AutoFTE API on http://localhost:${env.PORT} (db: ${dbKind()}, model: ${modelConfigured() ? primaryModelName() : "NOT configured"})`);
   });
   startScheduler();
+  // auction days end on the (demo) clock: settle them now and every minute
+  const { settleAuctions } = await import("./services/auction");
+  const settle = () => void settleAuctions().catch((e) => console.error("[auction settle]", e));
+  settle();
+  setInterval(settle, 60_000).unref();
 }
 
 main().catch((e) => {
