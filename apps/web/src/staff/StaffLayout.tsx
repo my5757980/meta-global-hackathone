@@ -51,7 +51,10 @@ export function StaffLayout() {
     },
     {
       title: "Customers",
-      items: [{ to: "/desk", label: "Chat desk", icon: <MessagesSquare className="size-4" />, show: can("chat.desk") }],
+      items: [
+        { to: "/desk", label: "Chat desk", icon: <MessagesSquare className="size-4" />, show: can("chat.desk") },
+        { to: "/auction/admin", label: "Auction admin", icon: <Gavel className="size-4" />, show: can("auction.admin") },
+      ],
     },
     {
       title: "Digital FTE",
@@ -117,9 +120,7 @@ export function StaffLayout() {
             <TopLink to="/desk" icon={<MessagesSquare className="size-4" />} label="Chat" show={can("chat.desk")} />
             <TopLink to="/fte" icon={<Bot className="size-4" />} label="Sora" show={can("fte.console")} />
             <TopLink to="/" icon={<Globe className="size-4" />} label="Website" show />
-            <span className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-400" title="Auction portal — next phase">
-              <Gavel className="size-4" /> Auction
-            </span>
+            <TopLink to="/auction/admin" icon={<Gavel className="size-4" />} label="Auction" show={can("auction.admin")} />
           </div>
           <div className="ml-auto flex items-center gap-2">
             <NotificationBell />

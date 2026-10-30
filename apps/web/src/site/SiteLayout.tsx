@@ -10,6 +10,7 @@ import { ChatWidget } from "../chat/ChatWidget";
 const NAV = [
   { to: "/", label: "Home" },
   { to: "/shop", label: "Shop" },
+  { to: "/auction", label: "Auction" },
   { to: "/services", label: "Services" },
   { to: "/how-to-buy", label: "How to buy" },
   { to: "/about", label: "About" },

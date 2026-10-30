@@ -29,6 +29,14 @@ const Partners = lazy(() => info().then((m) => ({ default: m.PartnersView })));
 const BankDetails = lazy(() => info().then((m) => ({ default: m.BankView })));
 const ChatPage = lazy(() => import("./chat/ChatPage"));
 const NotFound = lazy(() => import("./site/NotFound"));
+const auc = () => import("./auction/AuctionPages");
+const AuctionWelcome = lazy(() => auc().then((m) => ({ default: m.AuctionWelcome })));
+const AuctionList = lazy(() => auc().then((m) => ({ default: m.AuctionList })));
+const AuctionLotPage = lazy(() => auc().then((m) => ({ default: m.AuctionLotPage })));
+const AuctionStatistics = lazy(() => auc().then((m) => ({ default: m.AuctionStatistics })));
+const AuctionStatDetail = lazy(() => auc().then((m) => ({ default: m.AuctionStatDetail })));
+const AuctionMe = lazy(() => auc().then((m) => ({ default: m.AuctionMe })));
+const AuctionAdmin = lazy(() => import("./auction/AuctionAdmin").then((m) => ({ default: m.AuctionAdmin })));
 const Account = lazy(() => import("./account/Account"));
 const AccountInvoices = lazy(() => import("./account/AccountInvoices"));
 const AccountInvoice = lazy(() => import("./account/AccountInvoice"));
@@ -79,6 +87,12 @@ const router = createBrowserRouter([
       { path: "/blog/:slug", element: page(<BlogPost />) },
       { path: "/contact", element: page(<Contact />) },
       { path: "/chat", element: page(<ChatPage />) },
+      { path: "/auction", element: page(<AuctionWelcome />) },
+      { path: "/auction/list", element: page(<AuctionList />) },
+      { path: "/auction/lots/:id", element: page(<AuctionLotPage />) },
+      { path: "/auction/statistics", element: page(<AuctionStatistics />) },
+      { path: "/auction/statistics/:id", element: page(<AuctionStatDetail />) },
+      { path: "/auction/me", element: page(<AuctionMe />) },
       { path: "/account", element: page(<Account />) },
       { path: "/account/invoices", element: page(<AccountInvoices />) },
       { path: "/account/invoices/:id", element: page(<AccountInvoice />) },
@@ -97,6 +111,7 @@ const router = createBrowserRouter([
       { path: "/crm/reports", element: page(<ReportsPage />) },
       { path: "/crm/users", element: page(<UsersPage />) },
       { path: "/desk", element: page(<Desk />) },
+      { path: "/auction/admin", element: page(<AuctionAdmin />) },
       { path: "/fte", element: page(<FteConsole />) },
     ],
   },

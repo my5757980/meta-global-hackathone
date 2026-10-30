@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { Bot, CheckCheck, FileText, Send, Ship } from "lucide-react";
+import { Bot, CheckCheck, ChevronLeft, ChevronRight, FileText, Mic, Paperclip, Send, Ship, Square, Volume2, X } from "lucide-react";
+import { resizeImage, WavRecorder } from "./media";
 import type { ChatCard } from "@autofte/shared";
 import { api } from "../lib/api";
 import { miniMarkdown, time, usd2 } from "../lib/format";
@@ -100,6 +101,62 @@ function Cards({ cards, mine }: { cards: ChatCard[]; mine: boolean }) {
   );
 }
 
+
+function ImageGrid({ msg }: { msg: ChatMsg }) {
+  const [open, setOpen] = useState<number | null>(null);
+  const urls = msg.fileIds.map((f) => `/api/chat/media/${f}?m=${msg.id}`);
+  return (
+    <>
+      <div className={clsx("mt-1 grid gap-1", urls.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
+        {urls.slice(0, 4).map((u, i) => (
+          <button key={u} onClick={() => setOpen(i)} className="relative overflow-hidden rounded-xl">
+            <img src={u} alt="" className="h-28 w-full max-w-[16rem] object-cover" loading="lazy" />
+            {i === 3 && urls.length > 4 && <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-lg font-bold text-white">+{urls.length - 4}</span>}
+          </button>
+        ))}
+      </div>
+      {open !== null && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90" onClick={() => setOpen(null)}>
+          <button className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white" aria-label="Close">
+            <X className="size-6" />
+          </button>
+          {urls.length > 1 && (
+            <button className="absolute left-3 rounded-full bg-white/10 p-2 text-white" aria-label="Previous" onClick={(e) => { e.stopPropagation(); setOpen((open - 1 + urls.length) % urls.length); }}>
+              <ChevronLeft className="size-6" />
+            </button>
+          )}
+          <img src={urls[open]} alt="" className="max-h-[90vh] max-w-[92vw] object-contain" onClick={(e) => e.stopPropagation()} />
+          {urls.length > 1 && (
+            <button className="absolute right-3 rounded-full bg-white/10 p-2 text-white" aria-label="Next" onClick={(e) => { e.stopPropagation(); setOpen((open + 1) % urls.length); }}>
+              <ChevronRight className="size-6" />
+            </button>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Spoken playback with the browser's own speech synthesis (not an AI model call). */
+function SpeakButton({ text }: { text: string }) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+  const plain = text.replace(/\*\*/g, "").replace(/[#*_`>]/g, "");
+  return (
+    <button
+      onClick={() => {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(plain);
+        if (/[؀-ۿ]/.test(plain)) u.lang = "ur-PK";
+        window.speechSynthesis.speak(u);
+      }}
+      className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-brand-600"
+      aria-label="Listen"
+    >
+      <Volume2 className="size-3" /> Listen
+    </button>
+  );
+}
+
 export function MessageList({ messages, meId, typing, perspective = "buyer" }: { messages: ChatMsg[]; meId: string | null; typing?: boolean; perspective?: "buyer" | "staff" }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -131,7 +188,12 @@ export function MessageList({ messages, meId, typing, perspective = "buyer" }: {
                   dangerouslySetInnerHTML={{ __html: miniMarkdown(m.body) }}
                 />
               )}
+              {m.kind === "image" && m.fileIds?.length > 0 && <ImageGrid msg={m} />}
+              {m.kind === "voice" && m.fileIds?.length > 0 && (
+                <audio controls preload="none" src={`/api/chat/media/${m.fileIds[0]}?m=${m.id}`} className="mt-1 h-10 w-64 max-w-full" />
+              )}
               {m.meta?.cards?.length ? <Cards cards={m.meta.cards} mine={mine} /> : null}
+              {isSora && m.body && perspective === "buyer" && <SpeakButton text={m.body} />}
               <p className={clsx("mt-0.5 flex items-center gap-1 text-[10px] text-slate-400", mine && "justify-end")}>
                 {time(m.createdAt)} {mine && <CheckCheck className="size-3" />}
               </p>
@@ -159,18 +221,75 @@ export function Composer({ conversationId, onSent, initial, placeholder }: { con
   const [text, setText] = useState(initial ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [rec, setRec] = useState<WavRecorder | null>(null);
+  const [secs, setSecs] = useState(0);
   useEffect(() => {
     if (initial) setText(initial);
   }, [initial]);
+  useEffect(() => {
+    if (!rec) return;
+    const t = setInterval(() => setSecs(Math.round((Date.now() - rec.startedAt) / 1000)), 500);
+    return () => clearInterval(t);
+  }, [rec]);
+  const post = async (body: unknown) => {
+    const m = await api.post<ChatMsg>(`/api/chat/conversations/${conversationId}/messages`, body);
+    onSent?.(m);
+  };
+  const upload = async (blobs: { blob: Blob; name: string }[]) => {
+    const fd = new FormData();
+    blobs.forEach((b) => fd.append("files", b.blob, b.name));
+    const r = await api.post<{ files: { id: string }[] }>("/api/chat/upload", fd);
+    return r.files.map((f) => f.id);
+  };
   const send = async () => {
     const body = text.trim();
     if (!body || busy) return;
     setBusy(true);
     setErr(null);
     try {
-      const m = await api.post<ChatMsg>(`/api/chat/conversations/${conversationId}/messages`, { body });
+      await post({ body });
       setText("");
-      onSent?.(m);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const sendPictures = async (files: File[]) => {
+    if (!files.length) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const blobs = await Promise.all(files.slice(0, 10).map(async (f, i) => ({ blob: await resizeImage(f), name: `photo-${i + 1}.jpg` })));
+      const ids = await upload(blobs);
+      await post({ kind: "image", fileIds: ids, body: text.trim() });
+      setText("");
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggleVoice = async () => {
+    setErr(null);
+    if (!rec) {
+      try {
+        const r = new WavRecorder();
+        await r.start();
+        setSecs(0);
+        setRec(r);
+      } catch {
+        setErr("Microphone not available — allow microphone access to send a voice note.");
+      }
+      return;
+    }
+    setBusy(true);
+    try {
+      const { blob, seconds } = await rec.stop();
+      setRec(null);
+      if (seconds < 0.8) return;
+      const ids = await upload([{ blob, name: "voice-note.wav" }]);
+      await post({ kind: "voice", fileIds: ids, body: "" });
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -180,26 +299,50 @@ export function Composer({ conversationId, onSent, initial, placeholder }: { con
   return (
     <div className="border-t border-slate-200 bg-white p-2">
       {err && <p className="px-2 pb-1 text-xs text-rose-600">{err}</p>}
-      <div className="flex items-end gap-2">
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          rows={1}
-          placeholder={placeholder ?? "Write a message…"}
-          className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-brand-500 focus:bg-white focus:outline-none"
-        />
-        <button onClick={() => void send()} disabled={busy || !text.trim()} className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50" aria-label="Send">
-          <Send className="size-4" />
-        </button>
-      </div>
+      {rec ? (
+        <div className="flex items-center gap-2">
+          <span className="flex flex-1 items-center gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-sm font-semibold text-rose-700">
+            <span className="size-2 animate-pulse rounded-full bg-rose-600" /> Recording… {secs}s
+          </span>
+          <button onClick={() => { rec.cancel(); setRec(null); }} className="rounded-xl px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">
+            Cancel
+          </button>
+          <button onClick={() => void toggleVoice()} className="flex size-10 items-center justify-center rounded-xl bg-rose-600 text-white" aria-label="Stop and send voice note">
+            <Square className="size-4 fill-current" />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-end gap-1.5">
+          <label className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="Send pictures">
+            <Paperclip className="size-5" />
+            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { void sendPictures([...(e.target.files ?? [])]); e.target.value = ""; }} />
+          </label>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+            rows={1}
+            placeholder={placeholder ?? "Write a message…"}
+            className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-brand-500 focus:bg-white focus:outline-none"
+          />
+          {text.trim() ? (
+            <button onClick={() => void send()} disabled={busy} className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50" aria-label="Send">
+              <Send className="size-4" />
+            </button>
+          ) : (
+            <button onClick={() => void toggleVoice()} disabled={busy} className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50" aria-label="Record a voice note">
+              <Mic className="size-4" />
+            </button>
+          )}
+        </div>
+      )}
       <p className="mt-1 flex items-center gap-1 px-1 text-[10px] text-slate-400">
-        <Bot className="size-3" /> Sora is an AI built with Muse Spark Open · a person approves every invoice
+        <Bot className="size-3" /> Sora is an AI built with Muse Spark Open · voice notes in Urdu or English · a person approves every invoice
       </p>
     </div>
   );
