@@ -20,6 +20,8 @@ export interface AuthUser {
   roleName: string | null;
   title: string | null;
   countryCode: string | null;
+  mustChangePassword: boolean;
+  hasRecoveryKey: boolean;
   perms: Set<string>;
 }
 
@@ -61,13 +63,16 @@ export async function loadAuthUser(userId: string): Promise<AuthUser | null> {
       roleName: roles.name,
       title: users.title,
       countryCode: users.countryCode,
+      mustChangePassword: users.mustChangePassword,
+      recoveryKeyHash: users.recoveryKeyHash,
     })
     .from(users)
     .leftJoin(roles, eq(roles.id, users.roleId))
     .where(eq(users.id, userId))
     .limit(1);
   if (!u || !u.isActive) return null;
-  return { ...u, perms: await permsForRole(u.roleId) };
+  const { recoveryKeyHash, ...rest } = u;
+  return { ...rest, hasRecoveryKey: !!recoveryKeyHash, perms: await permsForRole(u.roleId) };
 }
 
 export async function createSession(res: Response, userId: string, userAgent?: string) {

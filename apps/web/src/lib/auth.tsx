@@ -12,6 +12,8 @@ export interface Me {
   roleName: string | null;
   title: string | null;
   countryCode: string | null;
+  mustChangePassword?: boolean;
+  hasRecoveryKey?: boolean;
   perms: string[];
 }
 

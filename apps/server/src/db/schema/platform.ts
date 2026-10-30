@@ -37,6 +37,8 @@ export const users = pgTable(
     phone: text(),
     username: text(),
     passwordHash: text(),
+    mustChangePassword: boolean().notNull().default(false), // set by a one-time password from staff
+    recoveryKeyHash: text(), // staff's own recovery key (shown once), for a lost password with no e-mail server
     roleId: text().references(() => roles.id),
     isActive: boolean().notNull().default(true),
     language: text().notNull().default("en"),

@@ -4,6 +4,7 @@
  * Every write is permission-checked on the server and audited; customer-facing changes emit events
  * so Sora can tell the buyer.
  */
+import { randomBytes } from "node:crypto";
 import { Router } from "express";
 import multer from "multer";
 import archiver from "archiver";
@@ -415,7 +416,7 @@ crmOps.post(
     const [target] = await db().select().from(s.users).where(eq(s.users.id, String(req.params.id))).limit(1);
     if (!target || target.kind !== "staff") throw notFound();
     const password = randomPassword().slice(0, 14);
-    await db().update(s.users).set({ passwordHash: await hashPassword(password) }).where(eq(s.users.id, target.id));
+    await db().update(s.users).set({ passwordHash: await hashPassword(password), mustChangePassword: true }).where(eq(s.users.id, target.id));
     await db().delete(s.sessions).where(eq(s.sessions.userId, target.id));
     await audit(db(), { actorUserId: u.id, actorKind: "human", action: "user.password", entity: "user", entityId: target.id, summary: `${u.name} reset ${target.name}'s password` });
     return { oneTimePassword: password };
@@ -440,3 +441,180 @@ crmOps.get(
 void gte;
 void lt;
 void and;
+
+// ── Leads from Excel ──────────────────────────────────────────────────────────────────────────────────────
+const LEAD_COLUMNS = ["Customer / company name", "Contact person", "Phone / WhatsApp", "E-mail", "Country", "Port", "Address"];
+const cellText = (v: unknown): string => {
+  if (v == null) return "";
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === "object") {
+    const o = v as { richText?: { text: string }[]; text?: unknown; result?: unknown };
+    if (o.richText) return o.richText.map((t) => t.text).join("");
+    if (o.text != null) return String(o.text);
+    if (o.result != null) return String(o.result);
+    return "";
+  }
+  return String(v);
+};
+
+crmOps.get(
+  "/leads/template.xlsx",
+  h(async (req, res) => {
+    requirePerm(req, "crm.leads.upload");
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Leads");
+    ws.columns = LEAD_COLUMNS.map((header, i) => ({ header, key: `c${i}`, width: [30, 22, 20, 30, 18, 22, 32][i] }));
+    ws.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E3A8A" } };
+    const ex = ws.addRow(["Mushi Logistics Ltd", "Daudi Mushi", "+255 754 000 111", "daudi@example.com", "Tanzania", "Dar es Salaam", "Plot 12, Kariakoo (example row - replace it)"]);
+    ex.font = { italic: true, color: { argb: "FF64748B" } };
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+    const ref = wb.addWorksheet("Countries & ports");
+    ref.columns = [
+      { header: "Country", key: "c", width: 26 },
+      { header: "Code", key: "k", width: 8 },
+      { header: "Port", key: "p", width: 30 },
+    ];
+    ref.getRow(1).font = { bold: true };
+    const rows = await db().select({ c: s.countries.name, k: s.countries.code, p: s.ports.name }).from(s.ports).innerJoin(s.countries, eq(s.countries.code, s.ports.countryCode)).orderBy(asc(s.countries.name), asc(s.ports.name));
+    rows.forEach((r) => ref.addRow(r));
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", 'attachment; filename="leads-template.xlsx"');
+    res.send(Buffer.from(await wb.xlsx.writeBuffer()));
+    return undefined;
+  }),
+);
+
+/** Check (dryRun=1) or import an Excel of leads: validated row by row, duplicates skipped, the Supervisor told once. */
+crmOps.post(
+  "/leads/import",
+  upload.single("file"),
+  h(async (req) => {
+    const u = requirePerm(req, "crm.leads.upload");
+    const f = req.file;
+    if (!f) throw bad("Attach the Excel file");
+    const dry = String(req.query.dryRun ?? req.body?.dryRun ?? "") === "1";
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    try {
+      await wb.xlsx.load(f.buffer as unknown as ArrayBuffer);
+    } catch {
+      throw bad("This is not an Excel .xlsx file - download the template and fill it in");
+    }
+    const ws = wb.worksheets[0];
+    if (!ws) throw bad("The file has no sheet");
+    const header = (ws.getRow(1).values as unknown[]).map((v) => cellText(v).toLowerCase());
+    const col = (re: RegExp) => header.findIndex((x, i) => i > 0 && re.test(x));
+    const ci = { name: col(/customer|company/), contact: col(/contact/), phone: col(/phone|whatsapp|mobile/), email: col(/e-?mail/), country: col(/country/), port: col(/port/), address: col(/address/) };
+    if (ci.name < 0 || ci.phone < 0 || ci.country < 0) throw bad("Use the template: the columns Customer name, Phone and Country are required");
+    const raw: { n: number; v: unknown[] }[] = [];
+    ws.eachRow({ includeEmpty: false }, (row, n) => {
+      if (n > 1) raw.push({ n, v: row.values as unknown[] });
+    });
+    if (raw.length > 1000) throw bad("Up to 1,000 rows per file");
+    const [countries, ports] = await Promise.all([db().select().from(s.countries), db().select().from(s.ports)]);
+    const { findLeadByContact } = await import("../services/crm");
+    const seen = new Set<string>();
+    const rows: { row: number; name: string; phone: string; email: string; country: string; port: string; status: "ok" | "duplicate" | "error"; note: string; data?: typeof s.leads.$inferInsert }[] = [];
+    for (const r of raw) {
+      const get = (i: number) => (i > 0 ? cellText(r.v[i]).trim() : "");
+      const name = get(ci.name);
+      const contact = get(ci.contact);
+      const phone = get(ci.phone);
+      const email = get(ci.email).toLowerCase();
+      const countryIn = get(ci.country);
+      const portIn = get(ci.port);
+      const address = get(ci.address);
+      if (!name && !phone && !email) continue;
+      if (/example row/i.test(address)) continue; // the template's sample line
+      const errs: string[] = [];
+      if (name.length < 2) errs.push("customer name missing");
+      if (phone.replace(/\D/g, "").length < 6) errs.push("phone missing or too short");
+      if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) errs.push("e-mail looks wrong");
+      const country = countries.find((c) => c.code.toLowerCase() === countryIn.toLowerCase() || c.name.toLowerCase() === countryIn.toLowerCase());
+      if (!country) errs.push(countryIn ? `unknown country "${countryIn}"` : "country missing");
+      const port = country && portIn ? ports.find((p) => p.countryCode === country.code && p.name.toLowerCase() === portIn.toLowerCase()) : undefined;
+      if (country && portIn && !port) errs.push(`no port "${portIn}" in ${country.name}`);
+      let status: "ok" | "duplicate" | "error" = errs.length ? "error" : "ok";
+      let note = errs.join("; ");
+      const key = phone.replace(/\D/g, "");
+      if (status === "ok") {
+        if (seen.has(key) || (email && seen.has(email))) {
+          status = "duplicate";
+          note = "repeated in this file";
+        } else {
+          const dup = await findLeadByContact(phone, email || null);
+          if (dup) {
+            status = "duplicate";
+            note = `already a lead: ${dup.customerName}`;
+          }
+        }
+        seen.add(key);
+        if (email) seen.add(email);
+      }
+      rows.push({
+        row: r.n,
+        name,
+        phone,
+        email,
+        country: country?.name ?? countryIn,
+        port: port?.name ?? portIn,
+        status,
+        note,
+        data: status === "ok" ? { customerName: name, contactPerson: contact || name, phone, email: email || null, countryCode: country!.code, portId: port?.id ?? null, address: address || null, status: "new", ownerUserId: u.id, source: "excel", createdBy: u.id } : undefined,
+      });
+    }
+    const ok = rows.filter((r) => r.status === "ok");
+    const duplicates = rows.filter((r) => r.status === "duplicate").length;
+    const errors = rows.filter((r) => r.status === "error").length;
+    if (!dry && ok.length) {
+      await db().transaction(async (tx) => {
+        for (const r of ok) {
+          const [lead] = await tx.insert(s.leads).values(r.data!).returning();
+          await audit(tx, { actorUserId: u.id, actorKind: "human", action: "lead.created", entity: "lead", entityId: lead!.id, summary: `Imported lead ${lead!.customerName} from Excel (row ${r.row})` });
+        }
+      });
+      const { notify, usersWithPerm } = await import("../services/notify");
+      const sup = (await usersWithPerm("crm.leads.view_all")).filter((x) => x !== u.id);
+      await notify(sup, { type: "leads_imported", title: `${u.name} imported ${ok.length} lead${ok.length > 1 ? "s" : ""} from Excel`, body: duplicates || errors ? `Skipped: ${duplicates} duplicate(s), ${errors} row(s) with errors` : "No duplicates, no errors", link: "/crm/leads" });
+    }
+    return { dryRun: dry, total: rows.length, ok: ok.length, duplicates, errors, imported: dry ? 0 : ok.length, rows: rows.map(({ data: _d, ...r }) => r) };
+  }),
+);
+
+// ── Website account for a CRM customer (create or link) + one-time password ────────────────────────────────
+function oneTimePassword(): string {
+  const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return [...randomBytes(12)].map((x) => A[x % A.length]).join("").match(/.{4}/g)!.join("-");
+}
+
+crmOps.post(
+  "/leads/:id/website-account",
+  h(async (req) => {
+    const u = requirePerm(req, "website.customers.manage");
+    const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, String(req.params.id))).limit(1);
+    if (!lead || (!can(u, "crm.leads.view_all") && lead.ownerUserId !== u.id)) throw notFound();
+    const email = lead.email?.trim().toLowerCase();
+    if (!email) throw bad("Add the buyer's e-mail to the lead first - it is their sign-in");
+    const [role] = await db().select().from(s.roles).where(eq(s.roles.slug, "customer")).limit(1);
+    let [user] = lead.customerUserId ? await db().select().from(s.users).where(eq(s.users.id, lead.customerUserId)).limit(1) : [];
+    let action: "created" | "linked" | "reset" = user ? "reset" : "linked";
+    if (!user) [user] = await db().select().from(s.users).where(sql`lower(${s.users.email}) = ${email}`).limit(1);
+    if (user && (user.kind === "staff" || user.kind === "fte")) throw conflict("That e-mail belongs to a staff account");
+    const otp = oneTimePassword();
+    const hash = await hashPassword(otp);
+    if (!user) {
+      action = "created";
+      [user] = await db().insert(s.users).values({ kind: "customer", name: lead.contactPerson || lead.customerName, email, phone: lead.phone, company: lead.customerName, countryCode: lead.countryCode, roleId: role!.id, passwordHash: hash, mustChangePassword: true }).returning();
+    } else {
+      // a visitor who chatted becomes a customer: same person, same conversation history
+      await db().update(s.users).set({ kind: "customer", roleId: role!.id, passwordHash: hash, mustChangePassword: true, company: user.company ?? lead.customerName, phone: user.phone ?? lead.phone, updatedAt: new Date() }).where(eq(s.users.id, user.id));
+      if (action === "reset") await db().delete(s.sessions).where(eq(s.sessions.userId, user.id));
+    }
+    // every lead with this e-mail belongs to the account
+    await db().update(s.leads).set({ customerUserId: user!.id }).where(and(sql`(${s.leads.id} = ${lead.id} or lower(${s.leads.email}) = ${email})`, sql`${s.leads.customerUserId} is null`));
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: `customer.account_${action}`, entity: "lead", entityId: lead.id, summary: `${u.name} ${action === "reset" ? "issued a new one-time password for" : action === "created" ? "created the website account of" : "linked the website account of"} ${lead.customerName}` });
+    return { action, userId: user!.id, email, oneTimePassword: otp };
+  }),
+);

@@ -2,8 +2,9 @@ import { Link, useSearchParams } from "react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { LEAD_STATUS_LABELS } from "@autofte/shared";
 import { useState } from "react";
-import { Bot, Plus } from "lucide-react";
+import { Bot, FileSpreadsheet, Plus } from "lucide-react";
 import { NewLeadModal } from "./LeadForms";
+import { LeadImportModal } from "./LeadImport";
 import { api, qs } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { date } from "../lib/format";
@@ -28,6 +29,7 @@ export default function Leads() {
   const { can } = useAuth();
   const [sp, setSp] = useSearchParams();
   const [newLead, setNewLead] = useState(false);
+  const [importing, setImporting] = useState(false);
   const params = { q: sp.get("q") ?? "", status: sp.get("status") ?? "", agent: sp.get("agent") ?? "", page: Number(sp.get("page") ?? 1) };
   const q = useQuery({ queryKey: ["leads", params], queryFn: () => api.get<{ items: LeadRow[]; total: number; page: number; pageSize: number; agents: { id: string; name: string; kind: string; n: number }[] }>(`/api/crm/leads${qs(params)}`), placeholderData: keepPreviousData });
   const set = (k: string, v: string) => {
@@ -39,8 +41,23 @@ export default function Leads() {
   };
   return (
     <div>
-      <PageHeader title={can("crm.leads.view_all") ? "All leads" : "My leads"} subtitle="Every buyer, from the website chat, the app, Excel uploads and agents" actions={can("crm.leads.create") ? <Button onClick={() => setNewLead(true)}><Plus className="size-4" /> New lead</Button> : undefined} />
+      <PageHeader title={can("crm.leads.view_all") ? "All leads" : "My leads"} subtitle="Every buyer, from the website chat, the app, Excel uploads and agents" actions={
+          <div className="flex flex-wrap gap-2">
+            {can("crm.leads.upload") && (
+              <Button variant="secondary" onClick={() => setImporting(true)}>
+                <FileSpreadsheet className="size-4" /> Import from Excel
+              </Button>
+            )}
+            {can("crm.leads.create") && (
+              <Button onClick={() => setNewLead(true)}>
+                <Plus className="size-4" /> New lead
+              </Button>
+            )}
+          </div>
+        }
+      />
       <NewLeadModal open={newLead} onClose={() => setNewLead(false)} />
+      <LeadImportModal open={importing} onClose={() => setImporting(false)} />
       {q.data?.agents && q.data.agents.length > 0 && (
         <div className="scrollbar-thin mb-4 flex gap-2 overflow-x-auto pb-1">
           {q.data.agents.map((a) => (

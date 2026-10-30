@@ -15,6 +15,48 @@ const DEMO: Record<string, { label: string; who: string; icon: React.ReactNode; 
   admin: { label: "Admin", who: "Kenji Watanabe", icon: <Crown className="size-5" />, to: "/crm" },
 };
 
+/** Lost password: staff use the recovery key they saved; customers get a one-time password from the team. */
+function RecoverForm() {
+  const [f, setF] = useState({ email: "", recoveryKey: "", newPassword: "" });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="mt-6 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setMsg(null);
+        try {
+          const r = await api.post<{ message: string }>("/api/auth/recover", f);
+          setMsg({ ok: true, text: r.message });
+          setF({ email: "", recoveryKey: "", newPassword: "" });
+        } catch (ex) {
+          setMsg({ ok: false, text: (ex as Error).message });
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <p className="text-sm font-semibold text-slate-900">Reset with your recovery key (staff)</p>
+      <p className="text-xs text-slate-500">Customers: ask us in the chat — a team member sends you a one-time password.</p>
+      <Field label="E-mail">
+        <Input required type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="username" />
+      </Field>
+      <Field label="Recovery key" hint="The 16-character key you saved, e.g. ABCD-EFGH-JKLM-NPQR">
+        <Input required value={f.recoveryKey} onChange={(e) => setF({ ...f, recoveryKey: e.target.value })} autoComplete="off" className="font-mono uppercase" />
+      </Field>
+      <Field label="New password (8+ characters)">
+        <Input required type="password" minLength={8} value={f.newPassword} onChange={(e) => setF({ ...f, newPassword: e.target.value })} autoComplete="new-password" />
+      </Field>
+      {msg && <p className={`rounded-xl px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-700"}`}>{msg.text}</p>}
+      <Button type="submit" variant="secondary" className="w-full" loading={busy}>
+        Reset password
+      </Button>
+    </form>
+  );
+}
+
 export default function Login() {
   const nav = useNavigate();
   const qc = useQueryClient();
@@ -23,6 +65,7 @@ export default function Login() {
   const [f, setF] = useState({ login: "", password: "" });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [forgot, setForgot] = useState(false);
 
   const after = async (u: Me, to?: string) => {
     await refresh();
@@ -66,8 +109,13 @@ export default function Login() {
             <Link to="/register" className="font-semibold text-brand-700">
               Create an account
             </Link>
+            {" · "}
+            <button type="button" onClick={() => setForgot((v) => !v)} className="font-semibold text-brand-700">
+              Forgot password?
+            </button>
           </p>
         </form>
+        {forgot && <RecoverForm />}
       </Card>
       {roles.data && roles.data.length > 0 && (
         <Card className="border-violet-200 bg-gradient-to-br from-violet-50 to-white p-6 sm:p-8">

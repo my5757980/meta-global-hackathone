@@ -7,6 +7,7 @@ import { useSite } from "../lib/site";
 import { clsx } from "../ui";
 import { ChatWidget } from "../chat/ChatWidget";
 import { CallLayer } from "../chat/calls";
+import { MustChangePassword } from "../account/Security";
 
 const NAV = [
   { to: "/", label: "Home" },
@@ -168,6 +169,7 @@ export function SiteLayout() {
       <Footer />
       {loc.pathname !== "/chat" && (!me || me.kind !== "staff") && <ChatWidget />}
       {me && <CallLayer />}
+      <MustChangePassword />
     </div>
   );
 }

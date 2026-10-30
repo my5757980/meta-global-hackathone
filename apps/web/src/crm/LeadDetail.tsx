@@ -2,11 +2,11 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LEAD_STATUS_LABELS } from "@autofte/shared";
-import { Bot, ChevronLeft, FilePlus2, Send } from "lucide-react";
+import { Bot, ChevronLeft, FilePlus2, Globe, Send } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { RequestInvoiceModal } from "./LeadForms";
 import { api } from "../lib/api";
-import { dateTime, usd2 } from "../lib/format";
+import { ago, dateTime, usd2 } from "../lib/format";
 import { Avatar, Button, Card, Empty, Select, Skeleton, StatusBadge, Textarea } from "../ui";
 
 interface LeadFull {
@@ -16,6 +16,7 @@ interface LeadFull {
   country: { name: string } | null;
   port: { name: string } | null;
   owner: { name: string; kind: string } | null;
+  account: { id: string; email: string | null; kind: string; mustChangePassword: boolean; lastSeenAt: string | null } | null;
 }
 
 export default function LeadDetail() {
@@ -83,6 +84,7 @@ export default function LeadDetail() {
               ))}
             </dl>
           </Card>
+          {can("website.customers.manage") && <WebsiteAccount leadId={lead.id} email={lead.email} name={lead.contactPerson || lead.customerName} account={q.data.account} />}
           <Card>
             <p className="font-semibold text-slate-900">Invoices</p>
             {q.data.invoices.length ? (
@@ -143,5 +145,63 @@ export default function LeadDetail() {
         </Card>
       </div>
     </div>
+  );
+}
+
+/** The buyer's website account: create or link it (by e-mail) and hand over a one-time password. */
+function WebsiteAccount({ leadId, email, name, account }: { leadId: string; email: string | null; name: string; account: LeadFull["account"] }) {
+  const qc = useQueryClient();
+  const [otp, setOtp] = useState<{ email: string; oneTimePassword: string; action: string } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.post<{ email: string; oneTimePassword: string; action: string }>(`/api/crm/leads/${leadId}/website-account`);
+      setOtp(r);
+      await qc.invalidateQueries({ queryKey: ["lead", leadId] });
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const site = window.location.origin;
+  const message = otp ? `Hello ${name.split(" ")[0]}, your account at ${site} is ready. Sign in with ${otp.email} and this one-time password: ${otp.oneTimePassword} — you will choose your own password right after. You will see your invoices, documents and shipping there.` : "";
+  return (
+    <Card>
+      <p className="flex items-center gap-2 font-semibold text-slate-900">
+        <Globe className="size-4 text-brand-600" /> Website account
+      </p>
+      {account && account.kind === "customer" ? (
+        <p className="mt-1 text-sm text-slate-600">
+          {account.email} · {account.mustChangePassword ? "one-time password not used yet" : account.lastSeenAt ? `last seen ${ago(account.lastSeenAt)}` : "has not signed in yet"}
+        </p>
+      ) : account ? (
+        <p className="mt-1 text-sm text-slate-600">Chatted as a visitor ({account.email}) — creating the account keeps the chat history.</p>
+      ) : (
+        <p className="mt-1 text-sm text-slate-600">{email ? `No account yet — it will use ${email} to sign in.` : "Add the buyer's e-mail to give them an account."}</p>
+      )}
+      {otp ? (
+        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
+          <p className="font-semibold text-emerald-900">
+            {otp.action === "created" ? "Account created" : otp.action === "linked" ? "Account linked" : "New one-time password"} — shown once:
+          </p>
+          <p className="mt-1 font-mono text-lg font-bold tracking-wider text-emerald-900 select-all">{otp.oneTimePassword}</p>
+          <p className="mt-2 text-xs text-emerald-900/80">{message}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" onClick={() => void navigator.clipboard?.writeText(message)}>
+              Copy message
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button size="sm" variant="secondary" className="mt-3" loading={busy} disabled={!email} onClick={() => void go()}>
+          {account?.kind === "customer" ? "New one-time password" : "Create account & one-time password"}
+        </Button>
+      )}
+      {err && <p className="mt-2 text-sm text-rose-600">{err}</p>}
+    </Card>
   );
 }

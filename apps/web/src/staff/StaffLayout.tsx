@@ -8,6 +8,7 @@ import { useLiveEvent, useLiveStream } from "../lib/sse";
 import { ago } from "../lib/format";
 import { askDesktopNotify, desktopNotifyState, notifyDesktop } from "../lib/desktopNotify";
 import { CallLayer } from "../chat/calls";
+import { MustChangePassword, SecurityModal } from "../account/Security";
 import type { ChatMsg } from "../chat/ChatThread";
 import { Avatar, Spinner, clsx } from "../ui";
 
@@ -40,6 +41,7 @@ interface Notif {
 export function StaffLayout() {
   const { me, loading, can, logout } = useAuth();
   const [menu, setMenu] = useState(false);
+  const [security, setSecurity] = useState(false);
   const loc = useLocation();
   useLiveStream(!!me);
   usePresencePing(!!me);
@@ -144,13 +146,16 @@ export function StaffLayout() {
           </div>
           <div className="ml-auto flex items-center gap-2">
             <NotificationBell />
-            <div className="flex items-center gap-2 rounded-xl px-2 py-1">
+            <button onClick={() => setSecurity(true)} className="flex items-center gap-2 rounded-xl px-2 py-1 text-left hover:bg-slate-100" title="My account security">
               <Avatar name={me.name} kind="staff" size={30} />
               <div className="hidden leading-tight sm:block">
                 <p className="text-sm font-semibold text-slate-900">{me.name}</p>
-                <p className="text-[11px] text-slate-500">{me.roleName}</p>
+                <p className="text-[11px] text-slate-500">
+                  {me.roleName}
+                  {!me.hasRecoveryKey && <span className="ml-1 text-amber-600">· set recovery key</span>}
+                </p>
               </div>
-            </div>
+            </button>
             <button onClick={() => void logout()} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Sign out">
               <LogOut className="size-4" />
             </button>
@@ -161,6 +166,8 @@ export function StaffLayout() {
         </main>
       </div>
       <CallLayer />
+      <SecurityModal open={security} onClose={() => setSecurity(false)} />
+      <MustChangePassword />
     </div>
   );
 }

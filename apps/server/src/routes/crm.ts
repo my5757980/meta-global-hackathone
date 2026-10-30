@@ -86,7 +86,8 @@ crmRouter.get(
     const [country] = lead.countryCode ? await db().select().from(s.countries).where(eq(s.countries.code, lead.countryCode)).limit(1) : [];
     const [port] = lead.portId ? await db().select().from(s.ports).where(eq(s.ports.id, lead.portId)).limit(1) : [];
     const [owner] = lead.ownerUserId ? await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind }).from(s.users).where(eq(s.users.id, lead.ownerUserId)).limit(1) : [];
-    return { lead, notes: notes.map((x) => ({ ...x.n, author: x.author, authorKind: x.authorKind })), invoices, country: country ?? null, port: port ?? null, owner: owner ?? null };
+    const [account] = lead.customerUserId ? await db().select({ id: s.users.id, email: s.users.email, kind: s.users.kind, mustChangePassword: s.users.mustChangePassword, lastSeenAt: s.users.lastSeenAt }).from(s.users).where(eq(s.users.id, lead.customerUserId)).limit(1) : [];
+    return { lead, notes: notes.map((x) => ({ ...x.n, author: x.author, authorKind: x.authorKind })), invoices, country: country ?? null, port: port ?? null, owner: owner ?? null, account: account ?? null };
   }),
 );
 
