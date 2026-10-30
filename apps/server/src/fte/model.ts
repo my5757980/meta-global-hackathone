@@ -22,6 +22,7 @@ if (env.FIREWORKS_API_KEY && env.FIREWORKS_MODEL) {
 
 export const modelConfigured = () => providers.length > 0;
 export const primaryModelName = () => providers[0]?.model ?? "not configured";
+export const primaryProviderName = () => providers[0]?.name ?? null;
 
 export type Effort = "low" | "medium" | "high" | "xhigh";
 

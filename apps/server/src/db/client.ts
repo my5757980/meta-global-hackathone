@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { drizzle as drizzlePglite, type PgliteDatabase } from "drizzle-orm/pglite";
@@ -32,12 +32,45 @@ export async function openDb(opts: { memory?: boolean } = {}): Promise<DB> {
     _pool = new pg.Pool({ connectionString: env.DATABASE_URL, max: 10 });
     _db = drizzlePg(_pool, { schema, casing: "snake_case" }) as unknown as DB;
   } else {
-    if (!opts.memory) mkdirSync(pgliteDir, { recursive: true });
+    if (!opts.memory) {
+      mkdirSync(pgliteDir, { recursive: true });
+      lockPglite();
+    }
     _pglite = opts.memory ? new PGlite() : new PGlite(pgliteDir);
     await _pglite.waitReady;
     _db = drizzlePglite(_pglite, { schema, casing: "snake_case" });
   }
   return _db;
+}
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
+/** PGlite is single-process: a second server, or `npm run setup` while the server runs, would corrupt the files. */
+export function lockPglite() {
+  const file = `${pgliteDir}.lock`;
+  try {
+    const pid = Number(readFileSync(file, "utf8"));
+    if (pid && pid !== process.pid && alive(pid)) {
+      throw new Error(`The embedded database is in use by another AutoFTE process (pid ${pid}). Stop that process first — to re-seed, stop the server, run npm run setup, then start it again. (If no AutoFTE process is running, delete ${file}.)`);
+    }
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+  writeFileSync(file, String(process.pid));
+  process.once("exit", () => {
+    try {
+      if (Number(readFileSync(file, "utf8")) === process.pid) unlinkSync(file);
+    } catch {
+      /* already gone */
+    }
+  });
 }
 
 export function db(): DB {

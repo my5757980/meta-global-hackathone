@@ -12,6 +12,7 @@ import { emit } from "../services/events";
 import { loadSkills } from "../fte/skills";
 import { TOOLS } from "../fte/tools";
 import { primaryModelName, modelConfigured } from "../fte/model";
+import { CASES, CATEGORIES, evalProgress, startEvals } from "../fte/evals";
 
 export const fteRouter = Router();
 
@@ -27,7 +28,7 @@ fteRouter.get(
       db().select({ n: sql<number>`count(*)::int` }).from(s.auditLog).where(and(eq(s.auditLog.actorKind, "fte"), eq(s.auditLog.action, "invoice.requested"), gt(s.auditLog.createdAt, since))),
       db().select({ n: sql<number>`count(*)::int` }).from(s.auditLog).where(and(eq(s.auditLog.actorKind, "fte"), eq(s.auditLog.action, "chat.handover"), gt(s.auditLog.createdAt, since))),
       db().select().from(s.approvals).where(eq(s.approvals.status, "pending")).orderBy(desc(s.approvals.createdAt)),
-      db().select().from(s.evalRuns).orderBy(desc(s.evalRuns.startedAt)).limit(1),
+      db().select({ id: s.evalRuns.id, total: s.evalRuns.total, passed: s.evalRuns.passed, startedAt: s.evalRuns.startedAt, finishedAt: s.evalRuns.finishedAt }).from(s.evalRuns).orderBy(desc(s.evalRuns.startedAt)).limit(1),
     ]);
     const pendingInvoices = await db()
       .select({ id: s.invoices.id, number: s.invoices.number, consignee: s.invoices.consigneeName, total: s.invoices.totalCnfUsd, createdAt: s.invoices.createdAt })
@@ -111,5 +112,41 @@ fteRouter.post(
       await emit("approval.decided", { approvalId: id }, { tx });
     });
     return { ok: true };
+  }),
+);
+
+/** Sora's eval suite: the cases, the recent runs and the one in progress. */
+fteRouter.get(
+  "/evals",
+  h(async (req) => {
+    requirePerm(req, "fte.console");
+    const runs = await db()
+      .select({ id: s.evalRuns.id, startedAt: s.evalRuns.startedAt, finishedAt: s.evalRuns.finishedAt, total: s.evalRuns.total, passed: s.evalRuns.passed, provider: s.evalRuns.provider, model: s.evalRuns.model })
+      .from(s.evalRuns)
+      .orderBy(desc(s.evalRuns.startedAt))
+      .limit(20);
+    return { runs, running: evalProgress(), categories: CATEGORIES, cases: CASES.map((c) => ({ id: c.id, category: c.category, title: c.title, safety: !!c.safety })) };
+  }),
+);
+
+fteRouter.get(
+  "/evals/:id",
+  h(async (req) => {
+    requirePerm(req, "fte.console");
+    const [r] = await db().select().from(s.evalRuns).where(eq(s.evalRuns.id, String(req.params.id))).limit(1);
+    if (!r) throw notFound();
+    return r;
+  }),
+);
+
+fteRouter.post(
+  "/evals/run",
+  h(async (req) => {
+    const u = requirePerm(req, "fte.evals.run");
+    const b = parse(z.object({ ids: z.array(z.string().max(60)).max(100).optional(), concurrency: z.number().int().min(1).max(4).optional() }), req.body ?? {});
+    if (evalProgress()) throw conflict("An eval run is already in progress");
+    const r = await startEvals(b);
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "fte.evals", summary: `${u.name} ran Sora's eval suite (${r.total} cases)` });
+    return r;
   }),
 );

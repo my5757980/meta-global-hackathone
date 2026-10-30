@@ -5,12 +5,13 @@
 import { rmSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { env, filesDir, pgliteDir } from "../env";
-import { closeDb, db, dbKind, openDb, runMigrations } from "../db/client";
+import { closeDb, db, dbKind, lockPglite, openDb, runMigrations } from "../db/client";
 import { isSeeded, seedAll } from "../seed";
 
 async function main() {
   const reset = process.argv.includes("--reset");
   if (reset && !env.DATABASE_URL) {
+    lockPglite(); // refuse to wipe the files under a running server
     rmSync(pgliteDir, { recursive: true, force: true });
     rmSync(filesDir, { recursive: true, force: true });
   }

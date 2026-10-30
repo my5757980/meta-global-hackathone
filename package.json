@@ -15,11 +15,11 @@
   },
   "scripts": {
     "dev": "concurrently -k -n api,web -c blue,magenta \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
-    "setup": "npm run setup -w apps/server",
+    "setup": "npm run setup -w apps/server --",
     "build": "npm run build -w apps/web && npm run build -w apps/server",
     "start": "npm run start -w apps/server",
     "test": "npm run test -w apps/server",
-    "eval": "npm run eval -w apps/server",
+    "eval": "npm run eval -w apps/server --",
     "typecheck": "npm run typecheck -w packages/shared && npm run typecheck -w apps/server && npm run typecheck -w apps/web",
     "lint:secrets": "node scripts/secret-scan.mjs"
   },
