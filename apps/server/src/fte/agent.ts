@@ -80,7 +80,7 @@ async function buildHistory(conversationId: string, soraId: string): Promise<Cha
     let text = m.body ?? "";
     const meta = (m.meta ?? {}) as { cards?: ChatCard[] };
     if (meta.cards?.length) {
-      text += "\n[cards shown: " + meta.cards.map((c) => (c.type === "vehicles" ? c.items.map((x) => x.title + " " + x.id).join("; ") : c.type === "quote" ? `quote ${c.quoteId} ${c.title} C&F ${c.totalUsd}` : c.type === "invoice" ? `invoice ${c.number} ${c.status}` : c.type)).join(" | ") + "]";
+      text += "\n[cards shown: " + meta.cards.map((c) => (c.type === "vehicles" ? c.items.map((x) => `${x.title} ${x.id}${x.kind === "lot" ? ` lot_id=${x.link.split("/").pop()}` : ""}`).join("; ") : c.type === "quote" ? `quote ${c.quoteId} ${c.title} C&F ${c.totalUsd}` : c.type === "invoice" ? `invoice ${c.number} ${c.status}` : c.type === "sheet" ? `sheet lot_id=${c.lotId} grade ${c.grade} verdict ${c.verdict}` : "")).join(" | ") + "]";
     }
     if (m.kind === "system") {
       out.unshift({ role: "user", content: `[System note: ${text}]` });
@@ -191,6 +191,7 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
   let firstReplyMs: number | null = null;
   const cards: ChatCard[] = [];
   let lastSearch: unknown[] | null = null;
+  let lastLots: { lot_id: string; lot_no: number; hall: string; sale_date: string; title: string; grade: string; mileage_km: number; start_price_jpy: number; est_fob_usd: number | null; link: string; image: string }[] | null = null;
   let handedOver = false;
   let status: "ok" | "error" | "handover" = "ok";
   let error: string | null = null;
@@ -225,6 +226,12 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
         try {
           const data = JSON.parse(res.text);
           if (call.function.name === "search_stock") lastSearch = data.results ?? null;
+          if (call.function.name === "search_auction_lots" && data.results?.length) {
+            lastLots = data.results;
+          }
+          if (call.function.name === "read_auction_sheet" && data.lot_id) {
+            cards.push({ type: "sheet", lotId: data.lot_id, verdict: (data.verdict ?? "caution") as "good" | "caution" | "avoid", grade: String(data.grade ?? "?"), summary: [...(data.reasons ?? [])].slice(0, 3).join(" · ") });
+          }
           if (call.function.name === "quote_cnf" && data.quote_id) {
             cards.push({ type: "quote", quoteId: data.quote_id, title: `${data.stock_no} · ${data.title}`, lines: data.lines, totalUsd: data.cnf_usd, port: data.port });
           }
@@ -241,6 +248,11 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
     if (lastSearch) {
       const vc = vehicleCard(lastSearch as never, finalText);
       if (vc) cards.unshift(vc);
+    }
+    if (lastLots) {
+      const hit = lastLots.filter((l) => finalText.includes(String(l.lot_no)));
+      const pick = (hit.length ? hit : lastLots).slice(0, 3);
+      cards.unshift({ type: "vehicles", items: pick.map((l) => ({ kind: "lot" as const, id: `Lot ${l.lot_no}`, title: l.title, priceLabel: `Start ¥${Number(l.start_price_jpy).toLocaleString("en-US")}`, image: l.image, link: l.link, facts: [`Grade ${l.grade}`, `${Number(l.mileage_km).toLocaleString("en-US")} km`, l.hall, l.sale_date] })) });
     }
     if (finalText || cards.length) {
       firstReplyMs = Date.now() - t0;

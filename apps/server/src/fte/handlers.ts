@@ -106,7 +106,7 @@ export function registerSoraHandlers() {
       kind: "approval",
       note:
         ap.status === "approved"
-          ? `The Supervisor APPROVED your request (${ap.kind}${pct ? ` ${pct}%` : ""})${ap.decisionNote ? ` with note: ${ap.decisionNote}` : ""}. ${ap.kind === "discount" && pct ? `Re-quote with quote_cnf using discount_pct ${pct} — it is now allowed for this buyer.` : "Continue with the buyer."}`
+          ? `The Supervisor APPROVED your request (${ap.kind}${pct ? ` ${pct}%` : ""}${(ap.payload as { amountJpy?: number })?.amountJpy ? ` ¥${(ap.payload as { amountJpy: number }).amountJpy.toLocaleString("en-US")}` : ""})${ap.decisionNote ? ` with note: ${ap.decisionNote}` : ""}. ${ap.kind === "discount" && pct ? `Re-quote with quote_cnf using discount_pct ${pct} — it is now allowed for this buyer.` : ap.kind === "bid" && ap.lotId ? `Place the bid now with place_bid (lot_id ${ap.lotId}, amount_jpy ${(ap.payload as { amountJpy?: number })?.amountJpy}, buyer_confirmed true) and tell the buyer.` : "Continue with the buyer."}`
           : `The Supervisor did NOT approve your request (${ap.kind}${pct ? ` ${pct}%` : ""})${ap.decisionNote ? ` — note: ${ap.decisionNote}` : ""}. Tell the buyer politely and offer the best price within policy.`,
     });
   });

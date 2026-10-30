@@ -35,7 +35,10 @@ export interface ToolDef {
 
 const actorOf = (ctx: ToolCtx): Actor => ({ userId: ctx.principalUserId, kind: ctx.principalKind, name: ctx.principalName, conversationId: ctx.conversationId ?? null, fteRunId: ctx.runId ?? null });
 
-export class ToolError extends Error {}
+import { ToolError } from "./errors";
+export { ToolError };
+import { AUCTION_TOOLS, lotRef, resolveLot } from "./auctionTools";
+import { getLot } from "../services/auction";
 
 const money = (n: number | null | undefined) => (n == null ? null : Math.round(Number(n) * 100) / 100);
 
@@ -55,7 +58,7 @@ async function resolvePort(portId?: string, country?: string, portName?: string)
   return null;
 }
 
-export const TOOLS: ToolDef[] = [
+const BASE_TOOLS: ToolDef[] = [
   {
     name: "search_stock",
     description:
@@ -167,51 +170,80 @@ export const TOOLS: ToolDef[] = [
   {
     name: "quote_cnf",
     description:
-      "Compute the exact landed price for a stock car to a port using the company's price policy: vehicle FOB, discount, inspection, freight, C&F, insurance and CIF. Always use this for prices — never calculate yourself. A discount above your envelope is refused (then use request_approval).",
+      "Compute the exact landed price to a port using the company's price policy: vehicle FOB, discount, inspection, freight, C&F, insurance and CIF. Works for a stock car (stock_no) or an auction lot (lot_id, with the bid amount; default = recent average). Always use this for prices — never calculate yourself. A discount above your envelope is refused unless a supervisor approved it (then use request_approval).",
     input: {
-      stock_no: z.string().min(3).max(40).describe("Stock number of the car"),
+      stock_no: z.string().min(3).max(40).optional().describe("Stock number of a car in stock"),
+      lot_id: lotRef.optional(),
+      bid_jpy: z.number().int().positive().optional().describe("For a lot: the hammer price to assume (default: recent average)"),
       port_id: z.string().min(8).max(40).describe("port_id from list_ports"),
       discount_pct: z.number().min(0).max(50).optional(),
     },
     async run(a, ctx) {
-      const v = await getVehicleBySlugOrId(String(a.stock_no));
-      if (!v) throw new ToolError(`No stock car ${a.stock_no}`);
-      if (v.status === "sold") throw new ToolError(`${v.stockNo} is already sold — offer another car`);
+      if (!a.stock_no && !a.lot_id) throw new ToolError("Give stock_no (stock car) or lot_id (auction lot)");
       const port = await resolvePort(String(a.port_id));
       if (!port) throw new ToolError("Unknown port_id — call list_ports first");
       const [country] = await db().select().from(s.countries).where(eq(s.countries.code, port.countryCode)).limit(1);
       const env = await envelope();
       const discountPct = Number(a.discount_pct ?? 0);
       if (discountPct > env.maxDiscountPct) {
-        return { needs_approval: true, max_discount_pct: env.maxDiscountPct, message: `A ${discountPct}% discount is above your limit of ${env.maxDiscountPct}%. Call request_approval to ask the Supervisor, and tell the buyer you are asking.` };
+        const approved = ctx.conversationId
+          ? await db()
+              .select()
+              .from(s.approvals)
+              .where(and(eq(s.approvals.kind, "discount"), eq(s.approvals.status, "approved"), eq(s.approvals.conversationId, ctx.conversationId), sql`(${s.approvals.payload}->>'discountPct')::float >= ${discountPct}`))
+              .limit(1)
+          : [];
+        if (!approved.length) return { needs_approval: true, max_discount_pct: env.maxDiscountPct, message: `A ${discountPct}% discount is above your limit of ${env.maxDiscountPct}%. Call request_approval to ask the Supervisor, and tell the buyer you are asking.` };
       }
       const policy = await pricingPolicy();
-      const q = quote({ basis: { kind: "stock", priceUsd: Number(v.discountPriceUsd ?? v.priceUsd) }, m3: Number(v.m3), port: { name: port.name, freightUsdPerM3: Number(port.freightUsdPerM3) }, country: { name: country!.name, inspectionRequired: country!.inspectionRequired, inspectionFeeUsd: Number(country!.inspectionFeeUsd) }, policy, discountPct });
+      let title = "";
+      let m3 = 0;
+      let basis: { kind: "stock"; priceUsd: number } | { kind: "lot"; bidJpy: number };
+      let vehicleId: string | null = null;
+      let lotId: string | null = null;
+      let label = "";
+      if (a.stock_no) {
+        const v = await getVehicleBySlugOrId(String(a.stock_no));
+        if (!v) throw new ToolError(`No stock car ${a.stock_no}`);
+        if (v.status === "sold") throw new ToolError(`${v.stockNo} is already sold — offer another car`);
+        title = v.title;
+        m3 = Number(v.m3);
+        basis = { kind: "stock", priceUsd: Number(v.discountPriceUsd ?? v.priceUsd) };
+        vehicleId = v.id;
+        label = v.stockNo;
+      } else {
+        const l = await resolveLot(a.lot_id);
+        const bid = Number(a.bid_jpy ?? l.avgPriceJpy ?? l.startPriceJpy);
+        title = `${l.year} ${l.make} ${l.model} — auction lot ${l.lotNo} (${l.hall})`;
+        const [spec] = await db()
+          .select({ l: s.vehicles.lengthMm, w: s.vehicles.widthMm, h: s.vehicles.heightMm })
+          .from(s.vehicles)
+          .innerJoin(s.vehicleModels, eq(s.vehicleModels.id, s.vehicles.modelId))
+          .where(ilike(s.vehicleModels.name, l.model))
+          .limit(1);
+        m3 = spec?.l && spec.w && spec.h ? Math.round(((spec.l * spec.w * spec.h) / 1e9) * 100) / 100 : 12;
+        basis = { kind: "lot", bidJpy: bid };
+        lotId = l.id;
+        label = `lot ${l.lotNo}`;
+      }
+      const q = quote({ basis, m3, port: { name: port.name, freightUsdPerM3: Number(port.freightUsdPerM3) }, country: { name: country!.name, inspectionRequired: country!.inspectionRequired, inspectionFeeUsd: Number(country!.inspectionFeeUsd) }, policy, discountPct });
       const saved = await db().transaction(async (tx) => {
         const [row] = await tx
           .insert(s.quotes)
-          .values({
-            conversationId: ctx.conversationId ?? null,
-            vehicleId: v.id,
-            portId: port.id,
-            title: v.title,
-            lines: q.lines as never,
-            totalCnfUsd: q.cnfUsd,
-            pushUsd: q.fobUsd,
-            discountPct,
-            fxJpyPerUsd: policy.fxJpyPerUsd,
-            m3: Number(v.m3),
-            createdBy: ctx.principalUserId,
-            expiresAt: new Date(Date.now() + 7 * 86400_000),
-          })
+          .values({ conversationId: ctx.conversationId ?? null, vehicleId, auctionLotId: lotId, portId: port.id, title, lines: q.lines as never, totalCnfUsd: q.cnfUsd, pushUsd: q.fobUsd, discountPct, fxJpyPerUsd: policy.fxJpyPerUsd, m3, createdBy: ctx.principalUserId, expiresAt: new Date(Date.now() + 7 * 86400_000) })
           .returning();
-        await audit(tx, { actorUserId: ctx.principalUserId, actorKind: ctx.principalKind, action: "quote.created", entity: "quote", entityId: row!.id, summary: `Quoted ${v.stockNo} to ${port.name}: C&F $${q.cnfUsd.toLocaleString("en-US")}${discountPct ? ` (${discountPct}% discount)` : ""}`, data: { cnf: q.cnfUsd, cif: q.cifUsd }, conversationId: ctx.conversationId, fteRunId: ctx.runId });
+        await audit(tx, { actorUserId: ctx.principalUserId, actorKind: ctx.principalKind, action: "quote.created", entity: "quote", entityId: row!.id, summary: `Quoted ${label} to ${port.name}: C&F $${q.cnfUsd.toLocaleString("en-US")}${discountPct ? ` (${discountPct}% discount)` : ""}`, data: { cnf: q.cnfUsd, cif: q.cifUsd }, conversationId: ctx.conversationId, fteRunId: ctx.runId });
         return row!;
       });
+      if (ctx.conversationId && ctx.principalKind === "fte") {
+        const { scheduleQuoteFollowUp } = await import("./handlers");
+        await scheduleQuoteFollowUp(ctx.conversationId, saved.id).catch(() => {});
+      }
       return {
         quote_id: saved.id,
-        stock_no: v.stockNo,
-        title: v.title,
+        stock_no: a.stock_no ?? undefined,
+        lot_id: lotId ?? undefined,
+        title,
         port: port.name,
         country: country!.name,
         lines: q.lines,
@@ -220,6 +252,7 @@ export const TOOLS: ToolDef[] = [
         advance_usd: q.advanceUsd,
         advance_percent: policy.advancePercent,
         valid_days: 7,
+        note: lotId ? "Auction prices are estimates until the hammer falls; the final invoice uses the actual price." : undefined,
         rhd_note: country!.rhdAllowed ? undefined : "Warn the buyer: right-hand-drive imports may not be allowed in this country.",
       };
     },
@@ -271,7 +304,8 @@ export const TOOLS: ToolDef[] = [
       if (!lead) throw new ToolError("Unknown lead_id");
       const qs = await db().select().from(s.quotes).where(inArray(s.quotes.id, a.quote_ids as string[]));
       if (qs.length !== (a.quote_ids as string[]).length) throw new ToolError("One of the quote_ids does not exist — quote again");
-      const vehicleRows = await db().select().from(s.vehicles).where(inArray(s.vehicles.id, qs.map((q) => q.vehicleId).filter(Boolean) as string[]));
+      const vIds = qs.map((q) => q.vehicleId).filter(Boolean) as string[];
+      const vehicleRows = vIds.length ? await db().select().from(s.vehicles).where(inArray(s.vehicles.id, vIds)) : [];
       for (const v of vehicleRows) if (v.status === "sold") throw new ToolError(`${v.stockNo} was sold meanwhile — offer another car`);
       const port = qs[0]!.portId ? (await db().select().from(s.ports).where(eq(s.ports.id, qs[0]!.portId!)).limit(1))[0] : null;
       const inv = await requestInvoice(
@@ -288,6 +322,9 @@ export const TOOLS: ToolDef[] = [
           quoteId: qs[0]!.id,
           vehicles: qs.map((q) => {
             const v = vehicleRows.find((x) => x.id === q.vehicleId);
+            if (!v && q.auctionLotId) {
+              return { vehicleId: null, auctionLotId: q.auctionLotId, unitLabel: q.title.replace(/^\d{4}\s+/, ""), year: Number(q.title.slice(0, 4)) || null, color: null, chassisNo: null, engine: null, transmission: null, fuel: null, pushUsd: Number(q.pushUsd), cnfUsd: Number(q.totalCnfUsd) };
+            }
             return {
               vehicleId: q.vehicleId,
               auctionLotId: q.auctionLotId,
@@ -312,16 +349,18 @@ export const TOOLS: ToolDef[] = [
     name: "request_approval",
     description: "Ask the Supervisor to approve something beyond your envelope (a larger discount, a special term). Creates a pending approval; you will be told the decision.",
     input: {
-      kind: z.enum(["discount", "other"]),
+      kind: z.enum(["discount", "bid", "other"]),
       reason: z.string().min(5).max(600),
       quote_id: z.string().max(40).optional(),
       discount_pct: z.number().min(0).max(50).optional(),
+      lot_id: lotRef.optional(),
+      amount_jpy: z.number().int().positive().optional(),
     },
     async run(a, ctx) {
       const row = await db().transaction(async (tx) => {
         const [ap] = await tx
           .insert(s.approvals)
-          .values({ kind: String(a.kind), requestedBy: ctx.principalUserId, conversationId: ctx.conversationId ?? null, quoteId: (a.quote_id as string) ?? null, payload: { discountPct: a.discount_pct ?? null }, reason: String(a.reason) })
+          .values({ kind: String(a.kind), requestedBy: ctx.principalUserId, conversationId: ctx.conversationId ?? null, quoteId: (a.quote_id as string) ?? null, lotId: a.lot_id ? (await resolveLot(a.lot_id)).id : null, payload: { discountPct: a.discount_pct ?? null, amountJpy: a.amount_jpy ?? null }, reason: String(a.reason) })
           .returning();
         await audit(tx, { actorUserId: ctx.principalUserId, actorKind: ctx.principalKind, action: "approval.requested", entity: "approval", entityId: ap!.id, summary: `Asked approval (${a.kind}${a.discount_pct ? ` ${a.discount_pct}%` : ""}): ${String(a.reason).slice(0, 120)}`, conversationId: ctx.conversationId, fteRunId: ctx.runId });
         return ap!;
@@ -415,6 +454,8 @@ export const TOOLS: ToolDef[] = [
     },
   },
 ];
+
+export const TOOLS: ToolDef[] = [...BASE_TOOLS, ...AUCTION_TOOLS];
 
 export async function runTool(name: string, args: Record<string, unknown>, ctx: ToolCtx): Promise<{ ok: boolean; result: unknown }> {
   const def = TOOLS.find((t) => t.name === name);
