@@ -74,6 +74,10 @@ crmRouter.get(
   }),
 );
 
+// GET /leads/template.xlsx is served by crmOps; without this, "/leads/:id" below would
+// read "template.xlsx" as a lead id and answer 404.
+crmRouter.get("/leads/template.xlsx", (_req, _res, next) => next("router"));
+
 crmRouter.get(
   "/leads/:id",
   h(async (req) => {
