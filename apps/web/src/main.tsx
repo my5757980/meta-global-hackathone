@@ -52,6 +52,13 @@ const UnitsPage = lazy(() => ops().then((m) => ({ default: m.UnitsPage })));
 const ReportsPage = lazy(() => ops().then((m) => ({ default: m.ReportsPage })));
 const UsersPage = lazy(() => ops().then((m) => ({ default: m.UsersPage })));
 const FteConsole = lazy(() => import("./fte/FteConsole"));
+const adminPages = () => import("./admin/AdminPages");
+const AdminOverview = lazy(() => adminPages().then((m) => ({ default: m.AdminOverview })));
+const AdminVehicles = lazy(() => adminPages().then((m) => ({ default: m.AdminVehicles })));
+const AdminHome = lazy(() => adminPages().then((m) => ({ default: m.AdminHome })));
+const AdminPagesList = lazy(() => adminPages().then((m) => ({ default: m.AdminPagesList })));
+const AdminSettings = lazy(() => adminPages().then((m) => ({ default: m.AdminSettings })));
+const AdminMessages = lazy(() => adminPages().then((m) => ({ default: m.AdminMessages })));
 
 const page = (el: React.ReactNode) => (
   <Suspense
@@ -113,6 +120,12 @@ const router = createBrowserRouter([
       { path: "/desk", element: page(<Desk />) },
       { path: "/auction/admin", element: page(<AuctionAdmin />) },
       { path: "/fte", element: page(<FteConsole />) },
+      { path: "/admin", element: page(<AdminOverview />) },
+      { path: "/admin/vehicles", element: page(<AdminVehicles />) },
+      { path: "/admin/home", element: page(<AdminHome />) },
+      { path: "/admin/pages", element: page(<AdminPagesList />) },
+      { path: "/admin/settings", element: page(<AdminSettings />) },
+      { path: "/admin/messages", element: page(<AdminMessages />) },
     ],
   },
 ]);

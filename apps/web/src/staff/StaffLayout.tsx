@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Bell, BellRing, Bot, Car, FileText, Gavel, Globe, LayoutDashboard, LogOut, Menu, MessagesSquare, ShieldCheck, Users, X } from "lucide-react";
+import { BarChart3, Bell, BellRing, Bot, Car, FileText, Gavel, Globe, LayoutDashboard, LogOut, Mail, Menu, MessagesSquare, Palette, PanelsTopLeft, ShieldCheck, Users, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth, usePresencePing } from "../lib/auth";
 import { useLiveEvent, useLiveStream } from "../lib/sse";
@@ -79,6 +79,17 @@ export function StaffLayout() {
       ],
     },
     {
+      title: "Website",
+      items: [
+        { to: "/admin", label: "Overview", icon: <PanelsTopLeft className="size-4" />, show: can("website.admin"), end: true },
+        { to: "/admin/vehicles", label: "Vehicles", icon: <Car className="size-4" />, show: can("website.vehicles.manage") },
+        { to: "/admin/home", label: "Home page", icon: <Globe className="size-4" />, show: can("website.content.manage") },
+        { to: "/admin/pages", label: "Pages", icon: <FileText className="size-4" />, show: can("website.content.manage") },
+        { to: "/admin/messages", label: "Messages", icon: <Mail className="size-4" />, show: can("website.content.manage") },
+        { to: "/admin/settings", label: "Branding", icon: <Palette className="size-4" />, show: can("website.settings.manage") },
+      ],
+    },
+    {
       title: "Digital FTE",
       items: [{ to: "/fte", label: "Sora console", icon: <Bot className="size-4" />, show: can("fte.console") }],
     },
@@ -141,6 +152,7 @@ export function StaffLayout() {
             <TopLink to="/crm" icon={<LayoutDashboard className="size-4" />} label="CRM" show={can("crm.access")} />
             <TopLink to="/desk" icon={<MessagesSquare className="size-4" />} label="Chat" show={can("chat.desk")} />
             <TopLink to="/fte" icon={<Bot className="size-4" />} label="Sora" show={can("fte.console")} />
+            <TopLink to="/admin" icon={<PanelsTopLeft className="size-4" />} label="Site admin" show={can("website.admin")} />
             <TopLink to="/" icon={<Globe className="size-4" />} label="Website" show />
             <TopLink to="/auction/admin" icon={<Gavel className="size-4" />} label="Auction" show={can("auction.admin")} />
           </div>
