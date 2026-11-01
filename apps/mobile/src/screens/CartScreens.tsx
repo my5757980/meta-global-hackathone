@@ -77,7 +77,7 @@ export function CartScreen() {
           <Skeleton h={90} />
         </View>
       ) : !cart.items.length ? (
-        <Empty icon="cart-outline" title="Your cart is empty" text="Add cars from the shop, then send one order request for all of them." action={<Button title="Browse stock" onPress={() => nav.navigate("ShopTab", { screen: "Shop" })} />} />
+        <Empty icon="cart-outline" title="Your cart is empty" text="Add cars from the shop, then send one order request for all of them." action={<Button title="Browse stock" onPress={() => nav.navigate("ShopTab", { screen: "Shop", pop: true })} />} />
       ) : (
         <>
           <View style={{ gap: 10 }}>
@@ -108,7 +108,7 @@ export function CartScreen() {
             <T style={{ fontSize: 28, fontWeight: "800", color: col.brand }}>{usd(cart.totalUsd)}</T>
             <T style={{ color: C.muted, fontSize: 12 }}>FOB Japan. Freight to your port is quoted on the invoice.</T>
             <Button title="Checkout" icon="arrow-forward" disabled={!cart.readyCount} onPress={() => nav.navigate("Checkout")} style={{ marginTop: 14 }} />
-            <Button title={`Ask ${site.ftEName} the C&F price`} variant="ghost" icon="chatbubble-ellipses-outline" onPress={() => nav.navigate("ChatTab", { screen: "Chat", params: { draft: `Hi ${site.ftEName}, can you give me the C&F price of the cars in my cart to my port?`, t: Date.now() } })} style={{ marginTop: 6 }} />
+            <Button title={`Ask ${site.ftEName} the C&F price`} variant="ghost" icon="chatbubble-ellipses-outline" onPress={() => nav.navigate("ChatTab", { screen: "Chat", params: { draft: `Hi ${site.ftEName}, can you give me the C&F price of the cars in my cart to my port?`, t: Date.now() }, pop: true })} style={{ marginTop: 6 }} />
           </Card>
         </>
       )}
@@ -140,7 +140,7 @@ export function CheckoutScreen() {
           </T>
           <T style={{ textAlign: "center", marginTop: 10, color: C.muted, fontSize: 13, lineHeight: 19 }}>Nothing to pay yet. A colleague confirms the cars are still yours and sends the invoice with our bank details. You will see every step in My orders and in the chat.</T>
           <Button title="View my orders" onPress={() => nav.replace("Orders")} style={{ marginTop: 16, alignSelf: "stretch" }} />
-          <Button title={`Chat with ${site.ftEName}`} variant="secondary" icon="chatbubbles-outline" onPress={() => nav.navigate("ChatTab", { screen: "Chat" })} style={{ marginTop: 8, alignSelf: "stretch" }} />
+          <Button title={`Chat with ${site.ftEName}`} variant="secondary" icon="chatbubbles-outline" onPress={() => nav.navigate("ChatTab", { screen: "Chat", pop: true })} style={{ marginTop: 8, alignSelf: "stretch" }} />
         </Card>
       </Screen>
     );

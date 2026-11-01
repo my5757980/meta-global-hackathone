@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Platform, View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator, type NativeStackNavigationOptions } from "@react-navigation/native-stack";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { loadConfig, needsServer } from "./lib/config";
-import { C, SiteProvider, useColors, useSite } from "./lib/site";
+import { C, SiteProvider, useColors } from "./lib/site";
 import { AuthProvider } from "./lib/auth";
 import { ShopProvider, useShop } from "./lib/shop";
 import { RestartCtx } from "./lib/restart";
@@ -90,22 +90,24 @@ const ICONS: Record<string, [IconName, IconName]> = {
 function Tabs() {
   const col = useColors();
   const { cart } = useShop();
-  const { site } = useSite();
+  const insets = useSafeAreaInsets();
   const count = cart?.items.length ?? 0;
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarHideOnKeyboard: Platform.OS === "android",
+        tabBarHideOnKeyboard: true,
         tabBarActiveTintColor: col.brand,
         tabBarInactiveTintColor: C.muted,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+        // the default 49 pt bar squeezes the label under the icon and clips its descenders
+        tabBarStyle: { height: 60 + insets.bottom, paddingTop: 4 },
+        tabBarLabelStyle: { fontSize: 11, lineHeight: 14, fontWeight: "600" },
         tabBarIcon: ({ focused, color, size }) => <Ionicons name={ICONS[route.name]![focused ? 0 : 1]} size={size} color={color} />,
       })}
     >
       <Tab.Screen name="HomeTab" component={HomeStack} options={{ title: "Home" }} />
       <Tab.Screen name="ShopTab" component={ShopStack} options={{ title: "Shop" }} />
-      <Tab.Screen name="ChatTab" component={ChatStack} options={{ title: site.ftEName ? `Chat` : "Chat" }} />
+      <Tab.Screen name="ChatTab" component={ChatStack} options={{ title: "Chat" }} />
       <Tab.Screen name="CartTab" component={CartStack} options={{ title: "Cart", tabBarBadge: count ? count : undefined, tabBarBadgeStyle: { backgroundColor: col.accent, color: C.ink, fontWeight: "700" } }} />
       <Tab.Screen name="MenuTab" component={MenuStack} options={{ title: "Menu" }} />
     </Tab.Navigator>

@@ -5,7 +5,6 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
     "scheme": "autofte",
     "android": {
       "package": "com.autofte.hikarimotors",
@@ -15,10 +14,14 @@
         "monochromeImage": "./assets/adaptive-icon-mono.png",
         "backgroundColor": "#0f4c81"
       },
-      "edgeToEdgeEnabled": true,
       "softwareKeyboardLayoutMode": "resize",
-      "permissions": ["android.permission.RECORD_AUDIO"],
-      "blockedPermissions": ["android.permission.SYSTEM_ALERT_WINDOW", "android.permission.VIBRATE"]
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.VIBRATE"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -35,8 +38,19 @@
           "backgroundColor": "#0f4c81"
         }
       ],
-      ["expo-audio", { "microphonePermission": "Allow $(PRODUCT_NAME) to record voice notes for the chat." }],
-      ["expo-image-picker", { "photosPermission": "Allow $(PRODUCT_NAME) to send pictures in the chat.", "cameraPermission": false }],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to record voice notes for the chat."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to send pictures in the chat.",
+          "cameraPermission": false
+        }
+      ],
       "expo-secure-store",
       "./plugins/withAppBuild.js"
     ]

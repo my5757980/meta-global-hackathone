@@ -20,22 +20,27 @@ export const T = ({ style, children, lines, ...p }: { style?: StyleProp<TextStyl
 /** A scrolling page with pull-to-refresh and the bottom safe area handled. */
 export function Screen({ children, onRefresh, refreshing, padded = true, style }: { children: ReactNode; onRefresh?: () => void; refreshing?: boolean; padded?: boolean; style?: StyleProp<ViewStyle> }) {
   const col = useColors();
+  const lift = useKeyboardLift();
+  // The padding is on a wrapper, not inside the ScrollView: Android scrolls a focused field into the
+  // ScrollView's own bounds, so those bounds must really end above the keyboard.
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: C.bg }}
-      contentContainerStyle={[padded && { padding: 16, paddingBottom: 32 }, style]}
-      keyboardShouldPersistTaps="handled"
-      refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} colors={[col.brand]} tintColor={col.brand} /> : undefined}
-    >
-      {children}
-    </ScrollView>
+    <View style={{ flex: 1, backgroundColor: C.bg, paddingBottom: lift }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[padded && { padding: 16, paddingBottom: 32 }, style]}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} colors={[col.brand]} tintColor={col.brand} /> : undefined}
+      >
+        {children}
+      </ScrollView>
+    </View>
   );
 }
 
-export function Card({ children, style, onPress }: { children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void }) {
+export function Card({ children, style, onPress, label }: { children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void; label?: string }) {
   if (onPress)
     return (
-      <Pressable onPress={onPress} style={({ pressed }) => [s.card, pressed && { opacity: 0.85 }, style]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [s.card, pressed && { opacity: 0.85 }, style]}>
         {children}
       </Pressable>
     );
@@ -180,7 +185,7 @@ export function Price({ v, big }: { v: { priceUsd: number; discountPriceUsd: num
 /** Vehicle card: full width in lists, fixed width in horizontal rails (never flexGrow beside a width). */
 export function VehicleTile({ v, onPress, width }: { v: VehicleCard; onPress: () => void; width?: number }) {
   return (
-    <Card onPress={onPress} style={[{ padding: 0, overflow: "hidden" }, width ? { width } : null]}>
+    <Card onPress={onPress} label={`${v.title}, ${v.stockNo}`} style={[{ padding: 0, overflow: "hidden" }, width ? { width } : null]}>
       <View style={{ aspectRatio: 16 / 10, backgroundColor: "#e2e8f0" }}>
         {v.image ? <Image source={{ uri: absUrl(v.image) }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} /> : null}
         <View style={s.stockTag}>
@@ -237,8 +242,9 @@ export function ListRow({ icon, title, subtitle, onPress, right, danger }: { ico
 }
 
 /**
- * Bottom padding that keeps a composer above the keyboard. Android 15+ with edge-to-edge does not resize
- * the window, and RN's keyboard height leaves out the navigation bar, so we add the bottom inset back.
+ * Bottom padding that keeps content above the keyboard. Edge-to-edge Android does not resize the window,
+ * and RN's keyboard height leaves out the navigation bar, so the bottom inset is added back. The tab bar
+ * hides while the keyboard is up (tabBarHideOnKeyboard), so every screen reaches the bottom of the window.
  */
 export function useKeyboardLift(): number {
   const insets = useSafeAreaInsets();

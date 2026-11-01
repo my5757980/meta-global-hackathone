@@ -53,7 +53,7 @@ export default function ShopScreen() {
   useEffect(() => {
     if (route.params?.q !== undefined) setQ(route.params.q);
     if (route.params?.body !== undefined) setF((x) => ({ ...x, body: route.params.body || undefined }));
-  }, [route.params?.q, route.params?.body]);
+  }, [route.params?.q, route.params?.body, route.params?.t]);
 
   const load = useCallback(
     async (p: number, mode: "loading" | "more" | "refresh") => {
@@ -118,7 +118,7 @@ export default function ShopScreen() {
           contentContainerStyle={{ padding: 16, paddingTop: 4, gap: 12 }}
           columnWrapperStyle={cols > 1 ? { gap: 12 } : undefined}
           renderItem={({ item }) => (
-            <View style={{ flex: 1 / cols }}>
+            <View style={cols > 1 ? { flex: 1 / cols } : undefined}>
               <VehicleTile v={item} onPress={() => nav.navigate("Vehicle", { slug: item.slug })} />
             </View>
           )}
@@ -153,7 +153,11 @@ function FilterSheet({ open, onClose, value, facets, onApply }: { open: boolean;
             <Ionicons name="close" size={22} color={C.ink} />
           </Pressable>
         </View>
-        <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
+          <View>
+            <T style={st.groupTitle}>Max price (USD, FOB)</T>
+            <Input keyboardType="number-pad" value={d.priceMax ?? ""} onChangeText={(t) => setD((x) => ({ ...x, priceMax: t.replace(/\D/g, "") || undefined }))} placeholder="e.g. 15000" />
+          </View>
           <Group title="Sort by">
             {SORTS.map((s) => (
               <Chip key={s.v} label={s.l} active={(d.sort ?? "newest") === s.v} onPress={() => setD((x) => ({ ...x, sort: s.v }))} />
@@ -183,10 +187,6 @@ function FilterSheet({ open, onClose, value, facets, onApply }: { open: boolean;
               <Chip key={x} label={x} active={d.transmission === x} onPress={() => toggle("transmission", x)} />
             ))}
           </Group>
-          <View>
-            <T style={st.groupTitle}>Max price (USD, FOB)</T>
-            <Input keyboardType="number-pad" value={d.priceMax ?? ""} onChangeText={(t) => setD((x) => ({ ...x, priceMax: t.replace(/\D/g, "") || undefined }))} placeholder="e.g. 15000" />
-          </View>
         </ScrollView>
         <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 8 }}>
           <Button title="Reset" variant="secondary" onPress={() => setD({})} style={{ flex: 1 }} />

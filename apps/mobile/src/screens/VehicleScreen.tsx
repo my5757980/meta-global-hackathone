@@ -26,7 +26,7 @@ export default function VehicleScreen() {
     if (v) nav.setOptions({ title: v.stockNo });
   }, [v, nav]);
 
-  const askSora = (draft: string) => nav.navigate("ChatTab", { screen: "Chat", params: { draft, t: Date.now() } });
+  const askSora = (draft: string) => nav.navigate("ChatTab", { screen: "Chat", params: { draft, t: Date.now() }, pop: true });
 
   if (q.loading && !v)
     return (
@@ -193,7 +193,7 @@ function ShopButtons({ v }: { v: VehicleDetail }) {
     <>
       <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
         {inCart ? (
-          <Button title="In cart" icon="checkmark" variant="secondary" onPress={() => nav.navigate("CartTab", { screen: "Cart" })} style={{ flex: 1 }} />
+          <Button title="In cart" icon="checkmark" variant="secondary" onPress={() => nav.navigate("CartTab", { screen: "Cart", pop: true })} style={{ flex: 1 }} />
         ) : (
           <Button title={v.status === "available" ? "Add to cart" : v.status === "sold" ? "Sold" : "Reserved"} icon="cart-outline" variant="secondary" disabled={v.status !== "available"} loading={busy === "cart"} onPress={() => run("cart", () => shop.addToCart(v.id))} style={{ flex: 1 }} />
         )}

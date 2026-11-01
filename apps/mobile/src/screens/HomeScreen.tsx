@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { FlatList, Pressable, StyleSheet, View } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { setStatusBarStyle } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFetch } from "../lib/data";
@@ -23,7 +24,14 @@ export default function HomeScreen() {
   const { site } = useSite();
   const q = useFetch<HomeData>("/api/public/home");
   const [search, setSearch] = useState("");
-  const toShop = (params: Record<string, string>) => nav.navigate("ShopTab", { screen: "Shop", params });
+  const toShop = (params: Record<string, string>) => nav.navigate("ShopTab", { screen: "Shop", params: { ...params, t: Date.now() }, pop: true });
+  // the header is the brand colour: white status icons here, dark everywhere else
+  useFocusEffect(
+    useCallback(() => {
+      setStatusBarStyle("light");
+      return () => setStatusBarStyle("dark");
+    }, []),
+  );
   const hero = (q.data?.sections.find((s) => s.key === "hero")?.data.slides as Slide[] | undefined)?.[0];
 
   return (
@@ -41,7 +49,7 @@ export default function HomeScreen() {
               {site.tagline}
             </T>
           </View>
-          <Pressable accessibilityLabel={`Chat with ${site.ftEName}`} onPress={() => nav.navigate("ChatTab", { screen: "Chat" })} style={st.headerBtn}>
+          <Pressable accessibilityLabel={`Chat with ${site.ftEName}`} onPress={() => nav.navigate("ChatTab", { screen: "Chat", pop: true })} style={st.headerBtn}>
             <Ionicons name="chatbubble-ellipses" size={20} color="#fff" />
           </Pressable>
         </View>
@@ -67,7 +75,7 @@ export default function HomeScreen() {
           <Button title="Browse stock" icon="car-sport-outline" onPress={() => toShop({})} style={{ marginTop: 14 }} />
         </Card>
 
-        <Card style={{ marginTop: 12, backgroundColor: "#f5f3ff", borderColor: "#ddd6fe" }} onPress={() => nav.navigate("ChatTab", { screen: "Chat" })}>
+        <Card style={{ marginTop: 12, backgroundColor: "#f5f3ff", borderColor: "#ddd6fe" }} onPress={() => nav.navigate("ChatTab", { screen: "Chat", pop: true })}>
           <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
             <View style={[st.ai, { backgroundColor: C.violet }]}>
               <T style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>AI</T>

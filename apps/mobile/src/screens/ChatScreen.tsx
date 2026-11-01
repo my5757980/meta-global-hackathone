@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, StyleSheet, View } from "react-native";
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState, type AudioPlayer } from "expo-audio";
@@ -78,7 +77,6 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
   const { site } = useSite();
   const col = useColors();
   const lift = useKeyboardLift();
-  const tabH = useBottomTabBarHeight();
   const [conv, setConv] = useState<{ id: string; holder: string } | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -93,14 +91,24 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
     if (draft) setText(draft);
   }, [draft, draftKey]);
 
+  const misses = useRef(0);
+  const lastSeen = useRef("");
   const poll = useCallback(async () => {
     try {
       const r = await api.get<{ conversation: { id: string; holder: string }; messages: ChatMsg[] }>("/api/chat/mine?channel=app");
-      setConv(r.conversation);
-      setMessages(r.messages);
+      misses.current = 0;
       setError(null);
+      setConv((c) => (c && c.id === r.conversation.id && c.holder === r.conversation.holder ? c : r.conversation));
+      // redraw only when something changed (a new message, or a transcript arriving on a voice note)
+      const seen = r.messages.map((m) => `${m.id}:${m.meta?.transcript ? 1 : 0}`).join();
+      if (seen !== lastSeen.current) {
+        lastSeen.current = seen;
+        setMessages(r.messages);
+      }
     } catch (e) {
-      setError(errText(e));
+      // a phone loses a request now and then: only three in a row is worth a red bar
+      misses.current += 1;
+      if (misses.current >= 3) setError(errText(e));
     }
   }, []);
 
@@ -182,7 +190,11 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
       await recorder.stop();
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       const uri = recorder.uri;
-      if (!send || !uri) return;
+      if (!send) return;
+      if (!uri) {
+        setError("The recording did not save. Please try again.");
+        return;
+      }
       if (length < 1) {
         setError("That voice note was too short.");
         return;
@@ -201,10 +213,9 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
 
   const data = useMemo(() => [...messages].reverse(), [messages]);
   const typingLabel = conv?.holder === "human" ? "Our team will reply here" : `${site.ftEName} is typing…`;
-  const bottomPad = Platform.OS === "ios" ? Math.max(0, lift - tabH) : lift;
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg, paddingBottom: bottomPad }}>
+    <View style={{ flex: 1, backgroundColor: C.bg, paddingBottom: lift }}>
       {error ? (
         <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
           <ErrorBox text={error} onRetry={() => void poll()} />
@@ -231,7 +242,7 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
             ) : null
           }
           ListEmptyComponent={
-            <View style={{ transform: [{ scaleY: -1 }], paddingTop: 40 }}>
+            <View style={{ paddingTop: 40 }}>
               <Empty icon="chatbubbles-outline" title={`Say hello to ${site.ftEName}`} text="Ask for a price to your port, a car in stock, or your invoice." />
             </View>
           }
