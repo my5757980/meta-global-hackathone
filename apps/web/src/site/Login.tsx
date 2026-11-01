@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { safeNext } from "../lib/shop";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Briefcase, Crown, Headset, ShieldCheck, User, Wallet } from "lucide-react";
 import { api } from "../lib/api";
@@ -66,11 +67,14 @@ export default function Login() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [forgot, setForgot] = useState(false);
+  const [params] = useSearchParams();
+  const next = safeNext(params.get("next"));
 
   const after = async (u: Me, to?: string) => {
     await refresh();
     await qc.invalidateQueries();
-    nav(to ?? (u.kind === "staff" ? "/crm" : "/account"));
+    // a buyer sent here from "Add to cart" / "Save" goes straight back to that car
+    nav(u.kind !== "staff" && next ? next : (to ?? (u.kind === "staff" ? "/crm" : "/account")));
   };
 
   return (
@@ -106,7 +110,7 @@ export default function Login() {
           </Button>
           <p className="text-center text-sm text-slate-500">
             New here?{" "}
-            <Link to="/register" className="font-semibold text-brand-700">
+            <Link to={next ? `/register?next=${encodeURIComponent(next)}` : "/register"} className="font-semibold text-brand-700">
               Create an account
             </Link>
             {" · "}

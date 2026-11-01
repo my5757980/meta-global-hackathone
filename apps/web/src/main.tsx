@@ -40,6 +40,11 @@ const AuctionAdmin = lazy(() => import("./auction/AuctionAdmin").then((m) => ({ 
 const Account = lazy(() => import("./account/Account"));
 const AccountInvoices = lazy(() => import("./account/AccountInvoices"));
 const AccountInvoice = lazy(() => import("./account/AccountInvoice"));
+const AccountOrders = lazy(() => import("./account/AccountOrders"));
+const shopPages = () => import("./site/ShopPages");
+const Wishlist = lazy(() => shopPages().then((m) => ({ default: m.WishlistView })));
+const Cart = lazy(() => shopPages().then((m) => ({ default: m.CartView })));
+const Checkout = lazy(() => shopPages().then((m) => ({ default: m.CheckoutView })));
 
 const CrmDashboard = lazy(() => import("./crm/CrmDashboard"));
 const Leads = lazy(() => import("./crm/Leads"));
@@ -59,6 +64,7 @@ const AdminHome = lazy(() => adminPages().then((m) => ({ default: m.AdminHome })
 const AdminPagesList = lazy(() => adminPages().then((m) => ({ default: m.AdminPagesList })));
 const AdminSettings = lazy(() => adminPages().then((m) => ({ default: m.AdminSettings })));
 const AdminMessages = lazy(() => adminPages().then((m) => ({ default: m.AdminMessages })));
+const AdminOrders = lazy(() => adminPages().then((m) => ({ default: m.AdminOrders })));
 
 const page = (el: React.ReactNode) => (
   <Suspense
@@ -103,6 +109,10 @@ const router = createBrowserRouter([
       { path: "/account", element: page(<Account />) },
       { path: "/account/invoices", element: page(<AccountInvoices />) },
       { path: "/account/invoices/:id", element: page(<AccountInvoice />) },
+      { path: "/account/orders", element: page(<AccountOrders />) },
+      { path: "/wishlist", element: page(<Wishlist />) },
+      { path: "/cart", element: page(<Cart />) },
+      { path: "/checkout", element: page(<Checkout />) },
       { path: "*", element: page(<NotFound />) },
     ],
   },
@@ -126,6 +136,7 @@ const router = createBrowserRouter([
       { path: "/admin/pages", element: page(<AdminPagesList />) },
       { path: "/admin/settings", element: page(<AdminSettings />) },
       { path: "/admin/messages", element: page(<AdminMessages />) },
+      { path: "/admin/orders", element: page(<AdminOrders />) },
     ],
   },
 ]);

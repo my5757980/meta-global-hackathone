@@ -4,6 +4,7 @@ import { Bot, ChevronDown, Heart, LayoutDashboard, LogOut, Mail, Menu, Phone, Se
 import { useAuth, usePresencePing } from "../lib/auth";
 import { useLiveStream } from "../lib/sse";
 import { useSite } from "../lib/site";
+import { useShopCounts } from "../lib/shop";
 import { clsx } from "../ui";
 import { ChatWidget } from "../chat/ChatWidget";
 import { CallLayer } from "../chat/calls";
@@ -32,6 +33,11 @@ export function Logo({ name, light }: { name?: string; light?: boolean }) {
   );
 }
 
+function CountDot({ n }: { n?: number }) {
+  if (!n) return null;
+  return <span className="absolute top-0.5 right-0.5 flex min-w-4 items-center justify-center rounded-full bg-accent-500 px-1 text-[10px] font-bold text-slate-900">{n}</span>;
+}
+
 export function SiteLayout() {
   const site = useSite();
   const { me, logout } = useAuth();
@@ -39,6 +45,7 @@ export function SiteLayout() {
   const [q, setQ] = useState("");
   const nav = useNavigate();
   const loc = useLocation();
+  const counts = useShopCounts();
   useLiveStream(!!me);
   usePresencePing(!!me && me.kind === "staff");
   useEffect(() => {
@@ -91,11 +98,13 @@ export function SiteLayout() {
             <Link to="/shop" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden" aria-label="Search">
               <Search className="size-5" />
             </Link>
-            <Link to={me ? "/account" : "/login"} className="hidden rounded-lg p-2 text-slate-600 hover:bg-slate-100 sm:inline-flex" aria-label="Wishlist">
+            <Link to="/wishlist" className="relative hidden rounded-lg p-2 text-slate-600 hover:bg-slate-100 sm:inline-flex" aria-label="Saved cars">
               <Heart className="size-5" />
+              <CountDot n={counts.data?.wishlist} />
             </Link>
-            <Link to={me ? "/account" : "/login"} className="hidden rounded-lg p-2 text-slate-600 hover:bg-slate-100 sm:inline-flex" aria-label="Cart">
+            <Link to="/cart" className="relative inline-flex rounded-lg p-2 text-slate-600 hover:bg-slate-100" aria-label="Cart">
               <ShoppingCart className="size-5" />
+              <CountDot n={counts.data?.cart} />
             </Link>
             {me ? (
               <div className="group relative">

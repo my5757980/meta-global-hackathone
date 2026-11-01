@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, Navigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, MessageCircle, User } from "lucide-react";
+import { FileText, Heart, MessageCircle, Package, User } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { Button, Card, Field, Input, Skeleton, clsx } from "../ui";
@@ -10,7 +10,9 @@ export function AccountShell({ title, back, children }: { title: string; back?: 
   const { me } = useAuth();
   const links = [
     { to: "/account", label: "Profile", icon: <User className="size-4" />, end: true },
+    { to: "/account/orders", label: "My orders", icon: <Package className="size-4" /> },
     { to: "/account/invoices", label: "My invoices", icon: <FileText className="size-4" /> },
+    { to: "/wishlist", label: "Saved cars", icon: <Heart className="size-4" /> },
     { to: "/chat", label: "Chat with us", icon: <MessageCircle className="size-4" /> },
   ];
   return (

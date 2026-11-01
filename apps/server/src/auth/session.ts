@@ -75,16 +75,35 @@ export async function loadAuthUser(userId: string): Promise<AuthUser | null> {
   return { ...rest, hasRecoveryKey: !!recoveryKeyHash, perms: await permsForRole(u.roleId) };
 }
 
-export async function createSession(res: Response, userId: string, userAgent?: string) {
+/** Returns the raw token. Only an app client is ever given it in JSON (see sessionFor); browsers keep the httpOnly cookie. */
+export async function createSession(res: Response, userId: string, userAgent?: string, ttlMs = TTL_MS): Promise<string> {
   const token = randomToken(32);
   await db()
     .insert(sessions)
-    .values({ id: sha256(token), userId, expiresAt: new Date(Date.now() + TTL_MS), userAgent: userAgent?.slice(0, 200) ?? null });
-  res.cookie(COOKIE, token, { httpOnly: true, sameSite: "lax", secure: isProd, maxAge: TTL_MS, path: "/" });
+    .values({ id: sha256(token), userId, expiresAt: new Date(Date.now() + ttlMs), userAgent: userAgent?.slice(0, 200) ?? null });
+  res.cookie(COOKIE, token, { httpOnly: true, sameSite: "lax", secure: isProd, maxAge: ttlMs, path: "/" });
+  return token;
+}
+
+/** The phone app has no cookie jar it can rely on: it says `x-autofte-client: app` and sends `Authorization: Session <token>`. */
+export const isAppClient = (req: Request) => req.headers["x-autofte-client"] === "app";
+const APP_TTL_MS = 1000 * 60 * 60 * 24 * 30; // a phone is not a browser tab: 30 days
+
+/** Start a session; an app client also receives the token in the response body. */
+export async function sessionFor(req: Request, res: Response, userId: string): Promise<{ sessionToken?: string }> {
+  const app = isAppClient(req);
+  const token = await createSession(res, userId, req.headers["user-agent"], app ? APP_TTL_MS : TTL_MS);
+  return app ? { sessionToken: token } : {};
+}
+
+function tokenFrom(req: Request): string | undefined {
+  const auth = req.headers.authorization;
+  if (auth?.startsWith("Session ")) return auth.slice(8);
+  return req.cookies?.[COOKIE];
 }
 
 export async function destroySession(req: Request, res: Response) {
-  const token = req.cookies?.[COOKIE];
+  const token = tokenFrom(req);
   if (token) await db().delete(sessions).where(eq(sessions.id, sha256(token)));
   res.clearCookie(COOKIE, { path: "/" });
 }
@@ -92,8 +111,7 @@ export async function destroySession(req: Request, res: Response) {
 /** Attach req.user when a valid session cookie (or Bearer session token for the app) is present. */
 export async function loadUser(req: Request, _res: Response, next: NextFunction) {
   try {
-    const bearer = req.headers.authorization?.startsWith("Session ") ? req.headers.authorization.slice(8) : null;
-    const token: string | undefined = bearer ?? req.cookies?.[COOKIE];
+    const token = tokenFrom(req);
     if (token) {
       const [sess] = await db()
         .select()

@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Bot, Calendar, Check, ChevronLeft, ChevronRight, Cog, Fuel, Gauge, Heart, MapPin, ShoppingCart, X } from "lucide-react";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { km, usd } from "../lib/format";
+import { isBuyer, useCart, useShopActions, useWishlist } from "../lib/shop";
 import type { VehicleCard as V } from "../lib/site";
-import { Badge, Button, Card, Empty, Skeleton } from "../ui";
+import { Badge, Button, Card, Empty, LinkButton, Skeleton } from "../ui";
 import { VehicleGrid } from "./VehicleCard";
 import { openChatWith } from "../chat/ChatWidget";
 
@@ -146,13 +148,10 @@ export default function VehiclePage() {
             <Button size="lg" className="mt-4 w-full" onClick={() => openChatWith(`Hi Sora, what is the C&F price of ${v.stockNo} (${v.title}) to my port?`)}>
               <Bot className="size-5" /> Ask Sora the price to my port
             </Button>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <Button variant="secondary" onClick={() => openChatWith(`I'd like to reserve ${v.stockNo}.`)}>
-                <ShoppingCart className="size-4" /> Reserve
-              </Button>
-              <Button variant="secondary" onClick={() => openChatWith(`Please tell me about the condition of ${v.stockNo}.`)}>
-                <Heart className="size-4" /> Ask about it
-              </Button>
+            <ShopButtons v={v} />
+            <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-1 text-sm font-semibold text-brand-700">
+              <button onClick={() => openChatWith(`I'd like to reserve ${v.stockNo}.`)} className="hover:underline">Reserve with Sora</button>
+              <button onClick={() => openChatWith(`Please tell me about the condition of ${v.stockNo}.`)} className="hover:underline">Ask about its condition</button>
             </div>
             <p className="mt-4 text-xs text-slate-500">C&F quotes include inspection (where required) and freight to your port. Import duty and port charges at destination are paid locally.</p>
           </Card>
@@ -173,5 +172,53 @@ export default function VehiclePage() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Cart and wishlist on the vehicle page. Signed out → sign in and come back here; staff do not shop. */
+function ShopButtons({ v }: { v: { id: string; slug: string; status: string } }) {
+  const { me } = useAuth();
+  const nav = useNavigate();
+  const cart = useCart();
+  const wish = useWishlist();
+  const act = useShopActions();
+  const [busy, setBusy] = useState<"cart" | "wish" | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  if (me && !isBuyer(me.kind)) return null;
+  const inCart = !!cart.data?.items.some((i) => i.id === v.id);
+  const saved = !!wish.data?.items.some((i) => i.id === v.id);
+  const run = async (k: "cart" | "wish", fn: () => Promise<void>) => {
+    if (!me) {
+      nav(`/login?next=${encodeURIComponent(`/vehicles/${v.slug}`)}`);
+      return;
+    }
+    setBusy(k);
+    setErr(null);
+    try {
+      await fn();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Something went wrong — please try again");
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        {inCart ? (
+          <LinkButton to="/cart" variant="secondary">
+            <Check className="size-4" /> In cart
+          </LinkButton>
+        ) : (
+          <Button variant="secondary" disabled={v.status !== "available"} loading={busy === "cart"} onClick={() => run("cart", () => act.addToCart(v.id))}>
+            <ShoppingCart className="size-4" /> {v.status === "available" ? "Add to cart" : v.status === "sold" ? "Sold" : "Reserved"}
+          </Button>
+        )}
+        <Button variant="secondary" aria-pressed={saved} loading={busy === "wish"} onClick={() => run("wish", () => act.toggleWishlist(v.id, saved))}>
+          <Heart className={saved ? "size-4 fill-rose-500 text-rose-500" : "size-4"} /> {saved ? "Saved" : "Save"}
+        </Button>
+      </div>
+      {err && <p className="mt-2 text-sm font-semibold text-rose-600">{err}</p>}
+    </>
   );
 }

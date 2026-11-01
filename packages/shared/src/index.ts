@@ -116,6 +116,9 @@ export const PROGRESS_STAGES = [
 export type ProgressStage = (typeof PROGRESS_STAGES)[number];
 
 export const AUCTION_ORDER_STATUSES = ["pending", "approved", "confirmed", "paid", "shipped", "delivered", "cancelled"] as const;
+/** Website order requests (cart checkout) follow the same lifecycle. */
+export const WEB_ORDER_STATUSES = AUCTION_ORDER_STATUSES;
+export type WebOrderStatus = (typeof WEB_ORDER_STATUSES)[number];
 export const ENQUIRY_STATUSES = ["open", "answered", "closed"] as const;
 export const LOT_STATUSES = ["upcoming", "sold", "unsold", "withdrawn"] as const;
 

@@ -6,7 +6,7 @@ import { env } from "../env";
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, conflict, forbidden, h, HttpError, parse } from "../lib/http";
-import { createSession, destroySession, loadAuthUser, requireAuth } from "../auth/session";
+import { destroySession, loadAuthUser, requireAuth, sessionFor } from "../auth/session";
 import { hashPassword, verifyPassword } from "../auth/passwords";
 import { ensureCustomerConversation } from "../services/chat";
 import { audit } from "../services/audit";
@@ -40,8 +40,8 @@ authRouter.post(
     if (!email) throw bad("Unknown demo role");
     const [u] = await db().select().from(s.users).where(eq(s.users.email, email)).limit(1);
     if (!u) throw bad("Demo data missing — run npm run setup");
-    await createSession(res, u.id, req.headers["user-agent"]);
-    return { user: publicMe(await loadAuthUser(u.id)) };
+    const sess = await sessionFor(req, res, u.id);
+    return { user: publicMe(await loadAuthUser(u.id)), ...sess };
   }),
 );
 
@@ -56,8 +56,8 @@ authRouter.post(
       .limit(1);
     if (!u || !(await verifyPassword(body.password, u.passwordHash))) throw new HttpError(401, "These credentials do not match our records.");
     if (!u.isActive) throw new HttpError(403, "This account is switched off. Please contact the company.");
-    await createSession(res, u.id, req.headers["user-agent"]);
-    return { user: publicMe(await loadAuthUser(u.id)) };
+    const sess = await sessionFor(req, res, u.id);
+    return { user: publicMe(await loadAuthUser(u.id)), ...sess };
   }),
 );
 
@@ -90,8 +90,8 @@ authRouter.post(
     }
     // CRM records with this e-mail now belong to the account (the buyer sees their invoices)
     await db().update(s.leads).set({ customerUserId: userId }).where(and(sql`lower(${s.leads.email}) = ${body.email}`, isNull(s.leads.customerUserId)));
-    await createSession(res, userId, req.headers["user-agent"]);
-    return { user: publicMe(await loadAuthUser(userId)) };
+    const sess = await sessionFor(req, res, userId);
+    return { user: publicMe(await loadAuthUser(userId)), ...sess };
   }),
 );
 
@@ -124,9 +124,9 @@ authRouter.post(
     } else {
       await db().update(s.users).set({ name: body.name, phone: body.phone }).where(and(eq(s.users.id, userId), eq(s.users.kind, "visitor")));
     }
-    await createSession(res, userId, req.headers["user-agent"]);
+    const sess = await sessionFor(req, res, userId);
     const conv = await ensureCustomerConversation(userId, body.channel);
-    return { user: publicMe(await loadAuthUser(userId)), conversationId: conv.id };
+    return { user: publicMe(await loadAuthUser(userId)), conversationId: conv.id, ...sess };
   }),
 );
 

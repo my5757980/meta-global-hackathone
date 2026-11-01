@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { safeNext } from "../lib/shop";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -7,6 +8,8 @@ import { Button, Card, Field, Input, Select } from "../ui";
 
 export default function Register() {
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  const next = safeNext(params.get("next"));
   const qc = useQueryClient();
   const { refresh } = useAuth();
   const countries = useQuery({ queryKey: ["countries"], queryFn: () => api.get<{ code: string; name: string }[]>("/api/public/countries"), staleTime: 3600_000 });
@@ -29,7 +32,7 @@ export default function Register() {
               await api.post("/api/auth/register", { ...f, countryCode: f.countryCode || undefined, company: f.company || undefined });
               await refresh();
               await qc.invalidateQueries();
-              nav("/account");
+              nav(next ?? "/account");
             } catch (ex) {
               setErr((ex as Error).message);
             } finally {

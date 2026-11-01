@@ -54,18 +54,22 @@ export function vehicleWhere(f: VehicleFilters): SQL | undefined {
   return and(...w);
 }
 
+// Every order ends on the unique stock number: rows that tie (same price, or cars seeded in the same
+// instant) otherwise come back in any order, and OFFSET paging then repeats some cars and skips others.
 const orderFor = (s?: VehicleFilters["sort"]) => {
+  const tie = asc(vehicles.stockNo);
   switch (s) {
     case "price_asc":
-      return [asc(effectivePrice)];
+      return [asc(effectivePrice), tie];
     case "price_desc":
-      return [desc(effectivePrice)];
+      return [desc(effectivePrice), tie];
     case "year_desc":
-      return [desc(vehicles.year), asc(vehicles.mileageKm)];
+      return [desc(vehicles.year), asc(vehicles.mileageKm), tie];
     case "mileage_asc":
-      return [asc(vehicles.mileageKm)];
+      return [asc(vehicles.mileageKm), tie];
     default:
-      return [desc(vehicles.createdAt)];
+      // "Priority" from the admin (higher first; every seeded car is 0), then newest
+      return [desc(vehicles.sort), desc(vehicles.createdAt), tie];
   }
 };
 

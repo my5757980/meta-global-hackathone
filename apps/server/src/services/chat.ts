@@ -64,6 +64,11 @@ export interface PostMessage {
   meta?: unknown;
 }
 
+/**
+ * WARNING: do not pass a PGlite transaction as `tx`. The recipient fan-out below (conversationMembers,
+ * onlineViewAll → permsForRole) uses db(), and PGlite has one connection, so a db() call inside
+ * db().transaction() deadlocks the server. Post the message after the transaction commits.
+ */
 export async function postMessage(m: PostMessage, tx: DBorTx = db()) {
   const [msg] = await tx
     .insert(s.chatMessages)

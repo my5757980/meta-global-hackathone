@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Car, Check, ExternalLink, FileText, Globe, Image as ImageIcon, Inbox, Mail, Palette, Pencil, Plus, Save, Star, Trash2 } from "lucide-react";
-import { formatUsd } from "@autofte/shared";
+import { Car, Check, ExternalLink, FileText, Globe, Image as ImageIcon, Inbox, Mail, Package, Palette, Pencil, Plus, Save, Star, Trash2 } from "lucide-react";
+import { formatUsd, WEB_ORDER_STATUSES } from "@autofte/shared";
 import { api, ApiError, qs } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { ago } from "../lib/format";
@@ -38,6 +38,7 @@ export function AdminOverview() {
   const { can } = useAuth();
   const cards = [
     { to: "/admin/vehicles", label: "Vehicles", desc: "Add, edit and publish stock", icon: <Car className="size-5" />, show: can("website.vehicles.manage") },
+    { to: "/admin/orders", label: "Orders", desc: "Order requests from the website and app cart", icon: <Package className="size-5" />, show: can("website.orders.manage") },
     { to: "/admin/home", label: "Home page", desc: "Section titles, order and visibility", icon: <Globe className="size-5" />, show: can("website.content.manage") },
     { to: "/admin/pages", label: "Pages", desc: "About, Terms, Privacy and more", icon: <FileText className="size-5" />, show: can("website.content.manage") },
     { to: "/admin/messages", label: "Messages", desc: "Contact form enquiries", icon: <Mail className="size-5" />, show: can("website.content.manage") },
@@ -193,8 +194,9 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
     year: String(new Date().getFullYear() - 3), month: "", priceUsd: "", discountPriceUsd: "", costJpy: "", mileageKm: "",
     fuel: meta.enums.fuels[0] ?? "Petrol", transmission: meta.enums.transmissions[0] ?? "Automatic", bodyType: meta.enums.bodyTypes[0] ?? "Sedan",
     engineCc: "", color: "", steering: "Right", drive: "2WD", doors: "", seats: "", location: "Yokohama", originCountry: "Japan",
+    lengthMm: "", widthMm: "", heightMm: "", m3: "",
     shortDesc: "", description: "", videoUrl: "", seoTitle: "", seoDescription: "", seoKeywords: "",
-    featured: false, published: true, status: "available", homeSections: [], features: "", tags: "", images: "",
+    featured: false, published: true, status: "available", sort: "0", homeSections: [], features: "", tags: "", images: "",
   };
   const [f, setF] = useState<Form>(blank);
   const [loading, setLoading] = useState(!!id);
@@ -214,8 +216,9 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
           year: str(v.year), month: str(v.month), priceUsd: str(v.priceUsd), discountPriceUsd: str(v.discountPriceUsd), costJpy: str(v.costJpy), mileageKm: str(v.mileageKm),
           fuel: str(v.fuel), transmission: str(v.transmission), bodyType: str(v.bodyType), engineCc: str(v.engineCc), color: str(v.color),
           steering: str(v.steering) || "Right", drive: str(v.drive) || "2WD", doors: str(v.doors), seats: str(v.seats), location: str(v.location), originCountry: str(v.originCountry),
+          lengthMm: str(v.lengthMm), widthMm: str(v.widthMm), heightMm: str(v.heightMm), m3: str(v.m3),
           shortDesc: str(v.shortDesc), description: str(v.description), videoUrl: str(v.videoUrl), seoTitle: str(v.seoTitle), seoDescription: str(v.seoDescription), seoKeywords: str(v.seoKeywords),
-          featured: !!v.featured, published: !!v.published, status: str(v.status) || "available",
+          featured: !!v.featured, published: !!v.published, status: str(v.status) || "available", sort: str(v.sort) || "0",
           homeSections: Array.isArray(v.homeSections) ? (v.homeSections as string[]) : [],
           features: Array.isArray(v.features) ? (v.features as string[]).join(", ") : "",
           tags: Array.isArray(v.tags) ? (v.tags as string[]).join(", ") : "",
@@ -240,9 +243,10 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
       year: num(f.year), month: num(f.month) ?? null, priceUsd: num(f.priceUsd), discountPriceUsd: num(f.discountPriceUsd) ?? null, costJpy: num(f.costJpy) ?? null,
       mileageKm: num(f.mileageKm), fuel: f.fuel, transmission: f.transmission, bodyType: f.bodyType, engineCc: num(f.engineCc) ?? null, color: String(f.color).trim(),
       steering: f.steering, drive: f.drive, doors: num(f.doors) ?? null, seats: num(f.seats) ?? null, location: String(f.location).trim() || "Yokohama", originCountry: String(f.originCountry).trim() || "Japan",
+      lengthMm: num(f.lengthMm) ?? null, widthMm: num(f.widthMm) ?? null, heightMm: num(f.heightMm) ?? null, m3: num(f.m3) ?? null,
       shortDesc: String(f.shortDesc).trim() || null, description: String(f.description).trim() || null, videoUrl: String(f.videoUrl).trim() || null,
       seoTitle: String(f.seoTitle).trim() || null, seoDescription: String(f.seoDescription).trim() || null, seoKeywords: String(f.seoKeywords).trim() || null,
-      featured: f.featured, published: f.published, status: f.status,
+      featured: f.featured, published: f.published, status: f.status, sort: num(f.sort) ?? 0,
       homeSections: f.homeSections, features: toList(String(f.features)), tags: toList(String(f.tags)), images,
     };
     if (!String(f.color).trim()) return onError(new ApiError(400, "Give the colour"));
@@ -306,6 +310,12 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
               <Field label="Drive"><Select value={String(f.drive)} onChange={(e) => set("drive", e.target.value)}>{meta.enums.drives.map((x) => <option key={x}>{x}</option>)}</Select></Field>
               <Field label="Doors"><Input type="number" value={String(f.doors)} onChange={(e) => set("doors", e.target.value)} /></Field>
               <Field label="Seats"><Input type="number" value={String(f.seats)} onChange={(e) => set("seats", e.target.value)} /></Field>
+              <Field label="Length mm"><Input type="number" value={String(f.lengthMm)} onChange={(e) => set("lengthMm", e.target.value)} /></Field>
+              <Field label="Width mm"><Input type="number" value={String(f.widthMm)} onChange={(e) => set("widthMm", e.target.value)} /></Field>
+              <Field label="Height mm"><Input type="number" value={String(f.heightMm)} onChange={(e) => set("heightMm", e.target.value)} /></Field>
+              <Field label="Volume m³" hint="used for freight quotes"><Input type="number" step="0.01" value={String(f.m3)} onChange={(e) => set("m3", e.target.value)} /></Field>
+              <Field label="Location"><Input value={String(f.location)} onChange={(e) => set("location", e.target.value)} /></Field>
+              <Field label="Origin country"><Input value={String(f.originCountry)} onChange={(e) => set("originCountry", e.target.value)} /></Field>
             </div>
           </section>
 
@@ -323,11 +333,22 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
           </section>
 
           <section>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Video & SEO</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Video URL" hint="YouTube link or an .mp4 file" className="sm:col-span-2"><Input value={String(f.videoUrl)} onChange={(e) => set("videoUrl", e.target.value)} placeholder="https://www.youtube.com/watch?v=…" /></Field>
+              <Field label="SEO title" hint="browser tab and search results"><Input value={String(f.seoTitle)} onChange={(e) => set("seoTitle", e.target.value)} /></Field>
+              <Field label="SEO keywords" hint="comma separated"><Input value={String(f.seoKeywords)} onChange={(e) => set("seoKeywords", e.target.value)} /></Field>
+              <Field label="SEO description" className="sm:col-span-2"><Textarea rows={2} value={String(f.seoDescription)} onChange={(e) => set("seoDescription", e.target.value)} /></Field>
+            </div>
+          </section>
+
+          <section>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Visibility</p>
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="Status"><Select value={String(f.status)} onChange={(e) => set("status", e.target.value)}>{meta.enums.statuses.map((x) => <option key={x} value={x}>{x[0].toUpperCase() + x.slice(1)}</option>)}</Select></Field>
               <label className="flex items-center gap-2 pt-7 text-sm font-medium text-slate-700"><input type="checkbox" checked={!!f.published} onChange={(e) => set("published", e.target.checked)} className="size-4 rounded" /> Published (visible on site)</label>
               <label className="flex items-center gap-2 pt-7 text-sm font-medium text-slate-700"><input type="checkbox" checked={!!f.featured} onChange={(e) => set("featured", e.target.checked)} className="size-4 rounded" /> Featured</label>
+              <Field label="Priority" hint="higher shows first on the site (default 0)"><Input type="number" value={String(f.sort)} onChange={(e) => set("sort", e.target.value)} /></Field>
             </div>
             {meta.homeSectionTokens.length > 0 && (
               <div className="mt-3">
@@ -598,5 +619,167 @@ export function AdminMessages() {
         </div>
       )}
     </div>
+  );
+}
+
+/* ============================== Orders ============================== */
+interface AdminOrderRow {
+  id: string;
+  orderNo: string;
+  status: string;
+  totalUsd: number;
+  notes: string | null;
+  createdAt: string;
+  items: number;
+  customer: { id: string; name: string; email: string | null; phone: string | null; countryCode: string | null };
+}
+interface AdminOrderDetail extends Omit<AdminOrderRow, "items" | "customer"> {
+  customer: AdminOrderRow["customer"] & { company: string | null };
+  items: { id: string; vehicleId: string | null; title: string; priceUsd: number; slug: string | null; status: string | null }[];
+}
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+export function AdminOrders() {
+  const { can } = useAuth();
+  const qc = useQueryClient();
+  const flash = useFlash();
+  const [tab, setTab] = useState<string>("");
+  const [open, setOpen] = useState<string | null>(null);
+  const q = useQuery({
+    queryKey: ["admin/orders", tab],
+    queryFn: () => api.get<{ items: AdminOrderRow[]; counts: Record<string, number> }>("/api/admin/orders" + qs({ status: tab })),
+    enabled: can("website.orders.manage"),
+  });
+  if (!can("website.orders.manage")) return <Denied />;
+  const counts = q.data?.counts ?? {};
+  const all = Object.values(counts).reduce((a, b) => a + b, 0);
+  return (
+    <div>
+      <PageHeader title="Website orders" subtitle="Order requests sent from the website and the app cart. Confirm availability, then send the invoice from the CRM." />
+      {flash.node}
+      <div className="mb-4">
+        <Tabs value={tab} onChange={setTab} items={[{ value: "", label: "All", count: all }, ...WEB_ORDER_STATUSES.map((s) => ({ value: s as string, label: cap(s), count: counts[s] ?? 0 }))]} />
+      </div>
+      {q.isLoading ? (
+        <Skeleton className="h-40" />
+      ) : !q.data?.items.length ? (
+        <Empty icon={<Package className="size-8" />} title="No orders here" text="Orders appear when a buyer checks out their cart." />
+      ) : (
+        <Table head={["Order", "Customer", "Cars", "Total", "Status", "Received"]}>
+          {q.data.items.map((o) => (
+            <tr key={o.id} onClick={() => setOpen(o.id)} className="cursor-pointer hover:bg-slate-50">
+              <td className="px-4 py-3 font-semibold text-slate-900">{o.orderNo}</td>
+              <td className="px-4 py-3">
+                <p className="font-medium text-slate-800">{o.customer.name}</p>
+                <p className="text-xs text-slate-500">{o.customer.email}</p>
+              </td>
+              <td className="px-4 py-3 text-slate-600">{o.items}</td>
+              <td className="px-4 py-3 font-semibold text-slate-900">{formatUsd(o.totalUsd)}</td>
+              <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
+              <td className="px-4 py-3 text-slate-500">{ago(o.createdAt)}</td>
+            </tr>
+          ))}
+        </Table>
+      )}
+      {open && (
+        <OrderModal
+          id={open}
+          onClose={() => setOpen(null)}
+          onSaved={(msg) => {
+            flash.ok(msg);
+            void qc.invalidateQueries({ queryKey: ["admin/orders"] });
+          }}
+          onError={flash.err}
+        />
+      )}
+    </div>
+  );
+}
+
+function OrderModal({ id, onClose, onSaved, onError }: { id: string; onClose: () => void; onSaved: (msg: string) => void; onError: (e: unknown) => void }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["admin/order", id], queryFn: () => api.get<AdminOrderDetail>(`/api/admin/orders/${id}`) });
+  const [status, setStatus] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const o = q.data;
+  const current = status ?? o?.status ?? "pending";
+  const save = async () => {
+    if (!o || current === o.status) return;
+    setSaving(true);
+    try {
+      await api.patch(`/api/admin/orders/${id}`, { status: current });
+      await qc.invalidateQueries({ queryKey: ["admin/order", id] });
+      onSaved(`${o.orderNo} is now ${current}. The buyer sees it in their account and in the chat.`);
+      onClose();
+    } catch (e) {
+      onError(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      wide
+      title={o ? `Order ${o.orderNo}` : "Order"}
+      footer={
+        o && (
+          <>
+            <Button variant="secondary" onClick={onClose}>Close</Button>
+            <Button loading={saving} disabled={current === o.status} onClick={save}>
+              <Save className="size-4" /> Update status
+            </Button>
+          </>
+        )
+      }
+    >
+      {!o ? (
+        <Skeleton className="h-40" />
+      ) : (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Card padded={false} className="p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Customer</p>
+              <p className="mt-1 font-semibold text-slate-900">{o.customer.name}</p>
+              <p className="text-sm text-slate-600">{o.customer.email}</p>
+              {o.customer.phone && <p className="text-sm text-slate-600">{o.customer.phone}</p>}
+              {(o.customer.company || o.customer.countryCode) && <p className="text-xs text-slate-500">{[o.customer.company, o.customer.countryCode].filter(Boolean).join(" · ")}</p>}
+            </Card>
+            <Card padded={false} className="p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status</p>
+              <Select className="mt-1" value={current} onChange={(e) => setStatus(e.target.value)}>
+                {WEB_ORDER_STATUSES.map((s) => (
+                  <option key={s} value={s}>{cap(s)}</option>
+                ))}
+              </Select>
+              <p className="mt-2 text-xs text-slate-500">
+                Received {ago(o.createdAt)} · {o.items.length} car{o.items.length === 1 ? "" : "s"} · {formatUsd(o.totalUsd)}
+              </p>
+            </Card>
+          </div>
+          {o.notes && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-100">
+              <span className="font-semibold">Note from the buyer:</span> {o.notes}
+            </p>
+          )}
+          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+            {o.items.map((i) => (
+              <li key={i.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                <span className="min-w-0">
+                  {i.slug ? (
+                    <a href={`/vehicles/${i.slug}`} target="_blank" rel="noreferrer" className="block truncate text-sm font-medium text-slate-800 hover:text-brand-700">{i.title}</a>
+                  ) : (
+                    <span className="block truncate text-sm font-medium text-slate-800">{i.title}</span>
+                  )}
+                  {i.status && <StatusBadge status={i.status} />}
+                </span>
+                <span className="shrink-0 font-semibold text-slate-900">{formatUsd(i.priceUsd)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Modal>
   );
 }

@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { and, asc, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
-import { BODY_TYPES, DRIVES, FUELS, SiteSettingsSchema, STEERINGS, TRANSMISSIONS } from "@autofte/shared";
+import { BODY_TYPES, DRIVES, FUELS, SiteSettingsSchema, STEERINGS, TRANSMISSIONS, WEB_ORDER_STATUSES } from "@autofte/shared";
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, conflict, h, notFound, parse } from "../lib/http";
 import { requirePerm } from "../auth/session";
 import { audit } from "../services/audit";
+import { ensureCustomerConversation, postMessage } from "../services/chat";
 import { clearSettingsCache, putSetting, siteSettings } from "../services/settings";
 import { matchBuyerRequests } from "../fte/followTools";
 import { genId, shortCode } from "../lib/id";
@@ -183,7 +184,7 @@ adminRouter.get(
       .innerJoin(s.brands, eq(s.brands.id, s.vehicles.brandId))
       .innerJoin(s.vehicleModels, eq(s.vehicleModels.id, s.vehicles.modelId))
       .where(where)
-      .orderBy(desc(s.vehicles.updatedAt))
+      .orderBy(desc(s.vehicles.updatedAt), asc(s.vehicles.stockNo)) // stock no breaks ties so paging never repeats or skips a car
       .limit(f.pageSize)
       .offset((f.page - 1) * f.pageSize);
     const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(s.vehicles).where(where)) as [{ n: number }];
@@ -430,6 +431,76 @@ adminRouter.post(
     const b = parse(z.object({ handled: z.boolean().default(true) }), req.body ?? {});
     const r = await db().update(s.contactMessages).set({ handled: b.handled }).where(eq(s.contactMessages.id, id)).returning({ id: s.contactMessages.id });
     if (!r.length) throw notFound("Message not found");
+    return { ok: true };
+  }),
+);
+
+// ---------- website orders (cart checkout requests) ----------
+adminRouter.get(
+  "/orders",
+  h(async (req) => {
+    requirePerm(req, "website.orders.manage");
+    const status = typeof req.query.status === "string" && req.query.status ? req.query.status : undefined;
+    const rows = await db()
+      .select({
+        id: s.webOrders.id,
+        orderNo: s.webOrders.orderNo,
+        status: s.webOrders.status,
+        totalUsd: s.webOrders.totalUsd,
+        notes: s.webOrders.notes,
+        createdAt: s.webOrders.createdAt,
+        customer: { id: s.users.id, name: s.users.name, email: s.users.email, phone: s.users.phone, countryCode: s.users.countryCode },
+        items: sql<number>`(select count(*)::int from web_order_items i where i.order_id = ${s.webOrders.id})`,
+      })
+      .from(s.webOrders)
+      .innerJoin(s.users, eq(s.users.id, s.webOrders.userId))
+      .where(status ? eq(s.webOrders.status, status) : undefined)
+      .orderBy(desc(s.webOrders.createdAt))
+      .limit(200);
+    const counts = await db().select({ status: s.webOrders.status, n: sql<number>`count(*)::int` }).from(s.webOrders).groupBy(s.webOrders.status);
+    return { items: rows, counts: Object.fromEntries(counts.map((c) => [c.status, c.n])) };
+  }),
+);
+
+adminRouter.get(
+  "/orders/:id",
+  h(async (req) => {
+    requirePerm(req, "website.orders.manage");
+    const [row] = await db()
+      .select({ o: s.webOrders, customer: { id: s.users.id, name: s.users.name, email: s.users.email, phone: s.users.phone, countryCode: s.users.countryCode, company: s.users.company } })
+      .from(s.webOrders)
+      .innerJoin(s.users, eq(s.users.id, s.webOrders.userId))
+      .where(eq(s.webOrders.id, String(req.params.id)))
+      .limit(1);
+    if (!row) throw notFound("Order not found");
+    const items = await db()
+      .select({ id: s.webOrderItems.id, vehicleId: s.webOrderItems.vehicleId, title: s.webOrderItems.title, priceUsd: s.webOrderItems.priceUsd, slug: s.vehicles.slug, status: s.vehicles.status })
+      .from(s.webOrderItems)
+      .leftJoin(s.vehicles, eq(s.vehicles.id, s.webOrderItems.vehicleId))
+      .where(eq(s.webOrderItems.orderId, row.o.id));
+    return { ...row.o, customer: row.customer, items };
+  }),
+);
+
+adminRouter.patch(
+  "/orders/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "website.orders.manage");
+    const id = String(req.params.id);
+    const [o] = await db().select().from(s.webOrders).where(eq(s.webOrders.id, id)).limit(1);
+    if (!o) throw notFound("Order not found");
+    // staff change the status only; `notes` is what the BUYER wrote at checkout and stays theirs
+    const { status } = parse(z.object({ status: z.enum(WEB_ORDER_STATUSES) }), req.body);
+    if (status === o.status) return { ok: true };
+    await db().transaction(async (tx) => {
+      await tx.update(s.webOrders).set({ status }).where(eq(s.webOrders.id, id));
+      await audit(tx, { actorUserId: u.id, actorKind: "human", action: "web_order.status", entity: "web_order", entityId: id, summary: `Order ${o.orderNo}: ${o.status} → ${status}` });
+    });
+    // tell the buyer in their own thread (web + app). After the commit: postMessage uses db().
+    const conv = await ensureCustomerConversation(o.userId, "web");
+    await postMessage({ conversationId: conv.id, senderUserId: null, kind: "system", body: `Order ${o.orderNo} is now ${status}.`, meta: { webOrderId: id, orderNo: o.orderNo, status } }).catch((e) =>
+      console.error("[order status] chat note failed", e),
+    );
     return { ok: true };
   }),
 );
