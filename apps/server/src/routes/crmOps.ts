@@ -266,7 +266,7 @@ crmOps.get(
     if (!f) throw notFound();
     res.setHeader("Content-Type", f.mime);
     res.setHeader("Content-Disposition", `inline; filename="${(f.originalName ?? "file").replace(/"/g, "")}"`);
-    res.sendFile(f.abs);
+    res.sendFile(f.abs, { dotfiles: "allow" }); // stored under .data/ — send() treats dot-folders as missing by default
     return undefined;
   }),
 );

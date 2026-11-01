@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "Hikari Motors",
+    "slug": "autofte-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "autofte",
+    "android": {
+      "package": "com.autofte.hikarimotors",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/adaptive-icon-mono.png",
+        "backgroundColor": "#0f4c81"
+      },
+      "edgeToEdgeEnabled": true,
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": ["android.permission.RECORD_AUDIO"],
+      "blockedPermissions": ["android.permission.SYSTEM_ALERT_WINDOW", "android.permission.VIBRATE"]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#0f4c81"
+        }
+      ],
+      ["expo-audio", { "microphonePermission": "Allow $(PRODUCT_NAME) to record voice notes for the chat." }],
+      ["expo-image-picker", { "photosPermission": "Allow $(PRODUCT_NAME) to send pictures in the chat.", "cameraPermission": false }],
+      "expo-secure-store",
+      "./plugins/withAppBuild.js"
+    ]
+  }
+}

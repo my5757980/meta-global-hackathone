@@ -236,7 +236,7 @@ chatRouter.get(
     if (!f) throw notFound();
     res.setHeader("Content-Type", f.mime);
     res.setHeader("Cache-Control", "private, max-age=86400");
-    res.sendFile(f.abs);
+    res.sendFile(f.abs, { dotfiles: "allow" }); // stored under .data/ — send() treats dot-folders as missing by default
     return undefined;
   }),
 );

@@ -25,6 +25,8 @@ const EXT: Record<string, string> = {
   "audio/mpeg": ".mp3",
   "audio/ogg": ".ogg",
   "audio/webm": ".webm",
+  "audio/mp4": ".m4a", // voice notes from the phone app (AAC in MP4)
+  "audio/aac": ".aac",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
   "application/zip": ".zip",
 };
