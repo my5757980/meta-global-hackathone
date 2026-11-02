@@ -11,18 +11,26 @@ import { Button, Chip, Empty, ErrorBox, Input, Skeleton, T, VehicleTile } from "
 
 interface Filters {
   brand?: string;
+  model?: string;
+  grade?: string;
   body?: string;
   fuel?: string;
   transmission?: string;
+  steering?: string;
+  color?: string;
+  yearMin?: string;
+  mileageMax?: string;
+  priceMin?: string;
   priceMax?: string;
   sort?: string;
 }
 interface Facets {
-  brands: { id: string; name: string; slug: string }[];
+  brands: { id: string; name: string; slug: string; models: { name: string; slug: string; grades: string[] }[] }[];
   bodyTypes: { name: string; count: number }[];
 }
 const SORTS = [
   { v: "newest", l: "Newest" },
+  { v: "featured", l: "Featured" },
   { v: "price_asc", l: "Price: low to high" },
   { v: "price_desc", l: "Price: high to low" },
   { v: "year_desc", l: "Newest year" },
@@ -30,6 +38,9 @@ const SORTS = [
 ];
 const FUELS = ["Petrol", "Diesel", "Hybrid", "Electric"];
 const GEARS = ["Automatic", "Manual", "CVT"];
+const COLOURS = ["White", "Black", "Silver", "Gray", "Blue", "Red", "Green", "Brown", "Beige"];
+const YEARS = ["2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", "2015"];
+const MILES = ["30000", "50000", "80000", "100000", "150000"];
 const PAGE = 20;
 
 export default function ShopScreen() {
@@ -39,7 +50,7 @@ export default function ShopScreen() {
   const { width } = useWindowDimensions();
   const cols = width >= 640 ? 2 : 1;
   const [q, setQ] = useState<string>(route.params?.q ?? "");
-  const [f, setF] = useState<Filters>(route.params?.body ? { body: route.params.body } : {});
+  const [f, setF] = useState<Filters>({ body: route.params?.body, brand: route.params?.brand, steering: route.params?.steering });
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<VehicleCard[]>([]);
   const [total, setTotal] = useState(0);
@@ -53,7 +64,9 @@ export default function ShopScreen() {
   useEffect(() => {
     if (route.params?.q !== undefined) setQ(route.params.q);
     if (route.params?.body !== undefined) setF((x) => ({ ...x, body: route.params.body || undefined }));
-  }, [route.params?.q, route.params?.body, route.params?.t]);
+    if (route.params?.brand !== undefined) setF((x) => ({ ...x, brand: route.params.brand || undefined, model: undefined, grade: undefined }));
+    if (route.params?.steering !== undefined) setF((x) => ({ ...x, steering: route.params.steering || undefined }));
+  }, [route.params?.q, route.params?.body, route.params?.brand, route.params?.steering, route.params?.t]);
 
   const load = useCallback(
     async (p: number, mode: "loading" | "more" | "refresh") => {
@@ -142,7 +155,9 @@ function FilterSheet({ open, onClose, value, facets, onApply }: { open: boolean;
   useEffect(() => {
     if (open) setD(value);
   }, [open, value]);
-  const toggle = (k: keyof Filters, v: string) => setD((x) => ({ ...x, [k]: x[k] === v ? undefined : v }));
+  const toggle = (k: keyof Filters, v: string) => setD((x) => ({ ...x, [k]: x[k] === v ? undefined : v, ...(k === "brand" ? { model: undefined, grade: undefined } : k === "model" ? { grade: undefined } : {}) }));
+  const models = facets?.brands.find((b) => b.slug === d.brand)?.models ?? [];
+  const grades = models.find((m) => m.slug === d.model)?.grades ?? [];
   return (
     <Modal visible={open} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={st.backdrop} onPress={onClose} />
@@ -154,6 +169,10 @@ function FilterSheet({ open, onClose, value, facets, onApply }: { open: boolean;
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
+          <View>
+            <T style={st.groupTitle}>Min price (USD, FOB)</T>
+            <Input keyboardType="number-pad" value={d.priceMin ?? ""} onChangeText={(t) => setD((x) => ({ ...x, priceMin: t.replace(/\D/g, "") || undefined }))} placeholder="Any" />
+          </View>
           <View>
             <T style={st.groupTitle}>Max price (USD, FOB)</T>
             <Input keyboardType="number-pad" value={d.priceMax ?? ""} onChangeText={(t) => setD((x) => ({ ...x, priceMax: t.replace(/\D/g, "") || undefined }))} placeholder="e.g. 15000" />
@@ -167,6 +186,20 @@ function FilterSheet({ open, onClose, value, facets, onApply }: { open: boolean;
             <Group title="Make">
               {facets.brands.map((b) => (
                 <Chip key={b.slug} label={b.name} active={d.brand === b.slug} onPress={() => toggle("brand", b.slug)} />
+              ))}
+            </Group>
+          ) : null}
+          {models.length ? (
+            <Group title="Model">
+              {models.map((m) => (
+                <Chip key={m.slug} label={m.name} active={d.model === m.slug} onPress={() => toggle("model", m.slug)} />
+              ))}
+            </Group>
+          ) : null}
+          {grades.length ? (
+            <Group title="Grade">
+              {grades.map((g) => (
+                <Chip key={g} label={g} active={d.grade === g} onPress={() => toggle("grade", g)} />
               ))}
             </Group>
           ) : null}
@@ -185,6 +218,26 @@ function FilterSheet({ open, onClose, value, facets, onApply }: { open: boolean;
           <Group title="Gearbox">
             {GEARS.map((x) => (
               <Chip key={x} label={x} active={d.transmission === x} onPress={() => toggle("transmission", x)} />
+            ))}
+          </Group>
+          <Group title="Steering">
+            {["Right", "Left"].map((x) => (
+              <Chip key={x} label={`${x}-hand`} active={d.steering === x} onPress={() => toggle("steering", x)} />
+            ))}
+          </Group>
+          <Group title="Colour">
+            {COLOURS.map((x) => (
+              <Chip key={x} label={x} active={d.color === x} onPress={() => toggle("color", x)} />
+            ))}
+          </Group>
+          <Group title="Year from">
+            {YEARS.map((x) => (
+              <Chip key={x} label={x} active={d.yearMin === x} onPress={() => toggle("yearMin", x)} />
+            ))}
+          </Group>
+          <Group title="Max mileage">
+            {MILES.map((x) => (
+              <Chip key={x} label={`${Number(x).toLocaleString("en-US")} km`} active={d.mileageMax === x} onPress={() => toggle("mileageMax", x)} />
             ))}
           </Group>
         </ScrollView>

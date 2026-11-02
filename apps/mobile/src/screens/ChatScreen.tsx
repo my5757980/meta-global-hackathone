@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
@@ -88,6 +88,9 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
   const [busy, setBusy] = useState<null | "send" | "image" | "voice">(null);
   const [waitAfter, setWaitAfter] = useState<string | null>(null); // id of my last message; cleared by a reply
   const [viewer, setViewer] = useState<string | null>(null);
+  const [receipts, setReceipts] = useState<{ deliveredAt: string | null; readAt: string | null } | null>(null);
+  const [people, setPeople] = useState<{ id: string; name: string; title: string | null; online: boolean }[] | null>(null);
+  const [asking, setAsking] = useState(false);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const rec = useAudioRecorderState(recorder, 250);
 
@@ -104,6 +107,8 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
       misses.current = 0;
       setError(null);
       setConv((c) => (c && c.id === r.conversation.id && c.holder === r.conversation.holder ? c : r.conversation));
+      const rc = await api.get<{ deliveredAt: string | null; readAt: string | null }>(`/api/chat/conversations/${r.conversation.id}/receipts`).catch(() => null);
+      if (rc) setReceipts((old) => (old?.readAt === rc.readAt && old?.deliveredAt === rc.deliveredAt ? old : rc));
       // redraw only when something changed (a new message, or a transcript arriving on a voice note)
       const seen = r.messages.map((m) => `${m.id}:${m.meta?.transcript ? 1 : 0}`).join();
       if (seen !== lastSeen.current) {
@@ -129,6 +134,39 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
   // what the live stream says arrives at once; the three-second check above is what covers a lost connection
   useEffect(() => onLive("message", () => void poll()), [poll]);
   useEffect(() => onLive("holder", () => void poll()), [poll]);
+  useEffect(() => onLive("read", () => void poll()), [poll]);
+  useEffect(() => onLive("delivered", () => void poll()), [poll]);
+
+  const openPeople = async () => {
+    setError(null);
+    try {
+      setPeople(await api.get<{ id: string; name: string; title: string | null; online: boolean }[]>("/api/chat/people"));
+    } catch (e) {
+      setError(errText(e));
+    }
+  };
+  const askFor = async (userId?: string) => {
+    setAsking(true);
+    setError(null);
+    try {
+      await api.post("/api/chat/mine/person", userId ? { userId } : {});
+      setPeople(null);
+      await poll();
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setAsking(false);
+    }
+  };
+  const backToFte = async () => {
+    setError(null);
+    try {
+      await api.post("/api/chat/mine/back-to-fte", {});
+      await poll();
+    } catch (e) {
+      setError(errText(e));
+    }
+  };
 
   const call = async (media: "audio" | "video") => {
     if (!conv || !agent) return;
@@ -235,6 +273,37 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, paddingBottom: lift }}>
+      {conv?.holder === "fte" ? (
+        <Pressable accessibilityLabel="Talk to a person" onPress={() => void openPeople()} style={st.personBar}>
+          <Ionicons name="person-outline" size={16} color={col.brand} />
+          <T style={{ color: col.brand, fontWeight: "700", fontSize: 13 }}>Talk to a person</T>
+        </Pressable>
+      ) : null}
+      {conv?.holder === "human" ? (
+        <Pressable accessibilityLabel={`Back to ${site.ftEName}`} onPress={() => void backToFte()} style={st.personBar}>
+          <Ionicons name="sparkles-outline" size={16} color={C.violet} />
+          <T style={{ color: C.violet, fontWeight: "700", fontSize: 13 }}>Back to {site.ftEName}</T>
+        </Pressable>
+      ) : null}
+      <Modal visible={!!people} transparent animationType="slide" onRequestClose={() => setPeople(null)}>
+        <Pressable style={{ flex: 1, backgroundColor: "rgba(15,23,42,0.45)" }} onPress={() => setPeople(null)} />
+        <View style={st.peopleSheet}>
+          <T style={{ fontSize: 18, fontWeight: "800", color: C.ink }}>Talk to a person</T>
+          <T style={{ color: C.muted, marginTop: 2, marginBottom: 10 }}>{people?.some((p) => p.online) ? `${people.filter((p) => p.online).length} of the team online now` : "The team is away. They answer here when they are back."}</T>
+          <Button title="Whoever is free" loading={asking} onPress={() => void askFor()} />
+          {people?.map((p) => (
+            <Pressable key={p.id} disabled={asking} accessibilityLabel={`Ask for ${p.name}`} onPress={() => void askFor(p.id)} style={st.personRow}>
+              <View style={[st.onlineDot, { backgroundColor: p.online ? C.green : C.line }]} />
+              <View style={{ flex: 1 }}>
+                <T style={{ fontWeight: "700", color: C.ink }}>{p.name}</T>
+                <T style={{ fontSize: 12, color: C.muted }}>
+                  {p.title ?? "Sales team"} · {p.online ? "online" : "away"}
+                </T>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      </Modal>
       {conv?.holder === "human" && agent ? (
         <View style={st.agentBar}>
           <View style={{ flex: 1 }}>
@@ -281,7 +350,7 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
               <Empty icon="chatbubbles-outline" title={`Say hello to ${site.ftEName}`} text="Ask for a price to your port, a car in stock, or your invoice." />
             </View>
           }
-          renderItem={({ item }) => <Bubble m={item} mine={item.senderUserId === me?.id} onImage={setViewer} />}
+          renderItem={({ item }) => <Bubble m={item} mine={item.senderUserId === me?.id} onImage={setViewer} receipts={receipts} />}
         />
       )}
 
@@ -329,8 +398,33 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
 }
 
 /* ---------------- one message ---------------- */
-function Bubble({ m, mine, onImage }: { m: ChatMsg; mine: boolean; onImage: (path: string) => void }) {
+/** A web address in a message opens in the browser. */
+function Linked({ text, color }: { text: string; color: string }) {
+  const parts = text.split(/((?:https?:\/\/|www\.)[^\s<)]+)/g);
+  return (
+    <>
+      {parts.map((p, i) => {
+        if (i % 2 === 0) return p;
+        const tail = p.match(/[.,!?:;]+$/)?.[0] ?? "";
+        const bare = tail ? p.slice(0, -tail.length) : p;
+        return (
+          <Text key={i}>
+            <Text style={{ color, textDecorationLine: "underline" }} onPress={() => void Linking.openURL(bare.startsWith("www.") ? `https://${bare}` : bare)}>
+              {bare}
+            </Text>
+            {tail}
+          </Text>
+        );
+      })}
+    </>
+  );
+}
+
+function Bubble({ m, mine, onImage, receipts }: { m: ChatMsg; mine: boolean; onImage: (path: string) => void; receipts?: { deliveredAt: string | null; readAt: string | null } | null }) {
   const col = useColors();
+  const at = new Date(m.createdAt).getTime();
+  const read = !!receipts?.readAt && new Date(receipts.readAt).getTime() >= at;
+  const delivered = read || (!!receipts?.deliveredAt && new Date(receipts.deliveredAt).getTime() >= at);
   const { site } = useSite();
   if (m.kind === "system" || m.kind === "call")
     return (
@@ -356,11 +450,14 @@ function Bubble({ m, mine, onImage }: { m: ChatMsg; mine: boolean; onImage: (pat
           {m.kind === "voice" && m.fileIds[0] ? <VoiceNote m={m} mine={mine} /> : null}
           {m.body ? (
             <T selectable style={{ color: mine ? "#fff" : C.ink, lineHeight: 21, marginTop: m.kind === "image" ? 6 : 0 }}>
-              {m.body.replace(/\*\*/g, "")}
+              <Linked text={m.body.replace(/\*\*/g, "")} color={mine ? "#fff" : col.brand} />
             </T>
           ) : null}
           {m.meta?.cards?.length ? <Cards cards={m.meta.cards} /> : null}
-          <T style={{ color: mine ? "rgba(255,255,255,0.75)" : C.faint, fontSize: 10, marginTop: 4, alignSelf: "flex-end" }}>{time(m.createdAt)}</T>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 3, marginTop: 4, alignSelf: "flex-end" }}>
+            <T style={{ color: mine ? "rgba(255,255,255,0.75)" : C.faint, fontSize: 10 }}>{time(m.createdAt)}</T>
+            {mine ? <Ionicons accessibilityLabel={read ? "Read" : delivered ? "Delivered" : "Sent"} name={delivered ? "checkmark-done" : "checkmark"} size={13} color={read ? "#7dd3fc" : "rgba(255,255,255,0.75)"} /> : null}
+          </View>
         </View>
       </View>
     </View>
@@ -508,6 +605,10 @@ function Cards({ cards }: { cards: ChatCard[] }) {
 }
 
 const st = StyleSheet.create({
+  personBar: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, minHeight: 40, backgroundColor: "#fff", borderBottomWidth: StyleSheet.hairlineWidth, borderColor: C.line },
+  peopleSheet: { backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, paddingBottom: 28, maxHeight: "80%" },
+  personRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, minHeight: 48 },
+  onlineDot: { width: 10, height: 10, borderRadius: 5 },
   agentBar: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 14, paddingVertical: 6, backgroundColor: "#fff", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
   row: { flexDirection: "row" },
   bubble: { borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },

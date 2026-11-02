@@ -46,6 +46,8 @@ export interface VehicleCard {
 
 export interface VehicleDetail extends VehicleCard {
   refNo: string;
+  grade?: string | null;
+  videoUrl?: string | null;
   modelCode: string | null;
   month: number | null;
   steering: string;

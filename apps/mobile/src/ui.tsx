@@ -197,12 +197,15 @@ export function VehicleTile({ v, onPress, width }: { v: VehicleCard; onPress: ()
           </View>
         ) : v.discountPriceUsd != null && Number(v.discountPriceUsd) < Number(v.priceUsd) ? (
           <View style={{ position: "absolute", top: 8, left: 8 }}>
-            <Badge label="Price drop" tone="red" />
+            <Badge label={`${Math.round((1 - Number(v.discountPriceUsd) / Number(v.priceUsd)) * 100)}% off`} tone="red" />
           </View>
         ) : null}
       </View>
       <View style={{ padding: 12 }}>
-        <T lines={2} style={{ fontWeight: "700", color: C.ink, minHeight: 38 }}>
+        <T lines={1} style={{ color: C.muted, fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>
+          {v.brand.toUpperCase()}
+        </T>
+        <T lines={2} style={{ fontWeight: "700", color: C.ink, minHeight: 38, marginTop: 2 }}>
           {v.title}
         </T>
         <T lines={1} style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>

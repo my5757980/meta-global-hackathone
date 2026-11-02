@@ -307,8 +307,8 @@ auctionRouter.get(
       topBidders: (topBidders as unknown as { rows: { name: string; bids: number; value: number }[] }).rows.map((r) => ({ ...r, share: totalBids ? Math.round((r.bids / totalBids) * 100) : 0 })),
       desk,
       funnel: (funnelRows as unknown as { rows: Record<string, number>[] }).rows[0],
-      customerActions: (customerActs as unknown as { rows: unknown[] }).rows,
-      deskActions: (deskActs as unknown as { rows: unknown[] }).rows,
+      customerActions: (customerActs as unknown as { rows: { at: string }[] }).rows.map((r) => ({ ...r, at: new Date(r.at).toISOString() })),
+      deskActions: (deskActs as unknown as { rows: { at: string }[] }).rows.map((r) => ({ ...r, at: new Date(r.at).toISOString() })),
       recentBids,
       recentOrders,
       // measured: it says working only while there are lots on sale

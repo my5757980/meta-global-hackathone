@@ -16,6 +16,8 @@ interface HomeData {
   lists: Record<string, VehicleCard[]>;
   testimonials: { id: string; name: string; country: string | null; text: string; rating: number }[];
   bodyTypes: { name: string; count: number }[];
+  steering: { name: string; count: number }[];
+  brands: { name: string; slug: string }[];
 }
 type Slide = { title: string; subtitle: string; cta?: string };
 
@@ -25,6 +27,11 @@ export default function HomeScreen() {
   const col = useColors();
   const { site } = useSite();
   const q = useFetch<HomeData>("/api/public/home");
+  const rate = useFetch<{ usdJpy: number }>("/api/public/rate");
+  const sec = (k: string) => q.data?.sections.find((s) => s.key === k);
+  const items = <X,>(k: string) => (sec(k)?.data.items as X[] | undefined) ?? [];
+  // neither city changes its clocks in the year, so this needs no time-zone library
+  const clock = (offsetHours: number) => new Date(Date.now() + offsetHours * 3600_000).toISOString().slice(11, 16);
   const [search, setSearch] = useState("");
   const toShop = (params: Record<string, string>) => nav.navigate("ShopTab", { screen: "Shop", params: { ...params, t: Date.now() }, pop: true });
   // the header is the brand colour: white status icons here, dark everywhere else
@@ -55,7 +62,11 @@ export default function HomeScreen() {
             <Ionicons name="chatbubble-ellipses" size={20} color="#fff" />
           </Pressable>
         </View>
-        <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
+        <T lines={1} style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 8 }}>
+          Tokyo {clock(9)} · Nairobi {clock(3)}
+          {rate.data ? ` · USD/JPY ${rate.data.usdJpy.toFixed(2)}` : ""}
+        </T>
+        <View style={{ marginTop: 10, flexDirection: "row", gap: 8 }}>
           <Input
             value={search}
             onChangeText={setSearch}
@@ -89,6 +100,39 @@ export default function HomeScreen() {
             <Ionicons name="chevron-forward" size={18} color={C.violet} />
           </View>
         </Card>
+
+        {items<{ label: string; value: string }>("stats").length ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+            {items<{ label: string; value: string }>("stats").map((x) => (
+              <Card key={x.label} style={{ flexBasis: "48%", flexGrow: 1 }}>
+                <T style={{ fontSize: 20, fontWeight: "800", color: col.brand }}>{x.value}</T>
+                <T style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>{x.label}</T>
+              </Card>
+            ))}
+          </View>
+        ) : null}
+
+        {q.data?.brands?.length ? (
+          <>
+            <SectionTitle title="Shop by brand" />
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {q.data.brands.map((b) => (
+                <Chip key={b.slug} label={b.name} onPress={() => toShop({ brand: b.slug })} />
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        {q.data?.steering?.length ? (
+          <>
+            <SectionTitle title={sec("steering")?.title ?? "Shop by steering"} />
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {q.data.steering.map((x) => (
+                <Chip key={x.name} label={`${x.name}-hand · ${x.count}`} onPress={() => toShop({ steering: x.name })} />
+              ))}
+            </View>
+          </>
+        ) : null}
 
         {q.loading && !q.data ? (
           <View style={{ marginTop: 22, gap: 12 }}>
@@ -125,6 +169,69 @@ export default function HomeScreen() {
                 <Chip key={b.name} label={`${b.name} · ${b.count}`} onPress={() => toShop({ body: b.name })} />
               ))}
             </View>
+          </>
+        ) : null}
+
+        {items<{ title: string; text: string }>("why").length ? (
+          <>
+            <SectionTitle title={sec("why")?.title ?? "Why choose us"} />
+            <View style={{ gap: 8 }}>
+              {items<{ title: string; text: string }>("why").map((x) => (
+                <Card key={x.title}>
+                  <T style={{ fontWeight: "800", color: C.ink }}>{x.title}</T>
+                  <T style={{ color: C.muted, marginTop: 3, fontSize: 13, lineHeight: 19 }}>{x.text}</T>
+                </Card>
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        {items<{ title: string; text: string; link?: string }>("payment").length ? (
+          <>
+            <SectionTitle title={sec("payment")?.title ?? "Pick your payment method"} />
+            <View style={{ gap: 8 }}>
+              {items<{ title: string; text: string; link?: string }>("payment").map((x) => (
+                <Card key={x.title} onPress={x.link === "/bank-details" ? () => nav.navigate("Bank") : x.link === "/how-to-buy" ? () => nav.navigate("Page", { slug: "how-to-buy" }) : x.link === "/contact" ? () => nav.navigate("Contact") : undefined}>
+                  <T style={{ fontWeight: "800", color: C.ink }}>{x.title}</T>
+                  <T style={{ color: C.muted, marginTop: 3, fontSize: 13, lineHeight: 19 }}>{x.text}</T>
+                </Card>
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        {items<{ title: string; text: string }>("we_bid").length ? (
+          <>
+            <SectionTitle title={sec("we_bid")?.title ?? "We bid for you"} />
+            {sec("we_bid")?.subtitle ? <T style={{ color: C.muted, marginTop: -6, marginBottom: 10, fontSize: 13 }}>{sec("we_bid")!.subtitle}</T> : null}
+            <Card>
+              {items<{ title: string; text: string }>("we_bid").map((x, i) => (
+                <View key={x.title} style={{ flexDirection: "row", gap: 10, marginTop: i ? 10 : 0 }}>
+                  <T style={{ fontWeight: "800", color: col.brand, width: 18 }}>{i + 1}</T>
+                  <View style={{ flex: 1 }}>
+                    <T style={{ fontWeight: "700", color: C.ink }}>{x.title}</T>
+                    <T style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>{x.text}</T>
+                  </View>
+                </View>
+              ))}
+            </Card>
+          </>
+        ) : null}
+
+        {items<{ title: string; text: string }>("steps").length ? (
+          <>
+            <SectionTitle title={sec("steps")?.title ?? "How it works"} />
+            <Card>
+              {items<{ title: string; text: string }>("steps").map((x, i) => (
+                <View key={x.title} style={{ flexDirection: "row", gap: 10, marginTop: i ? 10 : 0 }}>
+                  <T style={{ fontWeight: "800", color: col.brand, width: 18 }}>{i + 1}</T>
+                  <View style={{ flex: 1 }}>
+                    <T style={{ fontWeight: "700", color: C.ink }}>{x.title}</T>
+                    <T style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>{x.text}</T>
+                  </View>
+                </View>
+              ))}
+            </Card>
           </>
         ) : null}
 

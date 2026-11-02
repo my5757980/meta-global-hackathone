@@ -131,6 +131,15 @@ export function ChatPanel({ draft, onClose, full }: { draft?: string; onClose?: 
               <span>
                 {agent ? `${agent.name}${agent.title ? ` (${agent.title})` : ""} is with you in this chat${agent.online ? " · online" : ""}.` : "A team member is with you in this chat."}
               </span>
+              <button
+                className="font-semibold text-violet-700 underline"
+                onClick={async () => {
+                  await api.post("/api/chat/mine/back-to-fte", {});
+                  reload();
+                }}
+              >
+                Back to <FteName />
+              </button>
               {agent && <CallButtons conversationId={conv.id} peerName={agent.name} disabled={agent.online ? null : `${agent.name} is offline right now`} className="[&_button]:p-1" />}
             </div>
           )}

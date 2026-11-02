@@ -180,7 +180,7 @@ export function Stat({ label, value, hint, icon }: { label: string; value: React
       {icon && <div className="rounded-xl bg-brand-50 p-2.5 text-brand-600">{icon}</div>}
       <div className="min-w-0">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-        <p className="mt-1 truncate text-2xl font-bold text-slate-900">{value}</p>
+        <p className="mt-1 text-xl font-bold [overflow-wrap:anywhere] text-slate-900 sm:text-2xl">{value}</p>
         {hint && <p className="mt-0.5 text-xs text-slate-500">{hint}</p>}
       </div>
     </Card>

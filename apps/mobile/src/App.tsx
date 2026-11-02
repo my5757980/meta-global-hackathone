@@ -18,7 +18,7 @@ import ShopScreen from "./screens/ShopScreen";
 import VehicleScreen from "./screens/VehicleScreen";
 import ChatScreen from "./screens/ChatScreen";
 import { CartScreen, CheckoutScreen, OrdersScreen, WishlistScreen } from "./screens/CartScreens";
-import { AuthScreen, BankScreen, BlogPostScreen, BlogScreen, ContactScreen, FaqScreen, InvoiceScreen, InvoicesScreen, MenuScreen, PageScreen, ProfileScreen, ServerScreen, ServicesScreen } from "./screens/MenuScreens";
+import { AuthScreen, BankScreen, BlogPostScreen, BlogScreen, ContactScreen, FaqScreen, InvoiceScreen, InvoicesScreen, MenuScreen, PageScreen, ProfileScreen, ServerScreen, ServicesScreen, ForgotScreen, ResetPasswordScreen, PartnersScreen, LocationsScreen } from "./screens/MenuScreens";
 import { CallProvider } from "./lib/calls";
 import { onPushOpened, registerPush } from "./lib/push";
 
@@ -52,6 +52,10 @@ function shared(S: ReturnType<typeof createNativeStackNavigator>) {
       <S.Screen name="Services" component={ServicesScreen} options={{ title: "Services" }} />
       <S.Screen name="Contact" component={ContactScreen} options={{ title: "Contact us" }} />
       <S.Screen name="Bank" component={BankScreen} options={{ title: "Bank details" }} />
+      <S.Screen name="Partners" component={PartnersScreen} options={{ title: "Official partners" }} />
+      <S.Screen name="Locations" component={LocationsScreen} options={{ title: "Our locations" }} />
+      <S.Screen name="Forgot" component={ForgotScreen} options={{ title: "Forgot password" }} />
+      <S.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ title: "New password" }} />
       <S.Screen name="Server" component={ServerScreen} options={{ title: "Server address" }} />
     </>
   );

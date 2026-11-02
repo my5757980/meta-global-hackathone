@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FlatList, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { FlatList, Linking, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Image } from "expo-image";
 import { errText } from "../lib/api";
@@ -51,6 +51,7 @@ export default function VehicleScreen() {
     ["Stock no.", v.stockNo],
     ["Make / model", `${v.brand} ${v.model}`],
     ["Chassis code", v.modelCode],
+    ["Grade", v.grade ?? null],
     ["Year / month", `${v.year}${v.month ? ` / ${String(v.month).padStart(2, "0")}` : ""}`],
     ["Mileage", km(v.mileageKm)],
     ["Engine", v.engineCc ? `${v.engineCc.toLocaleString()} cc` : v.fuel === "Electric" ? "Electric" : null],
@@ -104,6 +105,7 @@ export default function VehicleScreen() {
           <T style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>FOB Japan{v.location ? ` · ${v.location}` : ""}</T>
           <Button title={`Ask ${site.ftEName} the price to my port`} icon="chatbubble-ellipses-outline" onPress={() => askSora(`Hi ${site.ftEName}, what is the C&F price of ${v.stockNo} (${v.title}) to my port?`)} style={{ marginTop: 14 }} />
           <ShopButtons v={v} />
+          {v.videoUrl ? <Button title="Watch the video" icon="play-circle-outline" variant="secondary" onPress={() => void Linking.openURL(absUrl(v.videoUrl!))} style={{ marginTop: 10 }} /> : null}
           <View style={{ flexDirection: "row", justifyContent: "center", gap: 18, marginTop: 12 }}>
             <Pressable onPress={() => askSora(`I'd like to reserve ${v.stockNo}.`)} hitSlop={8}>
               <T style={{ color: col.brand, fontWeight: "700", fontSize: 14 }}>Reserve with {site.ftEName}</T>

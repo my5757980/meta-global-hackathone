@@ -67,6 +67,8 @@ export function MenuScreen() {
         <ListRow icon="business-outline" title="About us" onPress={go("Page", { slug: "about" })} />
         <ListRow icon="list-outline" title="How to buy" onPress={go("Page", { slug: "how-to-buy" })} />
         <ListRow icon="construct-outline" title="Services" onPress={go("Services")} />
+        <ListRow icon="ribbon-outline" title="Official partners" onPress={go("Partners")} />
+        <ListRow icon="location-outline" title="Our locations" onPress={go("Locations")} />
         <ListRow icon="help-circle-outline" title="FAQ" onPress={go("Faq")} />
         <ListRow icon="newspaper-outline" title="Guides" onPress={go("Blog")} />
         <ListRow icon="card-outline" title="Bank details" onPress={go("Bank")} />
@@ -146,6 +148,7 @@ export function AuthScreen() {
               <Input value={f.password} onChangeText={(password) => setF({ ...f, password })} secureTextEntry autoComplete="password" onSubmitEditing={() => void run("in", () => signIn(f.login.trim(), f.password))} />
             </Field>
             <Button title="Sign in" loading={busy === "in"} disabled={!f.login.trim() || !f.password} onPress={() => run("in", () => signIn(f.login.trim(), f.password))} />
+            <Button title="Forgot password?" variant="ghost" small onPress={() => nav.navigate("Forgot")} style={{ marginTop: 6 }} />
           </>
         ) : (
           <>
@@ -218,6 +221,153 @@ export function ProfileScreen() {
         <Field label="Address"><Input value={f.address} onChangeText={(address) => setF({ ...f, address })} multiline /></Field>
         <Button title="Save" icon="checkmark" loading={busy} disabled={f.name.trim().length < 2 || f.phone.trim().length < 6} onPress={save} />
       </Card>
+      <ChangePassword />
+    </Screen>
+  );
+}
+
+function ChangePassword() {
+  const [f, setF] = useState({ current: "", next: "", again: "" });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (f.next !== f.again) return setMsg({ ok: false, text: "The two new passwords are not the same." });
+    setBusy(true);
+    setMsg(null);
+    try {
+      await api.post("/api/auth/password", { current: f.current, next: f.next });
+      setF({ current: "", next: "", again: "" });
+      setMsg({ ok: true, text: "Password changed." });
+    } catch (e) {
+      setMsg({ ok: false, text: errText(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <SectionTitle title="Change password" />
+      <Card>
+        <Field label="Current password"><Input value={f.current} onChangeText={(current) => setF({ ...f, current })} secureTextEntry autoComplete="password" /></Field>
+        <Field label="New password" hint="At least 8 characters"><Input value={f.next} onChangeText={(next) => setF({ ...f, next })} secureTextEntry autoComplete="new-password" /></Field>
+        <Field label="New password again"><Input value={f.again} onChangeText={(again) => setF({ ...f, again })} secureTextEntry autoComplete="new-password" /></Field>
+        {msg ? <T style={{ color: msg.ok ? C.green : C.red, fontWeight: "600", marginBottom: 10 }}>{msg.text}</T> : null}
+        <Button title="Save new password" icon="key-outline" variant="secondary" loading={busy} disabled={!f.current || f.next.length < 8 || !f.again} onPress={() => void save()} />
+      </Card>
+    </>
+  );
+}
+
+/* ================================ Forgotten password ================================ */
+export function ForgotScreen() {
+  const nav = useNavigation<any>();
+  const [email, setEmail] = useState("");
+  const [res, setRes] = useState<{ message: string; demoLink?: string } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const send = async () => {
+    setBusy(true);
+    setErr(null);
+    setRes(null);
+    try {
+      setRes(await api.post<{ message: string; demoLink?: string }>("/api/auth/forgot", { email: email.trim() }));
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const token = res?.demoLink?.split("token=")[1];
+  return (
+    <Screen>
+      <Card>
+        <T style={{ fontWeight: "800", color: C.ink, fontSize: 16 }}>Forgot your password?</T>
+        <T style={{ color: C.muted, marginTop: 4, marginBottom: 12 }}>Type your account e-mail and we send a link to choose a new one.</T>
+        {err ? <ErrorBox text={err} /> : null}
+        <Field label="Account e-mail"><Input value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoComplete="email" /></Field>
+        <Button title="Send the link" loading={busy} disabled={!email.includes("@")} onPress={() => void send()} />
+        {res ? <T style={{ color: C.green, fontWeight: "600", marginTop: 12 }}>{res.message}</T> : null}
+        {token ? (
+          <>
+            <T style={{ color: C.muted, marginTop: 10 }}>This demo has no mail server, so here is what the e-mail would open:</T>
+            <Button title="Choose a new password" variant="secondary" onPress={() => nav.navigate("ResetPassword", { token })} style={{ marginTop: 8 }} />
+          </>
+        ) : null}
+      </Card>
+    </Screen>
+  );
+}
+
+export function ResetPasswordScreen() {
+  const nav = useNavigation<any>();
+  const route = useRoute<any>();
+  const [f, setF] = useState({ next: "", again: "" });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (f.next !== f.again) return setMsg({ ok: false, text: "The two passwords are not the same." });
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.post<{ message: string }>("/api/auth/reset", { token: route.params?.token, newPassword: f.next });
+      setMsg({ ok: true, text: r.message });
+    } catch (e) {
+      setMsg({ ok: false, text: errText(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Screen>
+      <Card>
+        {msg ? <T style={{ color: msg.ok ? C.green : C.red, fontWeight: "600", marginBottom: 10 }}>{msg.text}</T> : null}
+        {msg?.ok ? (
+          <Button title="Go to sign in" onPress={() => nav.navigate("Auth")} />
+        ) : (
+          <>
+            <Field label="New password" hint="At least 8 characters"><Input value={f.next} onChangeText={(next) => setF({ ...f, next })} secureTextEntry autoComplete="new-password" /></Field>
+            <Field label="New password again"><Input value={f.again} onChangeText={(again) => setF({ ...f, again })} secureTextEntry autoComplete="new-password" /></Field>
+            <Button title="Save new password" loading={busy} disabled={f.next.length < 8 || !f.again} onPress={() => void save()} />
+          </>
+        )}
+      </Card>
+    </Screen>
+  );
+}
+
+/* ================================ Partners + locations ================================ */
+export function PartnersScreen() {
+  const q = useFetch<{ id: string; name: string; logoUrl: string | null; url: string | null }[]>("/api/public/partners");
+  if (q.loading) return <Screen><Skeleton h={200} /></Screen>;
+  return (
+    <Screen onRefresh={q.reload} refreshing={q.refreshing}>
+      {q.error ? <ErrorBox text={q.error} onRetry={q.reload} /> : null}
+      <Card style={{ padding: 0 }}>
+        {q.data?.map((p) => (
+          <ListRow key={p.id} icon="ribbon-outline" title={p.name} onPress={p.url ? () => void Linking.openURL(p.url!) : undefined} />
+        ))}
+      </Card>
+    </Screen>
+  );
+}
+
+export function LocationsScreen() {
+  const q = useFetch<{ id: string; name: string; address: string; phone: string | null; email: string | null; mapUrl: string | null }[]>("/api/public/locations");
+  if (q.loading) return <Screen><Skeleton h={200} /></Screen>;
+  return (
+    <Screen onRefresh={q.reload} refreshing={q.refreshing}>
+      {q.error ? <ErrorBox text={q.error} onRetry={q.reload} /> : null}
+      <View style={{ gap: 10 }}>
+        {q.data?.map((l) => (
+          <Card key={l.id}>
+            <T style={{ fontWeight: "800", color: C.ink }}>{l.name}</T>
+            <T style={{ color: C.text, marginTop: 4 }}>{l.address}</T>
+            {l.phone ? <T style={{ color: C.muted, marginTop: 2 }}>{l.phone}</T> : null}
+            {l.email ? <T style={{ color: C.muted, marginTop: 2 }}>{l.email}</T> : null}
+            {l.mapUrl ? <Button small variant="secondary" title="Open the map" icon="map-outline" onPress={() => void Linking.openURL(l.mapUrl!)} style={{ marginTop: 10, alignSelf: "flex-start" }} /> : null}
+          </Card>
+        ))}
+      </View>
     </Screen>
   );
 }

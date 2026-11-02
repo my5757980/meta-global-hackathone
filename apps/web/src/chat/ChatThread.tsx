@@ -226,7 +226,7 @@ export function MessageList({ messages, meId, typing, perspective = "buyer", rec
                 <div
                   className={clsx(
                     "prose-lite rounded-2xl px-3 py-2 text-sm break-words [&_p]:my-0.5 [&_ul]:my-1",
-                    mine ? (perspective === "staff" && isSora ? "rounded-br-md bg-violet-600 text-white [&_strong]:text-white" : "rounded-br-md bg-brand-600 text-white [&_strong]:text-white") : "rounded-bl-md bg-white text-slate-800 ring-1 ring-slate-200",
+                    mine ? (perspective === "staff" && isSora ? "rounded-br-md bg-violet-600 text-white [&_a]:text-white [&_strong]:text-white" : "rounded-br-md bg-brand-600 text-white [&_a]:text-white [&_strong]:text-white") : "rounded-bl-md bg-white text-slate-800 ring-1 ring-slate-200",
                   )}
                   dangerouslySetInnerHTML={{ __html: miniMarkdown(m.body) }}
                 />
