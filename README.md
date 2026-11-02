@@ -33,8 +33,9 @@ team member will reply.
    `I need a Toyota Hilux under $30,000, shipped to Mombasa`. Sora shows real cars from stock with an exact C&F price, and
    the lines it is made of. Reply in Urdu, Swahili or Arabic, or send a voice note: Sora follows you.
 2. **Close.** Write `OK, I'll take the second one`. Sora collects what is missing, creates the lead and asks for the invoice.
-3. **Approve.** Sign in as **Supervisor**, open CRM, Invoices, the request marked *Sora*. Read Sora's audit trail, then
-   approve. The buyer's chat gets the invoice and the bank details straight away.
+3. **Approve.** Sign in as **Supervisor**, open CRM, Invoices, the request marked *Sora*. Read Sora's audit trail, change
+   anything you like with *Edit invoice*, then approve. The buyer's chat gets the invoice and the bank details straight away.
+   Add the final PDF and mark it as sent.
 4. **Auction.** As Customer, open Auction, pick a lot and press *Ask Sora to read the sheet*. The sheet is an image;
    Muse Spark Open reads it. Ask Sora to bid: inside its limit it bids, above it a Supervisor must agree.
 5. **Watch.** As Manager, open the Sora console: live activity, every tool call, what it may do without asking, and its
@@ -66,8 +67,8 @@ flowchart LR
 - **Grounded.** Prices come from a deterministic engine (`services/pricing.ts`), never the model's arithmetic. Stock numbers,
   balances and dates come from tool results.
 - **Words match actions.** If a reply promises a person but the model skipped the handover, the server hands over itself. If
-  a reply says "let me check that" with no tool call, the buyer never sees it: the model is sent back to do the work. Both
-  are recorded as code guards.
+  a reply says "let me check that" with no tool call, or answers a plain yes with "shall I...?" and no work done, the buyer
+  never sees it: the model is sent back to do the work. All three are recorded as code guards.
 - **It works when nobody writes.** Events wake it: an invoice approved, a payment received, a stage shipped, a quote
   unanswered for 24 hours, an auction day settled, a promised follow-up falling due, a wanted car arriving in stock.
 - **Everything is audited.** Every run records its trigger, tool calls, arguments, results, tokens and latency, and every
@@ -96,12 +97,12 @@ fallback. "Listen" in the chat uses the browser's own speech, not a model.
 
 | Part | What it does |
 | --- | --- |
-| **Website** | Home (14 editable sections), shop with suggestions and filters, car pages with gallery and video, wishlist, cart, checkout, guides, FAQ; customer account with invoices, shipping progress and documents |
-| **CRM** | Leads (Excel import, transfer, statuses), invoice request and approval, PDF and Excel invoices, payments, units with six document folders and costing, shipping progress, reports, users and roles, full backup workbook |
-| **Auction** | Lots across fictional halls with rendered sheets, bids and orders, past prices, enquiries, an admin side with export |
-| **Live chat** | One thread on the site, desk and app: pictures, voice notes, take over and hand back, team DMs and groups, presence, voice and video calls on the web |
-| **Website admin** | Vehicles, home sections, pages, guides, FAQ, brands and models, customers, orders, messages, branding, roles and permissions |
-| **Android app** | Home, shop, car pages, cart, checkout, account and the same chat with Sora (`apps/mobile`, Expo) |
+| **Website** | Home (19 editable sections), world clocks and the yen rate, shop with suggestions, filters and price range, car cards with save and add to cart, car pages with gallery and video, wishlist, cart, checkout, guides, FAQ, forgotten password by link, newsletter sign-up; customer account with invoices, shipping progress and documents |
+| **CRM** | Leads (filters, Excel import, assign by country, transfer, statuses), Customers view with invoiced, paid and balance, invoice request, Supervisor edit and approval, final PDF before sending, PDF and Excel on three letterheads, payments, units with six document folders and costing, shipping progress, reports in Excel and Word, users and roles, full backup workbook |
+| **Auction** | Lots across fictional halls with rendered sheets, Excel import of your own lots, a list that refreshes itself, bids and orders, past prices by hall, engine and date, enquiries, an admin side with every lot, a client-to-paid-order funnel, who did what, and a measured working signal |
+| **Live chat** | One thread on the site, desk and app: pictures, voice notes, one, two and blue ticks, links, emoji, talk to a person, take over and hand back, team DMs and groups, presence, voice and video calls; staff drill down agent then customers |
+| **Website admin** | Vehicles, home sections, pages, guides, FAQ, brands and models, customers (one-time passwords in bulk, CRM customers with no e-mail), orders, messages, newsletter list, media library, branding, roles and permissions |
+| **Android app** | Home, shop with every filter, car pages, cart, checkout, account, forgotten and changed passwords, the same chat with Sora and the team, voice and video calls, push notifications (`apps/mobile`, Expo) |
 
 The app is on the [Releases](../../releases) page. On first launch it asks for the server's address, for example
 `http://192.168.1.20:8787` after `npm run build && npm start` on a laptop on the same Wi-Fi. To build it yourself:
@@ -113,16 +114,17 @@ Other commands: `npm run build && npm start` (one process serves the site, API a
 ## What it does not do
 
 - All data is fictional. Import rules per country are demo data, and the screen says so.
-- There is no card gateway: buyers pay by bank transfer and staff record the payment, which is how this trade works.
-- The Android app has no voice or video calls. Those are on the web only.
+- There is no online payment. Card or PayPal checkout is not built: buyers pay by bank transfer and staff record the payment.
+- Reset links go by e-mail only if you set `SMTP_URL`. Without it, demo mode shows the link on the page, and outside demo mode a person issues a one-time password.
+- Client stories on the home page are pictures, not videos. A car's own video works if you add its link.
 - Calls across strict networks need a TURN relay (`TURN_URL` in `.env`). None is bundled.
+- Push notifications need your own Firebase project (`FIREBASE_SERVICE_ACCOUNT` in `.env`, `google-services.json` for the app).
 - One company per deployment; it is white-label, not multi-tenant.
 
 ## Where it came from
 
 Everything here was written during the Meta Global AI Developer Hackathon, from 30 October 2026. The repo holds no code, data
 or assets from any earlier project. The flow it automates comes from what the author saw of a real used-car export business.
-Car pictures and auction sheets are drawn by code (`services/carArt.ts`, `services/sheets.ts`). Claude Code was the coding tool;
-every model the product calls at runtime is Meta's. Specs, plan and tasks are in `specs/001-autofte-platform`.
+Car photos are real photos from Wikimedia Commons under free licences (CC0, public domain, CC BY, CC BY-SA), resized only. Each photographer and licence is listed on the `/credits` page and in `apps/web/public/cars/credits.json`; the MIT licence covers the code, not those photos. Auction sheets and the extra car views are drawn by code (`services/carArt.ts`, `services/sheets.ts`). The yen rate on the site comes from the European Central Bank's public rates through frankfurter.dev, with no account; prices never use it. Claude Code was the coding tool; every model the product calls at runtime is Meta's. Specs, plan and tasks are in `specs/001-autofte-platform`.
 
-Built on Express, Drizzle, PGlite, React, Vite, Tailwind, TanStack Query, Expo, the MCP TypeScript SDK, ExcelJS, PDFKit and resvg.
+Built on Express, Drizzle, PGlite, React, Vite, Tailwind, TanStack Query, Expo, the MCP TypeScript SDK, ExcelJS, PDFKit, docx, Nodemailer and resvg.

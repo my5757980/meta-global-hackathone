@@ -134,7 +134,7 @@ crmRouter.patch(
       req.body,
     );
     const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, String(req.params.id))).limit(1);
-    if (!lead) throw notFound();
+    if (!lead || (!can(u, "crm.leads.view_all") && lead.ownerUserId !== u.id)) throw notFound();
     const [country] = await db().select({ code: s.countries.code }).from(s.countries).where(eq(s.countries.code, b.countryCode)).limit(1);
     if (!country) throw bad("Choose a country from the list");
     if (b.portId) {
@@ -155,7 +155,7 @@ crmRouter.delete(
   h(async (req) => {
     const u = requirePerm(req, "crm.leads.delete");
     const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, String(req.params.id))).limit(1);
-    if (!lead) throw notFound();
+    if (!lead || (!can(u, "crm.leads.view_all") && lead.ownerUserId !== u.id)) throw notFound();
     const [live] = await db().select({ number: s.invoices.number }).from(s.invoices).where(and(eq(s.invoices.leadId, lead.id), inArray(s.invoices.status, ["approved", "sent"]))).limit(1);
     if (live) throw conflict(`Invoice ${live.number} is approved, so this lead cannot be deleted`);
     const held = await db().select({ vehicleId: s.invoiceVehicles.vehicleId }).from(s.invoiceVehicles).innerJoin(s.invoices, eq(s.invoices.id, s.invoiceVehicles.invoiceId)).where(eq(s.invoices.leadId, lead.id));

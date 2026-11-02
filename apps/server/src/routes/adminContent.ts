@@ -517,7 +517,9 @@ adminContentRouter.get(
     const rows = await db().select().from(s.newsletterSubscribers).orderBy(asc(s.newsletterSubscribers.email));
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="newsletter.csv"');
-    res.send(["email,signed_up", ...rows.map((r) => `${r.email},${new Date(r.createdAt).toISOString().slice(0, 10)}`)].join("\n") + "\n");
+    // an address starting with + or - would be a formula in Excel
+    const cell = (x: string) => (/^[=+\-@]/.test(x) ? `'${x}` : x);
+    res.send(["email,signed_up", ...rows.map((r) => `${cell(r.email)},${new Date(r.createdAt).toISOString().slice(0, 10)}`)].join("\n") + "\n");
     return undefined;
   }),
 );
