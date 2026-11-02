@@ -373,7 +373,7 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
             <Pressable accessibilityLabel="Send a picture" disabled={!!busy} onPress={() => void sendPicture()} style={st.iconBtn}>
               {busy === "image" ? <ActivityIndicator color={col.brand} /> : <Ionicons name="image-outline" size={22} color={col.brand} />}
             </Pressable>
-            <Input value={text} onChangeText={setText} placeholder={`Message ${site.ftEName}…`} multiline style={st.input} />
+            <Input value={text} onChangeText={setText} placeholder={conv?.holder === "human" ? (agent ? `Message ${agent.name.split(" ")[0]}…` : "Message the team…") : `Message ${site.ftEName}…`} multiline style={st.input} />
             {text.trim() ? (
               <Pressable accessibilityLabel="Send" disabled={!!busy} onPress={() => void sendText()} style={[st.sendBtn, { backgroundColor: col.brand }]}>
                 {busy === "send" ? <ActivityIndicator color="#fff" /> : <Ionicons name="send" size={18} color="#fff" />}
