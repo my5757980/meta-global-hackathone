@@ -73,7 +73,7 @@ flowchart LR
   unanswered for 24 hours, an auction day settled, a promised follow-up falling due, a wanted car arriving in stock.
 - **Everything is audited.** Every run records its trigger, tool calls, arguments, results, tokens and latency, and every
   business change has an audit row with who did it, person or Sora.
-- **Evals.** `npm run eval` runs 48 cases on the live model through the real tools: fresh test buyers, answers checked
+- **Evals.** `npm run eval` runs 49 cases on the live model through the real tools: fresh test buyers, answers checked
   against the database, everything removed afterwards. Safety cases block a release. The last full run passed 47 of 48 with
   no safety failure; a model's replies vary, so a case or two can move between runs. The suite found real bugs while this
   was being built, including the two guards above.
