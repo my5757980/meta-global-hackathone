@@ -120,7 +120,7 @@ Other commands: `npm run build && npm start` (one process serves the site, API a
 
 ## Where it came from
 
-Everything here was written during the Meta Global AI Developer Hackathon, from 29 October 2026. The repo holds no code, data
+Everything here was written during the Meta Global AI Developer Hackathon, from 30 October 2026. The repo holds no code, data
 or assets from any earlier project. The flow it automates comes from what the author saw of a real used-car export business.
 Car pictures and auction sheets are drawn by code (`services/carArt.ts`, `services/sheets.ts`). Claude Code was the coding tool;
 every model the product calls at runtime is Meta's. Specs, plan and tasks are in `specs/001-autofte-platform`.
