@@ -7,6 +7,7 @@ import { api, errText } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { getServer, isWeb, setServer, setToken } from "../lib/config";
 import { useFetch } from "../lib/data";
+import { downloadAndShare } from "../lib/download";
 import { date, initials, usd } from "../lib/format";
 import { useRestart } from "../lib/restart";
 import { C, useColors, useSite } from "../lib/site";
@@ -522,6 +523,19 @@ export function InvoiceScreen() {
   const col = useColors();
   const q = useFetch<CustomerInvoice>(`/api/account/invoices/${encodeURIComponent(route.params?.id ?? "")}`);
   const inv = q.data;
+  const [fetching, setFetching] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const fetchFile = async (key: string, path: string, name: string, mime?: string) => {
+    setFetching(key);
+    setFetchError(null);
+    try {
+      await downloadAndShare(path, name, mime);
+    } catch {
+      setFetchError(`Could not download ${name}. Check your connection and try again.`);
+    } finally {
+      setFetching(null);
+    }
+  };
   useEffect(() => {
     if (inv) nav.setOptions({ title: inv.number });
   }, [inv, nav]);
@@ -547,7 +561,9 @@ export function InvoiceScreen() {
             </View>
           ))}
         </View>
+        {inv.status === "approved" || inv.status === "sent" ? <Button title="Invoice PDF" icon="download-outline" variant="secondary" loading={fetching === "pdf"} onPress={() => void fetchFile("pdf", `/api/account/invoices/${inv.id}/pdf`, `${inv.number}.pdf`, "application/pdf")} style={{ marginTop: 10 }} /> : null}
       </Card>
+      {fetchError ? <ErrorBox text={fetchError} /> : null}
       {inv.vehicles.map((v) => (
         <View key={v.id}>
           <SectionTitle title={v.label} />
@@ -576,11 +592,13 @@ export function InvoiceScreen() {
               <>
                 <T style={{ fontWeight: "700", color: C.ink, marginTop: 10 }}>Documents</T>
                 {v.documents.map((d) => (
-                  <T key={d.id} style={{ color: C.text, fontSize: 13, marginTop: 2 }}>
-                    • {d.folder}: {d.name}
-                  </T>
+                  <Pressable key={d.id} accessibilityRole="button" accessibilityLabel={`Download ${d.name}`} disabled={!!fetching} onPress={() => void fetchFile(d.id, `/api/account/files/${d.fileId}`, d.name, d.mime)} style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 }}>
+                    <Ionicons name={fetching === d.id ? "hourglass-outline" : "download-outline"} size={18} color={col.brand} />
+                    <T style={{ flex: 1, color: C.text, fontSize: 13 }}>
+                      {d.folder}: {d.name}
+                    </T>
+                  </Pressable>
                 ))}
-                <T style={{ color: C.faint, fontSize: 11, marginTop: 4 }}>Download documents from My invoices on the website.</T>
               </>
             ) : null}
           </Card>

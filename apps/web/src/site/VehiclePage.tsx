@@ -107,7 +107,7 @@ export default function VehiclePage() {
             <dl className="mt-3 grid gap-x-6 sm:grid-cols-2">
               {specs.map(([k, val]) => (
                 <div key={k} className="flex justify-between gap-3 border-b border-slate-100 py-2 text-sm">
-                  <dt className="text-slate-500">{k}</dt>
+                  <dt className="shrink-0 text-slate-500">{k}</dt>
                   <dd className="text-right font-medium text-slate-900">{val}</dd>
                 </div>
               ))}

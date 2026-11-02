@@ -31,8 +31,11 @@ img,
 svg {
   max-width: 100%;
 }
-* {
-  min-width: 0;
+/* in a layer: unlayered it beat every min-w-* utility in the app */
+@layer base {
+  * {
+    min-width: 0;
+  }
 }
 :focus-visible {
   @apply outline-2 outline-offset-2 outline-brand-500;
@@ -91,4 +94,29 @@ svg {
 }
 .typing-dot:nth-child(3) {
   animation-delay: 0.3s;
+}
+
+/* Phones: nothing a thumb has to hit is under 28 px. In a layer, so a utility such as hidden still wins. */
+@layer base {
+  @media (max-width: 480px) {
+    button,
+    [role="button"],
+    a.inline-flex,
+    a.flex,
+    a.inline-block,
+    a.block {
+      min-height: 28px;
+    }
+    span > button {
+      min-width: 28px;
+    }
+    li > a,
+    td > a,
+    .flex > a:not(.flex, .inline-flex, .block, .inline-block, .grid),
+    div > a:only-child:not(.flex, .inline-flex, .block, .inline-block, .grid) {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+    }
+  }
 }

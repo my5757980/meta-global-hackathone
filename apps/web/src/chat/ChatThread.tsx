@@ -81,7 +81,7 @@ function Cards({ cards, mine }: { cards: ChatCard[]; mine: boolean }) {
                   </div>
                 ))}
               </div>
-              <p className="mt-2 text-[10px] text-slate-400">Computed by the company price policy · valid 7 days</p>
+              <p className="mt-2 text-[11px] text-slate-400">Computed by the company price policy · valid 7 days</p>
             </div>
           );
         if (c.type === "invoice")
@@ -158,7 +158,7 @@ function SpeakButton({ text }: { text: string }) {
         if (/[؀-ۿ]/.test(plain)) u.lang = "ur-PK";
         window.speechSynthesis.speak(u);
       }}
-      className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-brand-600"
+      className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-brand-600"
       aria-label="Listen"
     >
       <Volume2 className="size-3" /> Listen
@@ -223,7 +223,7 @@ export function MessageList({ messages, meId, typing, perspective = "buyer" }: {
               )}
               {m.meta?.cards?.length ? <Cards cards={m.meta.cards} mine={mine} /> : null}
               {isSora && m.body && perspective === "buyer" && <SpeakButton text={m.body} />}
-              <p className={clsx("mt-0.5 flex items-center gap-1 text-[10px] text-slate-400", mine && "justify-end")}>
+              <p className={clsx("mt-0.5 flex items-center gap-1 text-[11px] text-slate-400", mine && "justify-end")}>
                 {time(m.createdAt)} {mine && <CheckCheck className="size-3" />}
               </p>
             </div>
@@ -371,7 +371,7 @@ export function Composer({ conversationId, onSent, initial, placeholder, soraHin
         </div>
       )}
       {soraHint && (
-        <p className="mt-1 flex items-center gap-1 px-1 text-[10px] text-slate-400">
+        <p className="mt-1 flex items-center gap-1 px-1 text-[11px] text-slate-400">
           <Bot className="size-3" /> <FteName /> is an AI built with Muse Spark Open · voice notes in Urdu or English · a person approves every invoice
         </p>
       )}

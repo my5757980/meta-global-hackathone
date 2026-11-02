@@ -157,7 +157,7 @@ export function StaffLayout() {
           <button className="rounded-lg p-2 hover:bg-slate-100 lg:hidden" onClick={() => setMenu(true)} aria-label="Menu">
             <Menu className="size-5" />
           </button>
-          <div className="hidden items-center gap-1 sm:flex">
+          <div className="hidden items-center gap-1 md:flex">
             <TopLink to="/crm" icon={<LayoutDashboard className="size-4" />} label="CRM" show={can("crm.access")} />
             <TopLink to="/desk" icon={<MessagesSquare className="size-4" />} label="Chat" show={can("chat.desk")} />
             <TopLink to="/fte" icon={<Bot className="size-4" />} label={fte} show={can("fte.console")} />
@@ -168,8 +168,11 @@ export function StaffLayout() {
           <div className="ml-auto flex items-center gap-2">
             <NotificationBell />
             <button onClick={() => setSecurity(true)} className="flex items-center gap-2 rounded-xl px-2 py-1 text-left hover:bg-slate-100" title="My account security">
-              <Avatar name={me.name} kind="staff" size={30} />
-              <div className="hidden leading-tight sm:block">
+              <span className="relative shrink-0">
+                <Avatar name={me.name} kind="staff" size={30} />
+                {!me.hasRecoveryKey && <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-amber-500 ring-2 ring-white xl:hidden" title="Set a recovery key" />}
+              </span>
+              <div className="hidden leading-tight whitespace-nowrap xl:block">
                 <p className="text-sm font-semibold text-slate-900">{me.name}</p>
                 <p className="text-[11px] text-slate-500">
                   {me.roleName}
@@ -196,7 +199,7 @@ export function StaffLayout() {
 function TopLink({ to, icon, label, show }: { to: string; icon: React.ReactNode; label: string; show: boolean }) {
   if (!show) return null;
   return (
-    <NavLink to={to} end={to === "/"} className={({ isActive }) => clsx("inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold", isActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-100")}>
+    <NavLink to={to} end={to === "/"} className={({ isActive }) => clsx("inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold whitespace-nowrap [&>svg]:shrink-0", isActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-100")}>
       {icon} {label}
     </NavLink>
   );
@@ -213,7 +216,7 @@ function NotificationBell() {
     <div className="relative">
       <button onClick={() => setOpen((o) => !o)} className="relative rounded-lg p-2 text-slate-600 hover:bg-slate-100" aria-label="Notifications">
         <Bell className="size-5" />
-        {!!q.data?.unread && <span className="absolute top-1 right-1 flex min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold text-white">{q.data.unread}</span>}
+        {!!q.data?.unread && <span className="absolute top-1 right-1 flex min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[11px] font-bold text-white">{q.data.unread}</span>}
       </button>
       {open && (
         <div className="absolute right-0 mt-2 w-[min(22rem,90vw)] rounded-2xl border border-slate-200 bg-white shadow-xl">

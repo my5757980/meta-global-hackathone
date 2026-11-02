@@ -200,7 +200,7 @@ function WebsiteAccount({ leadId, email, name, account }: { leadId: string; emai
         </div>
       ) : (
         <Button size="sm" variant="secondary" className="mt-3" loading={busy} disabled={!email} onClick={() => void go()}>
-          {account?.kind === "customer" ? "New one-time password" : "Create account & one-time password"}
+          {account?.kind === "customer" ? "New one-time password" : "Create account"}
         </Button>
       )}
       {err && <p className="mt-2 text-sm text-rose-600">{err}</p>}

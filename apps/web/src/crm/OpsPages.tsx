@@ -186,7 +186,7 @@ export function UsersPage() {
                   <Badge tone={u.kind === "fte" ? "violet" : "blue"}>{u.roleName}</Badge>
                 ) : (
                   <Select
-                    className="w-40"
+                    className="min-w-40"
                     value={u.role}
                     onChange={async (e) => {
                       try {

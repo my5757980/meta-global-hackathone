@@ -5,6 +5,7 @@ import type { Site } from "./types";
 /** The tenant's branding (name, colours, contact, bank) — the same settings the website uses. */
 const FALLBACK: Site = {
   companyName: "Hikari Motors",
+  logoUrl: "",
   tagline: "Quality used cars from Japan, delivered to your port",
   ftEName: "Sora",
   primaryColor: "#0f4c81",

@@ -146,7 +146,7 @@ export default function Desk() {
                       {c.kind === "group" && <Users className="size-3.5 shrink-0 text-slate-400" />}
                       <span className="truncate">{rowName(c)}</span>
                     </p>
-                    <span className="shrink-0 text-[10px] text-slate-400">{ago(c.lastMessageAt)}</span>
+                    <span className="shrink-0 text-[11px] text-slate-400">{ago(c.lastMessageAt)}</span>
                   </div>
                   <p className="truncate text-xs text-slate-500">{lastLine(c)}</p>
                   <div className="mt-1 flex items-center gap-1.5">
@@ -333,7 +333,7 @@ function DeskThread({ id, meId, onBack, onLeft }: { id: string; meId: string; on
       <Composer
         conversationId={id}
         soraHint={c.kind === "customer"}
-        placeholder={c.kind !== "customer" ? `Message ${name}…` : c.holder === "fte" ? `Writing here takes the conversation over from ${fte}…` : "Write to the buyer…"}
+        placeholder={c.kind !== "customer" ? `Message ${name}…` : c.holder === "fte" ? `Writing here takes over from ${fte}…` : "Write to the buyer…"}
         onSent={(m) => setMessages((p) => (p.some((x) => x.id === m.id) ? p : [...p, m]))}
       />
       {c.kind === "group" && <GroupMembers open={manage} onClose={() => setManage(false)} group={c} members={q.data.members} meId={meId} onLeft={onLeft} />}

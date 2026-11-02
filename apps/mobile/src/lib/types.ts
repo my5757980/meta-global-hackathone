@@ -1,5 +1,6 @@
 export interface Site {
   companyName: string;
+  logoUrl?: string;
   tagline: string;
   ftEName: string;
   primaryColor: string;
@@ -104,7 +105,7 @@ export interface CustomerInvoice {
   advancePercent: number;
   totals: { total: number; advance: number; paid: number; balance: number };
   payments: { date: string; amountUsd: number }[];
-  vehicles: { id: string; label: string; color: string; chassisNo: string; cnfUsd: number; progress: { stage: string; date: string; note: string | null }[]; documents: { id: string; folder: string; fileId: string; name: string }[] }[];
+  vehicles: { id: string; label: string; color: string; chassisNo: string; cnfUsd: number; progress: { stage: string; date: string; note: string | null }[]; documents: { id: string; folder: string; fileId: string; mime?: string; name: string }[] }[];
 }
 
 export const effectivePrice = (v: { priceUsd: number; discountPriceUsd: number | null }) => Number(v.discountPriceUsd ?? v.priceUsd);

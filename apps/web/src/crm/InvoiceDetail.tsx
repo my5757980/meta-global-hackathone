@@ -226,6 +226,7 @@ export default function InvoiceDetail() {
           )}
           <Card>
             <p className="font-semibold text-slate-900">History</p>
+            {!d.audit.length && <p className="mt-2 text-sm text-slate-500">Nothing recorded since the request.</p>}
             <ol className="mt-3 space-y-2">
               {d.audit.map((a) => (
                 <li key={a.id} className="text-sm">

@@ -101,7 +101,7 @@ export default function Home() {
             {d.bodyTypes.map((b) => (
               <Link key={b.name} to={`/shop?body=${b.name}`} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md">
                 <img src={`/api/media/car?body=${b.name}&color=%23b8bcc2&view=side`} alt="" className="aspect-[16/9] w-full object-cover" loading="lazy" />
-                <div className="flex items-center justify-between px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-x-2 px-3 py-2">
                   <span className="font-semibold text-slate-800">{b.name}</span>
                   <span className="text-xs text-slate-500">{b.count} cars</span>
                 </div>
@@ -137,7 +137,7 @@ export default function Home() {
       {sec("member_of") && (
         <section className="container-page mt-16">
           <h2 className="text-center text-xl font-bold text-slate-900">{sec("member_of")!.title}</h2>
-          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-5 grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 sm:grid-cols-4">
             {sec("member_of")!.data.items.map((m: { name: string; short: string }) => (
               <div key={m.name} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4">
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-xs font-extrabold text-slate-600">{m.short}</span>

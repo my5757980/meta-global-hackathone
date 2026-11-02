@@ -88,9 +88,9 @@ function ImagesField({ value, onChange }: { value: string; onChange: (v: string)
               <img src={u} alt="" className="h-16 w-24 rounded-lg object-cover ring-1 ring-slate-200" />
               <button type="button" aria-label="Remove photo" onClick={() => write(list.filter((_, k) => k !== i))} className="absolute -top-1.5 -right-1.5 rounded-full bg-rose-600 p-0.5 text-white shadow"><X className="size-3" /></button>
               {i === 0 ? (
-                <span className="absolute bottom-0.5 left-0.5 rounded bg-slate-900/70 px-1 text-[10px] font-semibold text-white">Cover</span>
+                <span className="absolute bottom-0.5 left-0.5 rounded bg-slate-900/70 px-1 text-[11px] font-semibold text-white">Cover</span>
               ) : (
-                <button type="button" onClick={() => write([u, ...list.filter((_, k) => k !== i)])} className="absolute bottom-0.5 left-0.5 rounded bg-white/90 px-1 text-[10px] font-semibold text-slate-700 hover:bg-white">Make cover</button>
+                <button type="button" onClick={() => write([u, ...list.filter((_, k) => k !== i)])} className="absolute bottom-0.5 left-0.5 rounded bg-white/90 px-1 text-[11px] font-semibold text-slate-700 hover:bg-white">Make cover</button>
               )}
             </div>
           ))}
@@ -238,7 +238,7 @@ export function AdminVehicles() {
           <option value="reserved">Reserved</option>
           <option value="sold">Sold</option>
         </Select>
-        <Select value={published} onChange={(e) => { setPublished(e.target.value); setPage(1); }} className="max-w-[11rem]">
+        <Select value={published} onChange={(e) => { setPublished(e.target.value); setPage(1); }} className="max-w-[13rem]">
           <option value="">Published & drafts</option>
           <option value="true">Published only</option>
           <option value="false">Drafts only</option>

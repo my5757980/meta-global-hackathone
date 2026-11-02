@@ -186,10 +186,10 @@ export function AdminContent() {
           {q.data.map((r) => {
             const view = coll.view?.(r);
             return (
-              <Card key={r.id} padded={false} className="flex items-center gap-3 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold text-slate-900">{coll.title(r)}</p>
-                  {coll.sub ? <p className="truncate text-xs text-slate-500">{coll.sub(r)}</p> : null}
+              <Card key={r.id} padded={false} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <div className="min-w-0 basis-full sm:flex-1 sm:basis-0">
+                  <p className="font-semibold text-slate-900 sm:truncate">{coll.title(r)}</p>
+                  {coll.sub ? <p className="break-words text-xs text-slate-500 sm:truncate">{coll.sub(r)}</p> : null}
                 </div>
                 {coll.badge?.(r)}
                 <div className="flex shrink-0 gap-1">
@@ -440,7 +440,7 @@ export function AdminCustomers() {
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
           <Input className="pl-9" placeholder="Name, e-mail, phone, company…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
         </div>
-        <Select className="max-w-[11rem]" value={kind} onChange={(e) => { setKind(e.target.value); setPage(1); }}>
+        <Select className="max-w-[13rem]" value={kind} onChange={(e) => { setKind(e.target.value); setPage(1); }}>
           <option value="">Accounts & guests</option>
           <option value="customer">Website accounts</option>
           <option value="visitor">Chat guests</option>
@@ -603,7 +603,7 @@ export function AdminCustomerDetail() {
                 {c.leads.map((l) => (
                   <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                     <div className="min-w-0">
-                      {can("crm.access") ? <Link to={`/crm/leads/${l.id}`} className="font-medium text-brand-700 hover:underline">{l.customerName}</Link> : <span className="font-medium text-slate-800">{l.customerName}</span>}
+                      {can("crm.access") ? <Link to={`/crm/leads/${l.id}`} className="inline-flex min-h-7 items-center font-medium text-brand-700 hover:underline">{l.customerName}</Link> : <span className="font-medium text-slate-800">{l.customerName}</span>}
                       <p className="text-xs text-slate-500">{l.owner ? `Owner: ${l.owner}` : "No owner"} · {date(l.createdAt)}{l.linked ? "" : " · matched by e-mail"}</p>
                     </div>
                     <span className="flex items-center gap-2">
@@ -890,7 +890,7 @@ export function AdminRoles() {
         })}
       </div>
       {!role.locked ? (
-        <div className="sticky bottom-0 mt-4 flex justify-end gap-2 bg-slate-100/90 py-3 backdrop-blur">
+        <div className="sticky bottom-0 mt-4 flex justify-end gap-2 bg-slate-100 py-3">
           <Button variant="secondary" disabled={!dirty} onClick={() => setDraft(null)}>Undo changes</Button>
           <Button loading={saving} disabled={!dirty} onClick={() => void save()}><Save className="size-4" /> Save {role.name}</Button>
         </div>

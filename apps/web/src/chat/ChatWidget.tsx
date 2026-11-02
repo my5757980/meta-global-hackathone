@@ -49,7 +49,7 @@ export function ChatWidget() {
         aria-label={open ? "Close chat" : "Open chat"}
       >
         {open ? <X className="size-6" /> : <MessageCircle className="size-6" />}
-        {!open && <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-accent-500 text-[10px] font-bold text-slate-900">AI</span>}
+        {!open && <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-accent-500 text-[11px] font-bold text-slate-900">AI</span>}
       </button>
     </>
   );

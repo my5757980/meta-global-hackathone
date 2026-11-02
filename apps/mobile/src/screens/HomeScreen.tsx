@@ -3,7 +3,9 @@ import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { setStatusBarStyle } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
+import { absUrl } from "../lib/config";
 import { useFetch } from "../lib/data";
 import { C, useColors, useSite } from "../lib/site";
 import type { VehicleCard } from "../lib/types";
@@ -39,7 +41,7 @@ export default function HomeScreen() {
       <View style={[st.header, { paddingTop: insets.top + 10, backgroundColor: col.brand }]}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <View style={st.mark}>
-            <Ionicons name="car-sport" size={20} color={col.brand} />
+            {site.logoUrl ? <Image source={{ uri: absUrl(site.logoUrl) }} style={{ width: 30, height: 30 }} contentFit="contain" accessibilityLabel={site.companyName} /> : <Ionicons name="car-sport" size={20} color={col.brand} />}
           </View>
           <View style={{ flex: 1 }}>
             <T lines={1} style={{ color: "#fff", fontWeight: "800", fontSize: 18 }}>

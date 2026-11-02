@@ -139,7 +139,7 @@ function Bids() {
               <td className="px-4 py-2">
                 {can("auction.bids.manage") ? (
                   <Select
-                    className="w-28"
+                    className="min-w-28"
                     value={b.status}
                     onChange={async (e) => {
                       await api.put(`/api/auction/admin/bids/${b.id}`, { status: e.target.value });
@@ -180,7 +180,7 @@ function Orders() {
           <td className="px-4 py-2 text-xs">{ago(o.createdAt)}</td>
           <td className="px-4 py-2">
             <Select
-              className="w-36"
+              className="min-w-36"
               value={o.status}
               onChange={async (e) => {
                 await api.put(`/api/auction/admin/orders/${o.id}`, { status: e.target.value });

@@ -104,7 +104,7 @@ export function AuctionWelcome() {
             if (v.trim()) nav(/^[\d,\s]+$/.test(v) ? `/auction/list?lots=${encodeURIComponent(v)}` : `/auction/list?modelCode=${encodeURIComponent(v.trim())}`);
           }}
         >
-          <Input name="q" placeholder="Lot number(s) e.g. 4522, 6155 — or chassis code e.g. GDJ150W" />
+          <Input name="q" placeholder="Lot no. or chassis code" title="For example: 4522, 6155 or GDJ150W" />
           <Button type="submit">
             <Search className="size-4" /> Find
           </Button>
@@ -226,7 +226,7 @@ export function AuctionList() {
             {facet("Grade", "grade", facets.data?.grades)}
             {facet("Colour", "color", facets.data?.colors)}
             {facet("Gearbox", "transmission", facets.data?.transmissions)}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
               <Select value={params.yearMin} onChange={(e) => set("yearMin", e.target.value)} aria-label="Year from">
                 <option value="">Year from</option>
                 {[2022, 2020, 2018, 2016, 2014, 2012].map((y) => (
@@ -336,7 +336,7 @@ export function AuctionLotPage() {
               {images.map((src, i) => (
                 <button key={src} onClick={() => setImg(i)} className={clsx("shrink-0 overflow-hidden rounded-xl ring-2", i === img ? "ring-brand-500" : "ring-transparent")}>
                   <img src={src} alt="" className="h-16 w-24 bg-white object-cover" />
-                  {i === images.length - 1 && <span className="block bg-amber-100 text-center text-[10px] font-semibold text-amber-800">Auction sheet</span>}
+                  {i === images.length - 1 && <span className="block bg-amber-100 text-center text-[11px] font-semibold text-amber-800">Auction sheet</span>}
                 </button>
               ))}
             </div>
@@ -346,7 +346,7 @@ export function AuctionLotPage() {
               </p>
               {h.count ? (
                 <>
-                  <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="grid grid-cols-1 gap-2 text-center min-[440px]:grid-cols-3">
                     <div className="rounded-xl bg-slate-50 p-2"><p className="text-xs text-slate-500">Average</p><p className="font-bold">{jpy(h.avgSoldJpy)}</p></div>
                     <div className="rounded-xl bg-slate-50 p-2"><p className="text-xs text-slate-500">Lowest</p><p className="font-bold">{jpy(h.minSoldJpy)}</p></div>
                     <div className="rounded-xl bg-slate-50 p-2"><p className="text-xs text-slate-500">Highest</p><p className="font-bold">{jpy(h.maxSoldJpy)}</p></div>

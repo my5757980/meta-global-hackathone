@@ -164,7 +164,7 @@ export default function Shop() {
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">Cars in stock</h1>
-          <p className="text-sm text-slate-500">{list.data ? `${list.data.total.toLocaleString("en-US")} cars ready to ship from Japan` : "Loading…"}</p>
+          <p className="text-sm text-slate-500">{list.data ? `${list.data.total.toLocaleString("en-US")} ${list.data.total === 1 ? "car" : "cars"} ready to ship from Japan` : "Loading…"}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" className="lg:hidden" onClick={() => setOpen(true)}>
@@ -228,7 +228,7 @@ export default function Shop() {
             </div>
             {filters}
             <Button className="mt-4 w-full" onClick={() => setOpen(false)}>
-              Show {list.data?.total ?? ""} cars
+              Show {list.data?.total ?? ""} {list.data?.total === 1 ? "car" : "cars"}
             </Button>
           </div>
         </div>

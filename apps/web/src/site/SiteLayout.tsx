@@ -37,7 +37,7 @@ export function Logo({ name, light }: { name?: string; light?: boolean }) {
 
 function CountDot({ n }: { n?: number }) {
   if (!n) return null;
-  return <span className="absolute top-0.5 right-0.5 flex min-w-4 items-center justify-center rounded-full bg-accent-500 px-1 text-[10px] font-bold text-slate-900">{n}</span>;
+  return <span className="absolute top-0.5 right-0.5 flex min-w-4 items-center justify-center rounded-full bg-accent-500 px-1 text-[11px] font-bold text-slate-900">{n}</span>;
 }
 
 export function SiteLayout() {
@@ -60,14 +60,14 @@ export function SiteLayout() {
       <div className="hidden bg-brand-800 text-xs text-brand-100 md:block">
         <div className="container-page flex h-9 items-center justify-between gap-4">
           <div className="flex items-center gap-5">
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
               <Phone className="size-3.5" /> {site?.phone}
             </span>
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
               <Mail className="size-3.5" /> {site?.email}
             </span>
           </div>
-          <span className="flex items-center gap-1.5">
+          <span className="hidden items-center gap-1.5 lg:flex">
             <Bot className="size-3.5" /> {site?.ftEName ?? "Sora"}, our AI sales executive, answers 24/7 · Built with Muse Spark Open
           </span>
         </div>
@@ -84,11 +84,11 @@ export function SiteLayout() {
               </NavLink>
             ))}
           </nav>
-          <div className="ml-auto hidden max-w-xs flex-1 md:block">
+          <div className="ml-auto hidden max-w-xs flex-1 md:block lg:hidden xl:block">
             <SearchBox placeholder="Search cars" inputClassName="bg-slate-50 focus:bg-white" listClassName="right-0 w-[26rem] max-w-[calc(100vw-2rem)]" onSearch={(q) => nav(`/shop?q=${encodeURIComponent(q)}`)} />
           </div>
-          <div className="ml-auto flex items-center gap-1 md:ml-2">
-            <Link to="/shop" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden" aria-label="Search">
+          <div className="ml-auto flex items-center gap-1 md:ml-2 lg:ml-auto xl:ml-2">
+            <Link to="/shop" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden lg:inline-flex xl:hidden" aria-label="Search">
               <Search className="size-5" />
             </Link>
             <Link to="/wishlist" className="relative hidden rounded-lg p-2 text-slate-600 hover:bg-slate-100 sm:inline-flex" aria-label="Saved cars">
