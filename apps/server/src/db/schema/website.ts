@@ -42,6 +42,7 @@ export const vehicles = pgTable(
       .notNull()
       .references(() => vehicleModels.id),
     modelCode: text(),
+    grade: text(), // trim level, e.g. GR Sport
     chassisNo: text(),
     year: integer().notNull(),
     month: integer(),
@@ -237,4 +238,10 @@ export const webOrderItems = pgTable("web_order_items", {
   vehicleId: text().references(() => vehicles.id),
   title: text().notNull(),
   priceUsd: usd().notNull(),
+});
+
+export const newsletterSubscribers = pgTable("newsletter_subscribers", {
+  id: id(),
+  email: text().notNull().unique(),
+  createdAt: createdAt(),
 });

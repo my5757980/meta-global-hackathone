@@ -48,6 +48,8 @@ const schema = z.object({
   TURN_URL: z.string().optional(),
   TURN_USERNAME: z.string().optional(),
   TURN_PASSWORD: z.string().optional(),
+  SMTP_URL: z.string().optional(),
+  MAIL_FROM: z.string().default("no-reply@hikari-motors.example"),
 });
 
 export const env = schema.parse(process.env);

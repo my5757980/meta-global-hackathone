@@ -93,6 +93,7 @@ const APP_TTL_MS = 1000 * 60 * 60 * 24 * 30; // a phone is not a browser tab: 30
 export async function sessionFor(req: Request, res: Response, userId: string): Promise<{ sessionToken?: string }> {
   const app = isAppClient(req);
   const token = await createSession(res, userId, req.headers["user-agent"], app ? APP_TTL_MS : TTL_MS);
+  await db().update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, userId)); // "never signed in" must mean exactly that
   return app ? { sessionToken: token } : {};
 }
 

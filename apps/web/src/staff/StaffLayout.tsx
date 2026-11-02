@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Bell, BellRing, Bot, Car, Contact, FileText, Gavel, Globe, KeyRound, LayoutDashboard, LayoutList, LogOut, Mail, Menu, MessagesSquare, Package, Palette, PanelsTopLeft, ShieldCheck, Tags, Users, X } from "lucide-react";
+import { BarChart3, Bell, BellRing, Bot, Car, Contact, FileText, Gavel, Globe, Images, KeyRound, LayoutDashboard, LayoutList, LogOut, Mail, Menu, MessagesSquare, Newspaper, Package, Palette, PanelsTopLeft, ShieldCheck, Tags, Users, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth, usePresencePing } from "../lib/auth";
 import { CompanyName, useBrandTheme, useFte, useSite } from "../lib/site";
@@ -95,6 +95,8 @@ export function StaffLayout() {
         { to: "/admin/pages", label: "Pages", icon: <FileText className="size-4" />, show: can("website.content.manage") },
         { to: "/admin/content", label: "Site content", icon: <LayoutList className="size-4" />, show: can("website.content.manage") },
         { to: "/admin/messages", label: "Messages", icon: <Mail className="size-4" />, show: can("website.content.manage") },
+        { to: "/admin/newsletter", label: "Newsletter", icon: <Newspaper className="size-4" />, show: can("website.content.manage") },
+        { to: "/admin/media", label: "Media library", icon: <Images className="size-4" />, show: can("website.vehicles.manage") || can("website.content.manage") || can("website.settings.manage") },
         { to: "/admin/settings", label: "Branding", icon: <Palette className="size-4" />, show: can("website.settings.manage") },
         { to: "/admin/roles", label: "Roles", icon: <KeyRound className="size-4" />, show: can("auction.roles.manage") },
       ],

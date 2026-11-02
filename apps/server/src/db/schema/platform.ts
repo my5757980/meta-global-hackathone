@@ -38,6 +38,8 @@ export const users = pgTable(
     username: text(),
     passwordHash: text(),
     mustChangePassword: boolean().notNull().default(false), // set by a one-time password from staff
+    resetTokenHash: text(), // a customer's reset link: only its hash is kept, it works once for an hour
+    resetTokenExpiresAt: timestamp({ withTimezone: true }),
     recoveryKeyHash: text(), // staff's own recovery key (shown once), for a lost password with no e-mail server
     roleId: text().references(() => roles.id),
     isActive: boolean().notNull().default(true),

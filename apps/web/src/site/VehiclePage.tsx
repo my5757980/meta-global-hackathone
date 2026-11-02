@@ -18,6 +18,7 @@ interface Vehicle extends V {
   month: number;
   engineCc: number;
   steering: string;
+  grade: string | null;
   doors: number;
   seats: number;
   lengthMm: number;
@@ -53,6 +54,7 @@ export default function VehiclePage() {
     ["Make / model", `${v.brand} ${v.model}`],
     ["Chassis code", v.modelCode],
     ["Year / month", `${v.year} / ${String(v.month ?? 1).padStart(2, "0")}`],
+    ["Grade", v.grade],
     ["Mileage", km(v.mileageKm)],
     ["Engine", v.engineCc ? `${v.engineCc.toLocaleString("en-US")} cc` : v.fuel === "Electric" ? "Electric" : null],
     ["Fuel", v.fuel],

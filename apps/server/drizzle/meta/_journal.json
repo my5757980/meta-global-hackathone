@@ -22,6 +22,13 @@
       "when": 1793604162510,
       "tag": "0002_lots_pictures_push_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793612575479,
+      "tag": "0003_site_parity",
+      "breakpoints": true
     }
   ]
 }

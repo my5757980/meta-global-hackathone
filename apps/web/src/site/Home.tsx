@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Bot, ChevronLeft, ChevronRight, ClipboardCheck, FileText, Play, Quote, ShieldCheck, Ship, Star } from "lucide-react";
+import { ArrowRight, Banknote, Bot, ChevronLeft, ChevronRight, ClipboardCheck, FileText, Gavel, Landmark, Play, Quote, ShieldCheck, Ship, Star, WalletCards } from "lucide-react";
 import { api } from "../lib/api";
 import { date } from "../lib/format";
 import type { VehicleCard as V } from "../lib/site";
@@ -18,9 +18,13 @@ interface HomeData {
   faqs: { question: string; answer: string }[];
   brands: { name: string; slug: string }[];
   bodyTypes: { name: string; count: number }[];
+  steering: { name: string; count: number }[];
 }
 
 const ICONS: Record<string, React.ReactNode> = {
+  Banknote: <Banknote className="size-6" />,
+  Landmark: <Landmark className="size-6" />,
+  WalletCards: <WalletCards className="size-6" />,
   ShieldCheck: <ShieldCheck className="size-6" />,
   Bot: <Bot className="size-6" />,
   Ship: <Ship className="size-6" />,
@@ -60,6 +64,23 @@ export default function Home() {
           </div>
         </section>
       )}
+      {sec("steering") && d && d.steering.length > 0 && (
+        <section className="container-page mt-10">
+          <h2 className="text-2xl font-bold text-slate-900">{sec("steering")!.title}</h2>
+          {sec("steering")!.subtitle && <p className="text-sm text-slate-500">{sec("steering")!.subtitle}</p>}
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {d.steering.map((x) => (
+              <Link key={x.name} to={`/shop?steering=${x.name}`} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:border-brand-300 hover:shadow-md">
+                <span>
+                  <span className="block text-lg font-semibold text-slate-900">{x.name}-hand drive</span>
+                  <span className="text-sm text-slate-500">{x.count} cars in stock</span>
+                </span>
+                <ArrowRight className="size-5 shrink-0 text-brand-600" />
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
       <ListSection title={sec("best_sellers")?.title} subtitle={sec("best_sellers")?.subtitle} items={d?.lists.best_sellers} loading={q.isLoading} />
       <SoraBand name={d?.site.ftEName ?? "Sora"} />
       {sec("why") && (
@@ -77,6 +98,28 @@ export default function Home() {
         </section>
       )}
       <ListSection title={sec("upcoming")?.title} subtitle={sec("upcoming")?.subtitle} items={d?.lists.upcoming} loading={q.isLoading} />
+      {sec("payment") && (
+        <section className="container-page mt-16">
+          <h2 className="text-center text-2xl font-bold text-slate-900 sm:text-3xl">{sec("payment")!.title}</h2>
+          {sec("payment")!.subtitle && <p className="mx-auto mt-1 max-w-2xl text-center text-sm text-slate-500">{sec("payment")!.subtitle}</p>}
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            {sec("payment")!.data.items.map((p: { icon: string; title: string; text: string; link?: string; cta?: string }) => (
+              <div key={p.title} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-3 inline-flex w-fit rounded-xl bg-brand-50 p-2.5 text-brand-600">{ICONS[p.icon]}</div>
+                <p className="font-semibold text-slate-900">{p.title}</p>
+                <p className="mt-1 flex-1 text-sm text-slate-600">{p.text}</p>
+                {p.link && (
+                  <Link to={p.link} className="mt-3 text-sm font-semibold text-brand-700">
+                    {p.cta ?? "See more"} →
+                  </Link>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      <ListSection title={sec("luxury")?.title} subtitle={sec("luxury")?.subtitle} items={d?.lists.luxury} loading={q.isLoading} />
+      <ListSection title={sec("commercial")?.title} subtitle={sec("commercial")?.subtitle} items={d?.lists.commercial} loading={q.isLoading} />
       {sec("steps") && (
         <section className="mt-16 bg-brand-700 py-14 text-white">
           <div className="container-page">
@@ -90,6 +133,31 @@ export default function Home() {
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+      )}
+      {sec("we_bid") && (
+        <section className="container-page mt-16">
+          <div className="grid items-center gap-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-10 lg:grid-cols-[1fr_1.4fr]">
+            <div>
+              <span className="inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+                <Gavel className="size-3.5" /> Japan's auctions
+              </span>
+              <h2 className="mt-3 text-2xl font-bold text-slate-900 sm:text-3xl">{sec("we_bid")!.title}</h2>
+              <p className="mt-2 text-slate-600">{sec("we_bid")!.subtitle}</p>
+              <Link to="/auction" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-3 font-semibold text-white hover:bg-brand-700">
+                See auction lots <ArrowRight className="size-4" />
+              </Link>
+            </div>
+            <ol className="grid gap-3 sm:grid-cols-2">
+              {sec("we_bid")!.data.items.map((it: { title: string; text: string }, i: number) => (
+                <li key={it.title} className="rounded-2xl bg-slate-50 p-4">
+                  <span className="inline-flex size-8 items-center justify-center rounded-full bg-brand-600 text-sm font-bold text-white">{i + 1}</span>
+                  <p className="mt-2 font-semibold text-slate-900">{it.title}</p>
+                  <p className="mt-1 text-sm text-slate-600">{it.text}</p>
+                </li>
+              ))}
+            </ol>
           </div>
         </section>
       )}

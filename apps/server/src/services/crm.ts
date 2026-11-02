@@ -284,6 +284,27 @@ export async function markInvoiceSent(id: string, actor: Actor) {
   });
 }
 
+/** Manager's correction: an invoice with no money and no units on it can be removed; the stock and the lead go back. */
+export async function deleteInvoice(id: string, actor: Actor) {
+  return db().transaction(async (tx) => {
+    const [inv] = await tx.select().from(s.invoices).where(eq(s.invoices.id, id)).limit(1);
+    if (!inv) throw notFound("Invoice not found");
+    const [pay] = await tx.select({ id: s.payments.id }).from(s.payments).where(eq(s.payments.invoiceId, id)).limit(1);
+    if (pay) throw conflict("This invoice has payments recorded, so it cannot be deleted");
+    const [unit] = await tx.select({ id: s.units.id }).from(s.units).where(eq(s.units.invoiceId, id)).limit(1);
+    if (unit) throw conflict("This invoice has units recorded, so it cannot be deleted");
+    const vs = await tx.select({ vehicleId: s.invoiceVehicles.vehicleId }).from(s.invoiceVehicles).where(eq(s.invoiceVehicles.invoiceId, id));
+    const vehIds = vs.map((v) => v.vehicleId).filter(Boolean) as string[];
+    if (vehIds.length) await tx.update(s.vehicles).set({ status: "available" }).where(and(inArray(s.vehicles.id, vehIds), eq(s.vehicles.status, "reserved")));
+    await tx.delete(s.notifications).where(eq(s.notifications.link, `/crm/invoices/${id}`));
+    await tx.delete(s.invoices).where(eq(s.invoices.id, id));
+    const [other] = await tx.select({ id: s.invoices.id }).from(s.invoices).where(and(eq(s.invoices.leadId, inv.leadId), inArray(s.invoices.status, ["pending", "approved", "sent"]))).limit(1);
+    if (!other) await tx.update(s.leads).set({ status: "in_progress", updatedAt: new Date() }).where(eq(s.leads.id, inv.leadId));
+    await audit(tx, { actorUserId: actor.userId, actorKind: actor.kind, action: "invoice.deleted", entity: "lead", entityId: inv.leadId, summary: `Deleted invoice ${inv.number} (${inv.status}, C&F $${Number(inv.totalCnfUsd).toLocaleString("en-US")})` });
+    return { ok: true, leadId: inv.leadId };
+  });
+}
+
 /** The copy the buyer receives. It goes on an approved invoice, and Mark as sent waits for it. */
 export async function attachFinalPdf(id: string, fileId: string, how: "Uploaded" | "Generated", actor: Actor) {
   return db().transaction(async (tx) => {

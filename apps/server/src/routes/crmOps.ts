@@ -14,7 +14,7 @@ import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, conflict, forbidden, h, notFound, parse } from "../lib/http";
 import { can, clearPermCache, requirePerm, type AuthUser } from "../auth/session";
-import { attachFinalPdf, editInvoice, getInvoiceFull, requestInvoice, type Actor } from "../services/crm";
+import { attachFinalPdf, deleteInvoice, editInvoice, getInvoiceFull, requestInvoice, type Actor } from "../services/crm";
 import { notify, usersWithPerm } from "../services/notify";
 import { audit } from "../services/audit";
 import { emit } from "../services/events";
@@ -98,6 +98,14 @@ crmOps.put(
   }),
 );
 
+crmOps.delete(
+  "/invoices/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.invoices.delete");
+    return deleteInvoice(String(req.params.id), actor(u));
+  }),
+);
+
 // ---------- the final PDF the buyer receives: uploaded by the Supervisor, or the generated one ----------
 crmOps.post(
   "/invoices/:id/final-pdf",
@@ -128,7 +136,7 @@ crmOps.post(
 crmOps.get(
   "/invoices/:id/pdf",
   h(async (req, res) => {
-    const u = requirePerm(req, "crm.access");
+    const u = requirePerm(req, "crm.invoices.download");
     const full = await invoiceVisible(u, String(req.params.id));
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="${full.invoice.number}.pdf"`);
@@ -139,7 +147,7 @@ crmOps.get(
 crmOps.get(
   "/invoices/:id/xlsx",
   h(async (req, res) => {
-    const u = requirePerm(req, "crm.access");
+    const u = requirePerm(req, "crm.invoices.download");
     const full = await invoiceVisible(u, String(req.params.id));
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${full.invoice.number}.xlsx"`);

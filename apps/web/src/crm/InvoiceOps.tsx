@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { date, jpy, usd2 } from "../lib/format";
 import { Badge, Button, Card, Field, Input, Modal, Select, Textarea, clsx } from "../ui";
 import { FteName } from "../lib/site";
+import { useAuth } from "../lib/auth";
 
 interface Vehicle {
   id: string;
@@ -45,6 +46,8 @@ const COST_FIELDS: [string, string][] = [
 
 export function InvoiceOps({ invoiceId, status, vehicles, balance, finalPdfFileId, canApprove }: { invoiceId: string; status: string; vehicles: Vehicle[]; balance: number; finalPdfFileId: string | null; canApprove: boolean }) {
   const qc = useQueryClient();
+  const { can } = useAuth();
+  const canDownload = can("crm.invoices.download");
   const q = useQuery({ queryKey: ["invoice-units", invoiceId], queryFn: () => api.get<UnitsData>(`/api/crm/invoices/${invoiceId}/units`) });
   const [pay, setPay] = useState(false);
   const [unitFor, setUnitFor] = useState<Vehicle | null>(null);
@@ -78,19 +81,23 @@ export function InvoiceOps({ invoiceId, status, vehicles, balance, finalPdfFileI
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="font-semibold text-slate-900">Documents</p>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="w-48">
-              <Select aria-label="Letterhead" value={letterhead} onChange={(e) => setLetterhead(e.target.value)}>
-                <option value="main">Main letterhead</option>
-                <option value="us">USA letterhead</option>
-                <option value="jdm">JDM letterhead</option>
-              </Select>
-            </div>
-            <a href={`/api/crm/invoices/${invoiceId}/pdf${lh}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
-              <FileText className="size-4" /> Invoice PDF
-            </a>
-            <a href={`/api/crm/invoices/${invoiceId}/xlsx${lh}`} className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
-              <Download className="size-4" /> Excel
-            </a>
+            {canDownload && (
+              <>
+                <div className="w-48">
+                  <Select aria-label="Letterhead" value={letterhead} onChange={(e) => setLetterhead(e.target.value)}>
+                    <option value="main">Main letterhead</option>
+                    <option value="us">USA letterhead</option>
+                    <option value="jdm">JDM letterhead</option>
+                  </Select>
+                </div>
+                <a href={`/api/crm/invoices/${invoiceId}/pdf${lh}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
+                  <FileText className="size-4" /> Invoice PDF
+                </a>
+                <a href={`/api/crm/invoices/${invoiceId}/xlsx${lh}`} className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
+                  <Download className="size-4" /> Excel
+                </a>
+              </>
+            )}
             {d && d.units.some((u) => u.documents.length) && (
               <a href={`/api/crm/invoices/${invoiceId}/documents.zip`} className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
                 <Download className="size-4" /> All files (ZIP)

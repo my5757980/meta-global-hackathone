@@ -301,7 +301,7 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
   const fte = useFte();
   const firstBrand = meta.brands[0];
   const blank: Form = {
-    title: "", brandId: firstBrand?.id ?? "", modelId: firstBrand?.models[0]?.id ?? "", modelCode: "", chassisNo: "",
+    title: "", brandId: firstBrand?.id ?? "", modelId: firstBrand?.models[0]?.id ?? "", modelCode: "", grade: "", chassisNo: "",
     year: String(new Date().getFullYear() - 3), month: "", priceUsd: "", discountPriceUsd: "", costJpy: "", mileageKm: "",
     fuel: meta.enums.fuels[0] ?? "Petrol", transmission: meta.enums.transmissions[0] ?? "Automatic", bodyType: meta.enums.bodyTypes[0] ?? "Sedan",
     engineCc: "", color: "", steering: "Right", drive: "2WD", doors: "", seats: "", location: "Yokohama", originCountry: "Japan",
@@ -323,7 +323,7 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
         if (!live) return;
         const str = (x: unknown) => (x === null || x === undefined ? "" : String(x));
         setF({
-          title: str(v.title), brandId: str(v.brandId), modelId: str(v.modelId), modelCode: str(v.modelCode), chassisNo: str(v.chassisNo),
+          title: str(v.title), brandId: str(v.brandId), modelId: str(v.modelId), modelCode: str(v.modelCode), grade: str(v.grade), chassisNo: str(v.chassisNo),
           year: str(v.year), month: str(v.month), priceUsd: str(v.priceUsd), discountPriceUsd: str(v.discountPriceUsd), costJpy: str(v.costJpy), mileageKm: str(v.mileageKm),
           fuel: str(v.fuel), transmission: str(v.transmission), bodyType: str(v.bodyType), engineCc: str(v.engineCc), color: str(v.color),
           steering: str(v.steering) || "Right", drive: str(v.drive) || "2WD", doors: str(v.doors), seats: str(v.seats), location: str(v.location), originCountry: str(v.originCountry),
@@ -350,7 +350,7 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
     const images = String(f.images).split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
     const payload: Record<string, unknown> = {
       title: String(f.title).trim(), brandId: f.brandId, modelId: f.modelId,
-      modelCode: String(f.modelCode).trim() || null, chassisNo: String(f.chassisNo).trim() || null,
+      modelCode: String(f.modelCode).trim() || null, grade: String(f.grade).trim() || null, chassisNo: String(f.chassisNo).trim() || null,
       year: num(f.year), month: num(f.month) ?? null, priceUsd: num(f.priceUsd), discountPriceUsd: num(f.discountPriceUsd) ?? null, costJpy: num(f.costJpy) ?? null,
       mileageKm: num(f.mileageKm), fuel: f.fuel, transmission: f.transmission, bodyType: f.bodyType, engineCc: num(f.engineCc) ?? null, color: String(f.color).trim(),
       steering: f.steering, drive: f.drive, doors: num(f.doors) ?? null, seats: num(f.seats) ?? null, location: String(f.location).trim() || "Yokohama", originCountry: String(f.originCountry).trim() || "Japan",
@@ -394,6 +394,7 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
             <Field label="Brand"><Select value={String(f.brandId)} onChange={(e) => { const b = meta.brands.find((x) => x.id === e.target.value); set("brandId", e.target.value); set("modelId", b?.models[0]?.id ?? ""); }}>{meta.brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select></Field>
             <Field label="Model"><Select value={String(f.modelId)} onChange={(e) => set("modelId", e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select></Field>
             <Field label="Model code" hint="e.g. GDJ150W"><Input value={String(f.modelCode)} onChange={(e) => set("modelCode", e.target.value)} /></Field>
+            <Field label="Grade" hint="trim level, e.g. GR Sport"><Input value={String(f.grade)} onChange={(e) => set("grade", e.target.value)} /></Field>
             <Field label="Chassis no"><Input value={String(f.chassisNo)} onChange={(e) => set("chassisNo", e.target.value)} /></Field>
           </section>
 
@@ -730,6 +731,11 @@ export function AdminSettings() {
               <Field label="Email"><Input value={t("email")} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
               <Field label="Invoice prefix"><Input value={t("invoicePrefix")} onChange={(e) => setF({ ...f, invoicePrefix: e.target.value })} /></Field>
               <Field label="Address" className="sm:col-span-2"><Textarea rows={2} value={t("address")} onChange={(e) => setF({ ...f, address: e.target.value })} /></Field>
+              <Field label="Opening hours" className="sm:col-span-2"><Input value={t("hours")} onChange={(e) => setF({ ...f, hours: e.target.value })} /></Field>
+              <Field label="Facebook link"><Input value={t("socialFacebook")} onChange={(e) => setF({ ...f, socialFacebook: e.target.value })} /></Field>
+              <Field label="Instagram link"><Input value={t("socialInstagram")} onChange={(e) => setF({ ...f, socialInstagram: e.target.value })} /></Field>
+              <Field label="YouTube link"><Input value={t("socialYoutube")} onChange={(e) => setF({ ...f, socialYoutube: e.target.value })} /></Field>
+              <Field label="X link"><Input value={t("socialX")} onChange={(e) => setF({ ...f, socialX: e.target.value })} /></Field>
             </div>
           </Card>
           <Card>

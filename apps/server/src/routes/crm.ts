@@ -3,9 +3,10 @@ import { and, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
 import * as s from "../db/schema";
-import { forbidden, h, notFound, page, parse } from "../lib/http";
+import { bad, conflict, forbidden, h, notFound, page, parse } from "../lib/http";
 import { can, requirePerm, type AuthUser } from "../auth/session";
-import { addLeadNote, approveInvoice, findOrCreateLead, getInvoiceFull, markInvoiceSent, rejectInvoice, type Actor } from "../services/crm";
+import { audit } from "../services/audit";
+import { addLeadNote, approveInvoice, ensureWebsiteAccount, findLeadByContact, findOrCreateLead, getInvoiceFull, markInvoiceSent, rejectInvoice, type Actor } from "../services/crm";
 
 export const crmRouter = Router();
 
@@ -116,6 +117,58 @@ crmRouter.post(
   }),
 );
 
+crmRouter.patch(
+  "/leads/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.leads.edit");
+    const b = parse(
+      z.object({
+        customerName: z.string().trim().min(2).max(120),
+        contactPerson: z.string().trim().min(2).max(80),
+        phone: z.string().trim().min(6).max(30),
+        email: z.string().trim().toLowerCase().email().max(120).nullable().optional().or(z.literal("")),
+        address: z.string().trim().max(200).nullable().optional(),
+        countryCode: z.string().length(2),
+        portId: z.string().nullable().optional(),
+      }),
+      req.body,
+    );
+    const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, String(req.params.id))).limit(1);
+    if (!lead) throw notFound();
+    const [country] = await db().select({ code: s.countries.code }).from(s.countries).where(eq(s.countries.code, b.countryCode)).limit(1);
+    if (!country) throw bad("Choose a country from the list");
+    if (b.portId) {
+      const [port] = await db().select({ id: s.ports.id }).from(s.ports).where(and(eq(s.ports.id, b.portId), eq(s.ports.countryCode, country.code))).limit(1);
+      if (!port) throw bad("That port is not in the chosen country");
+    }
+    const dup = await findLeadByContact(b.phone, b.email || null);
+    if (dup && dup.id !== lead.id) throw conflict(`This phone or e-mail already belongs to ${dup.customerName}`);
+    await db().update(s.leads).set({ customerName: b.customerName, contactPerson: b.contactPerson, phone: b.phone, email: b.email || null, address: b.address || null, countryCode: b.countryCode, portId: b.portId || null, updatedAt: new Date() }).where(eq(s.leads.id, lead.id));
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "lead.edited", entity: "lead", entityId: lead.id, summary: `${u.name} edited the details of ${b.customerName}` });
+    // a customer who had no e-mail gets the website account as soon as one is known
+    if (lead.isCustomer && b.email) await ensureWebsiteAccount(lead.id);
+    return { ok: true };
+  }),
+);
+crmRouter.delete(
+  "/leads/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.leads.delete");
+    const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, String(req.params.id))).limit(1);
+    if (!lead) throw notFound();
+    const [live] = await db().select({ number: s.invoices.number }).from(s.invoices).where(and(eq(s.invoices.leadId, lead.id), inArray(s.invoices.status, ["approved", "sent"]))).limit(1);
+    if (live) throw conflict(`Invoice ${live.number} is approved, so this lead cannot be deleted`);
+    const held = await db().select({ vehicleId: s.invoiceVehicles.vehicleId }).from(s.invoiceVehicles).innerJoin(s.invoices, eq(s.invoices.id, s.invoiceVehicles.invoiceId)).where(eq(s.invoices.leadId, lead.id));
+    const vehIds = held.map((v) => v.vehicleId).filter(Boolean) as string[];
+    await db().transaction(async (tx) => {
+      if (vehIds.length) await tx.update(s.vehicles).set({ status: "available" }).where(and(inArray(s.vehicles.id, vehIds), eq(s.vehicles.status, "reserved")));
+      await tx.delete(s.leads).where(eq(s.leads.id, lead.id));
+      await audit(tx, { actorUserId: u.id, actorKind: "human", action: "lead.deleted", summary: `${u.name} deleted the lead ${lead.customerName}` });
+    });
+    return { ok: true };
+  }),
+);
+
 crmRouter.post(
   "/leads/:id/notes",
   h(async (req) => {
@@ -169,7 +222,7 @@ crmRouter.get(
       }
     }
     const [quote] = full.invoice.quoteId ? await db().select().from(s.quotes).where(eq(s.quotes.id, full.invoice.quoteId)).limit(1) : [];
-    return { ...full, audit: audit.map((x) => ({ ...x.a, actor: x.actor })), conversation, fteTrail, quote: quote ?? null, canApprove: can(u, "crm.invoices.approve") };
+    return { ...full, audit: audit.map((x) => ({ ...x.a, actor: x.actor })), conversation, fteTrail, quote: quote ?? null, canApprove: can(u, "crm.invoices.approve"), canDelete: can(u, "crm.invoices.delete") };
   }),
 );
 

@@ -25,6 +25,7 @@ export const HOME_SECTIONS = [
     },
   },
   { key: "best_sellers", title: "This Week's Best Sellers", subtitle: "Most requested by buyers this week", data: { homeSection: "best_seller" } },
+  { key: "steering", title: "Shop by steering", subtitle: "Right-hand or left-hand: choose the side your country drives on.", data: {} },
   {
     key: "why",
     title: "Why choose Hikari Motors",
@@ -50,6 +51,33 @@ export const HOME_SECTIONS = [
     },
   },
   { key: "upcoming", title: "Upcoming Collection", subtitle: "Arriving in our yard soon", data: { homeSection: "upcoming" } },
+  {
+    key: "payment",
+    title: "Pick your payment method",
+    subtitle: "Every payment appears in your account the day we receive it.",
+    data: {
+      items: [
+        { icon: "Landmark", title: "Bank transfer (T/T)", text: "Send the advance, then the balance, to the company account shown on your invoice. Our bank details are public, so you can check them first.", link: "/bank-details", cta: "See our bank details" },
+        { icon: "WalletCards", title: "Advance and balance", text: "An advance holds the car for you. The balance is due before shipping. Your invoice shows both amounts in US dollars.", link: "/how-to-buy", cta: "How buying works" },
+        { icon: "Banknote", title: "Letter of credit", text: "For larger orders your bank can open a letter of credit in our favour. Ask the sales desk before you apply.", link: "/contact", cta: "Ask the sales desk" },
+      ],
+    },
+  },
+  { key: "luxury", title: "Luxury cars", subtitle: "Lexus, Land Cruiser, Alphard and Crown, ready to ship", data: { homeSection: "luxury" } },
+  { key: "commercial", title: "Commercial vehicles", subtitle: "Trucks and vans that earn their keep", data: { homeSection: "commercial" } },
+  {
+    key: "we_bid",
+    title: "We bid for you",
+    subtitle: "Can't find it in stock? Thousands of cars go through Japan's auctions every week. Choose one, set your limit, and we do the rest.",
+    data: {
+      items: [
+        { title: "Choose a lot", text: "Search this week's auction lots by make, model, year and grade." },
+        { title: "We read the sheet", text: "The inspector's sheet is in Japanese. We read it and tell you what it really says." },
+        { title: "We bid inside your limit", text: "You set the most you will pay. We never go over it." },
+        { title: "We ship it to your port", text: "Win or lose, you hear from us the same day. A win gets an invoice and a ship." },
+      ],
+    },
+  },
   { key: "new_arrivals", title: "New In-Demand Arrivals", subtitle: "Fresh in stock", data: { homeSection: "new_arrivals" } },
   {
     key: "steps",

@@ -2,9 +2,9 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LEAD_STATUS_LABELS } from "@autofte/shared";
-import { Bot, ChevronLeft, FilePlus2, Globe, Send } from "lucide-react";
+import { Bot, ChevronLeft, FilePlus2, Globe, Pencil, Send, Trash2 } from "lucide-react";
 import { useAuth } from "../lib/auth";
-import { RequestInvoiceModal } from "./LeadForms";
+import { EditLeadModal, RequestInvoiceModal } from "./LeadForms";
 import { api } from "../lib/api";
 import { ago, dateTime, usd2 } from "../lib/format";
 import { Avatar, Button, Card, Empty, Select, Skeleton, StatusBadge, Textarea } from "../ui";
@@ -27,6 +27,8 @@ export default function LeadDetail() {
   const q = useQuery({ queryKey: ["lead", id], queryFn: () => api.get<LeadFull>(`/api/crm/leads/${id}`) });
   const [note, setNote] = useState("");
   const [req, setReq] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [actErr, setActErr] = useState<string | null>(null);
   const { can, me } = useAuth();
   const nav = useNavigate();
   if (q.isLoading) return <Skeleton className="h-96" />;
@@ -41,6 +43,29 @@ export default function LeadDetail() {
         <h1 className="text-2xl font-bold text-slate-900">{lead.customerName}</h1>
         <StatusBadge status={lead.status} label={LEAD_STATUS_LABELS[lead.status as keyof typeof LEAD_STATUS_LABELS]} />
         <div className="ml-auto flex flex-wrap gap-2">
+          {can("crm.leads.edit") && (
+            <Button variant="secondary" onClick={() => setEditing(true)}>
+              <Pencil className="size-4" /> Edit
+            </Button>
+          )}
+          {can("crm.leads.delete") && (
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                if (!window.confirm(`Delete the lead ${lead.customerName}? This cannot be undone.`)) return;
+                setActErr(null);
+                try {
+                  await api.del(`/api/crm/leads/${lead.id}`);
+                  await qc.invalidateQueries({ queryKey: ["leads"] });
+                  nav("/crm/leads");
+                } catch (ex) {
+                  setActErr((ex as Error).message);
+                }
+              }}
+            >
+              <Trash2 className="size-4" /> Delete
+            </Button>
+          )}
           {can("crm.leads.status") && (
             <Select
               className="w-44"
@@ -64,6 +89,17 @@ export default function LeadDetail() {
           )}
         </div>
       </div>
+      {actErr && <p className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{actErr}</p>}
+      {editing && (
+        <EditLeadModal
+          lead={lead}
+          onClose={() => setEditing(false)}
+          onDone={() => {
+            setEditing(false);
+            void qc.invalidateQueries();
+          }}
+        />
+      )}
       {req && <RequestInvoiceModal lead={lead} onClose={() => setReq(false)} onDone={(invId) => nav(`/crm/invoices/${invId}`)} />}
       <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr]">
         <div className="space-y-4">

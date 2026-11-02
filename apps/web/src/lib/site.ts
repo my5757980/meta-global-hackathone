@@ -75,6 +75,8 @@ export interface VehicleCard {
   engineCc: number | null;
   color: string;
   drive: string;
+  steering?: string;
+  grade?: string | null;
   status: string;
   image: string;
   location?: string;

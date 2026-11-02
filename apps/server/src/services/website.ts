@@ -6,6 +6,7 @@ export interface VehicleFilters {
   q?: string;
   brand?: string;
   model?: string;
+  grade?: string;
   body?: string;
   fuel?: string;
   transmission?: string;
@@ -21,7 +22,7 @@ export interface VehicleFilters {
   status?: "available" | "all";
   homeSection?: string;
   featured?: boolean;
-  sort?: "newest" | "price_asc" | "price_desc" | "year_desc" | "mileage_asc";
+  sort?: "newest" | "featured" | "price_asc" | "price_desc" | "year_desc" | "mileage_asc";
   limit?: number;
   offset?: number;
   ids?: string[];
@@ -42,6 +43,7 @@ export function vehicleWhere(f: VehicleFilters): SQL | undefined {
   if (f.fuel) w.push(ilike(vehicles.fuel, f.fuel));
   if (f.transmission) w.push(ilike(vehicles.transmission, f.transmission));
   if (f.steering) w.push(ilike(vehicles.steering, f.steering));
+  if (f.grade) w.push(ilike(vehicles.grade, f.grade));
   if (f.drive) w.push(ilike(vehicles.drive, f.drive));
   if (f.color) w.push(ilike(vehicles.color, `%${f.color}%`));
   if (f.yearMin) w.push(gte(vehicles.year, f.yearMin));
@@ -62,6 +64,8 @@ export function vehicleWhere(f: VehicleFilters): SQL | undefined {
 const orderFor = (s?: VehicleFilters["sort"]) => {
   const tie = asc(vehicles.stockNo);
   switch (s) {
+    case "featured":
+      return [desc(vehicles.featured), desc(vehicles.sort), desc(vehicles.createdAt), tie];
     case "price_asc":
       return [asc(effectivePrice), tie];
     case "price_desc":
@@ -99,6 +103,7 @@ export async function listVehicles(f: VehicleFilters) {
       color: vehicles.color,
       drive: vehicles.drive,
       steering: vehicles.steering,
+      grade: vehicles.grade,
       status: vehicles.status,
       featured: vehicles.featured,
       location: vehicles.location,
@@ -154,8 +159,12 @@ export async function catalogFacets() {
   const b = await db().select().from(brands).orderBy(asc(brands.sort));
   const m = await db().select().from(vehicleModels).orderBy(asc(vehicleModels.name));
   const counts = await db().execute(sql`select body_type, count(*)::int as n from vehicles where published and status <> 'sold' group by body_type order by n desc`);
+  const gradeRows = (await db().execute(sql`select distinct model_id, grade from vehicles where published and status <> 'sold' and grade is not null and grade <> '' order by grade`)) as unknown as { rows: { model_id: string; grade: string }[] };
+  const steering = (await db().execute(sql`select steering, count(*)::int as n from vehicles where published and status <> 'sold' group by steering order by n desc`)) as unknown as { rows: { steering: string; n: number }[] };
   return {
-    brands: b.map((x) => ({ ...x, models: m.filter((y) => y.brandId === x.id).map((y) => ({ name: y.name, slug: y.slug })) })),
+    brands: b.map((x) => ({ ...x, models: m.filter((y) => y.brandId === x.id).map((y) => ({ name: y.name, slug: y.slug, grades: gradeRows.rows.filter((g) => g.model_id === y.id).map((g) => g.grade) })) })),
     bodyTypes: (counts as unknown as { rows: { body_type: string; n: number }[] }).rows.map((r) => ({ name: r.body_type, count: r.n })),
+    grades: [...new Set(gradeRows.rows.map((g) => g.grade))],
+    steering: steering.rows.map((r) => ({ name: r.steering, count: r.n })),
   };
 }

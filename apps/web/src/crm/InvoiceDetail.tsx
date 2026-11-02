@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Check, ChevronLeft, MessageSquare, Pencil, Printer, ShieldCheck, X } from "lucide-react";
+import { Bot, Check, ChevronLeft, MessageSquare, Pencil, Printer, ShieldCheck, Trash2, X } from "lucide-react";
 import { api } from "../lib/api";
 import { dateTime, date, usd2 } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Modal, Skeleton, StatusBadge, Textarea } from "../ui";
@@ -24,12 +24,14 @@ interface Full {
   fteTrail: { id: string; action: string; summary: string; createdAt: string }[];
   quote: { lines: { label: string; usd: number }[] } | null;
   canApprove: boolean;
+  canDelete: boolean;
 }
 
 export default function InvoiceDetail() {
   const fte = useFte();
   const { id } = useParams();
   const qc = useQueryClient();
+  const nav = useNavigate();
   const q = useQuery({ queryKey: ["invoice", id], queryFn: () => api.get<Full>(`/api/crm/invoices/${id}`) });
   const [rejecting, setRejecting] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -81,6 +83,24 @@ export default function InvoiceDetail() {
           <Button variant="secondary" onClick={() => window.print()}>
             <Printer className="size-4" /> Print
           </Button>
+          {d.canDelete && (
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                if (!window.confirm(`Delete invoice ${inv.number}? This cannot be undone.`)) return;
+                setErr(null);
+                try {
+                  await api.del(`/api/crm/invoices/${inv.id}`);
+                  await qc.invalidateQueries();
+                  nav("/crm/invoices");
+                } catch (e) {
+                  setErr((e as Error).message);
+                }
+              }}
+            >
+              <Trash2 className="size-4" /> Delete
+            </Button>
+          )}
           {d.canApprove && (inv.status === "pending" || inv.status === "approved") && (
             <Button variant="secondary" onClick={() => setEditing(true)}>
               <Pencil className="size-4" /> Edit invoice

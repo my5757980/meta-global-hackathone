@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, createReadStream, existsSync, statSync } from "node:fs";
+import { mkdirSync, writeFileSync, createReadStream, existsSync, statSync, rmSync } from "node:fs";
 import { resolve, extname } from "node:path";
 import { eq } from "drizzle-orm";
 import { filesDir } from "../env";
@@ -57,6 +57,13 @@ export async function getFile(id: string) {
   const abs = resolve(filesDir, f.path);
   if (!existsSync(abs)) return null;
   return { ...f, abs, size: statSync(abs).size };
+}
+
+/** Remove a stored file: its row and its bytes. */
+export async function deleteFile(id: string) {
+  const f = await getFile(id);
+  await db().delete(files).where(eq(files.id, id));
+  if (f) rmSync(f.abs, { force: true });
 }
 
 export function fileStream(abs: string) {

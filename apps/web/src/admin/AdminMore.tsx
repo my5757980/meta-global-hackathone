@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ExternalLink, FileText, KeyRound, Link2, MessagesSquare, Pencil, Plus, Save, Search, ShieldCheck, Trash2, UserPlus, Users, X } from "lucide-react";
+import { Check, Copy, Download, ExternalLink, FileText, Images, KeyRound, Link2, MailX, MessagesSquare, Newspaper, Pencil, Plus, Save, Search, ShieldCheck, Trash2, UserPlus, Users, X } from "lucide-react";
 import { formatUsd } from "@autofte/shared";
 import { api, ApiError, qs } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -421,6 +421,8 @@ export function AdminCustomers() {
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
   const [secret, setSecret] = useState<{ email: string; otp: string } | null>(null);
+  const [bulk, setBulk] = useState(false);
+  const noEmail = useQuery({ queryKey: ["admin/customers-no-email"], queryFn: () => api.get<{ items: { id: string; customerName: string; contactPerson: string; phone: string; countryCode: string | null; owner: string | null }[] }>("/api/admin/customers-no-email"), enabled: can("website.customers.view") });
   const list = useQuery({
     queryKey: ["admin/customers", { q, kind, page }],
     queryFn: () => api.get<{ items: CustomerRow[]; total: number; page: number; pageSize: number }>("/api/admin/customers" + qs({ q, kind, page })),
@@ -432,9 +434,38 @@ export function AdminCustomers() {
       <PageHeader
         title="Customers"
         subtitle={can("website.customers.view_all") ? "Every buyer: website accounts and chat guests." : "The buyers whose CRM record is yours."}
-        actions={can("website.customers.manage") ? <Button onClick={() => setCreating(true)}><UserPlus className="size-4" /> New customer</Button> : undefined}
+        actions={
+          can("website.customers.manage") ? (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => setBulk(true)}><KeyRound className="size-4" /> One-time passwords</Button>
+              <Button onClick={() => setCreating(true)}><UserPlus className="size-4" /> New customer</Button>
+            </div>
+          ) : undefined
+        }
       />
       {flash.node}
+      {bulk && <BulkPasswords onClose={() => setBulk(false)} />}
+      {!!noEmail.data?.items.length && (
+        <details className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-amber-900">
+            <MailX className="size-4 shrink-0" /> {noEmail.data.items.length} CRM customer{noEmail.data.items.length > 1 ? "s have" : " has"} no e-mail, so no website account yet
+          </summary>
+          <p className="mt-2 text-sm text-amber-900">Add an e-mail on the CRM record and the account is made at once.</p>
+          <ul className="mt-2 divide-y divide-amber-200">
+            {noEmail.data.items.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <span className="min-w-0 text-amber-950">
+                  <strong>{l.customerName}</strong> · {l.phone}
+                  {l.owner ? ` · ${l.owner}` : ""}
+                </span>
+                <Link to={`/crm/leads/${l.id}`} className="font-semibold text-brand-700">
+                  Open record →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       <div className="mb-4 flex flex-wrap gap-2">
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
@@ -484,6 +515,210 @@ export function AdminCustomers() {
         />
       )}
       {secret && <SecretBox title="Account created" value={secret.otp} note={`Give this one-time password to the buyer (${secret.email}). It is shown once. They choose their own password at first sign-in.`} onClose={() => setSecret(null)} />}
+    </div>
+  );
+}
+
+/** Accounts that have never signed in: make their one-time passwords together and copy the whole list. */
+function BulkPasswords({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["admin/customers-bulk"], queryFn: () => api.get<{ items: { id: string; name: string; email: string }[] }>("/api/admin/customers-bulk-passwords") });
+  const [made, setMade] = useState<{ id: string; name: string; email: string; oneTimePassword: string }[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const text = made?.map((m) => `${m.name}\t${m.email}\t${m.oneTimePassword}`).join("\n") ?? "";
+  return (
+    <Modal open onClose={onClose} title="One-time passwords" wide>
+      {made ? (
+        <>
+          <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">Shown once. Copy them now and give each buyer their own. They choose their own password at first sign-in.</p>
+          <Button variant="secondary" size="sm" onClick={() => void navigator.clipboard?.writeText(text).then(() => setCopied(true))}>
+            <Copy className="size-4" /> {copied ? "Copied" : "Copy all"}
+          </Button>
+          <ul className="mt-3 divide-y divide-slate-100">
+            {made.map((m) => (
+              <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <span className="min-w-0 break-all">
+                  <strong className="text-slate-900">{m.name}</strong> <span className="text-slate-500">{m.email}</span>
+                </span>
+                <code className="rounded bg-slate-100 px-2 py-1 font-mono text-sm font-bold text-slate-900">{m.oneTimePassword}</code>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : q.isLoading ? (
+        <Skeleton className="h-32" />
+      ) : !q.data?.items.length ? (
+        <p className="rounded-xl bg-slate-50 px-3 py-6 text-center text-sm text-slate-600">Every account has signed in at least once. Use the buyer's own page to reset one.</p>
+      ) : (
+        <>
+          <p className="mb-3 text-sm text-slate-600">{q.data.items.length} account{q.data.items.length > 1 ? "s have" : " has"} never signed in. Make a one-time password for each.</p>
+          <ul className="max-h-64 divide-y divide-slate-100 overflow-y-auto">
+            {q.data.items.map((c) => (
+              <li key={c.id} className="py-2 text-sm">
+                <strong className="text-slate-900">{c.name}</strong> <span className="break-all text-slate-500">{c.email}</span>
+              </li>
+            ))}
+          </ul>
+          <Button
+            className="mt-3"
+            loading={busy}
+            onClick={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                const r = await api.post<{ items: { id: string; name: string; email: string; oneTimePassword: string }[] }>("/api/admin/customers-bulk-passwords", { ids: q.data!.items.map((c) => c.id) });
+                setMade(r.items);
+                void qc.invalidateQueries({ queryKey: ["admin/customers-bulk"] });
+              } catch (ex) {
+                setErr(message(ex));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <KeyRound className="size-4" /> Make {q.data.items.length} password{q.data.items.length > 1 ? "s" : ""}
+          </Button>
+          {err && <p className="mt-2 text-sm text-rose-600">{err}</p>}
+        </>
+      )}
+    </Modal>
+  );
+}
+
+export function AdminNewsletter() {
+  const { can } = useAuth();
+  const qc = useQueryClient();
+  const flash = useFlash();
+  const [page, setPage] = useState(1);
+  const q = useQuery({ queryKey: ["admin/newsletter", page], queryFn: () => api.get<{ items: { id: string; email: string; createdAt: string }[]; total: number; page: number; pageSize: number }>("/api/admin/newsletter" + qs({ page })), enabled: can("website.content.manage") });
+  if (!can("website.content.manage")) return <Denied />;
+  return (
+    <div>
+      <PageHeader
+        title="Newsletter"
+        subtitle={q.data ? `${q.data.total} address${q.data.total === 1 ? "" : "es"} signed up from the website footer` : "Addresses signed up from the website footer"}
+        actions={
+          <a href="/api/admin/newsletter.csv" className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
+            <Download className="size-4" /> Download CSV
+          </a>
+        }
+      />
+      {flash.node}
+      {q.isLoading ? (
+        <Skeleton className="h-48" />
+      ) : !q.data?.items.length ? (
+        <Empty icon={<Newspaper className="size-8" />} title="Nobody has signed up yet" />
+      ) : (
+        <>
+          <Table head={["E-mail", "Signed up", ""]}>
+            {q.data.items.map((r) => (
+              <tr key={r.id}>
+                <td className="px-4 py-3 font-medium break-all text-slate-900">{r.email}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-slate-600">{date(r.createdAt)}</td>
+                <td className="px-4 py-3 text-right">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Remove ${r.email}`}
+                    onClick={async () => {
+                      if (!window.confirm(`Remove ${r.email} from the list?`)) return;
+                      try {
+                        await api.del(`/api/admin/newsletter/${r.id}`);
+                        await qc.invalidateQueries({ queryKey: ["admin/newsletter"] });
+                      } catch (ex) {
+                        flash.err(ex);
+                      }
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </Table>
+          <Pagination page={q.data.page} pageSize={q.data.pageSize} total={q.data.total} onPage={setPage} />
+        </>
+      )}
+    </div>
+  );
+}
+
+export function AdminMedia() {
+  const { can } = useAuth();
+  const qc = useQueryClient();
+  const flash = useFlash();
+  const [page, setPage] = useState(1);
+  const allowed = can("website.vehicles.manage") || can("website.content.manage") || can("website.settings.manage");
+  const q = useQuery({ queryKey: ["admin/media", page], queryFn: () => api.get<{ items: { id: string; url: string; name: string | null; size: number; createdAt: string }[]; total: number; page: number; pageSize: number }>("/api/admin/media" + qs({ page })), enabled: allowed });
+  if (!allowed) return <Denied />;
+  return (
+    <div>
+      <PageHeader
+        title="Media library"
+        subtitle="Every picture uploaded for the site. Copy a link to use it anywhere."
+        actions={
+          <UploadButton
+            multiple
+            label="Upload pictures"
+            onUploaded={() => {
+              setPage(1);
+              void qc.invalidateQueries({ queryKey: ["admin/media"] });
+            }}
+          />
+        }
+      />
+      {flash.node}
+      {q.isLoading ? (
+        <Skeleton className="h-48" />
+      ) : !q.data?.items.length ? (
+        <Empty icon={<Images className="size-8" />} title="No pictures yet" text="Pictures you upload for cars, guides or the logo collect here." />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
+            {q.data.items.map((m) => (
+              <Card key={m.id} padded={false} className="overflow-hidden">
+                <img src={m.url} alt={m.name ?? ""} loading="lazy" className="aspect-[4/3] w-full bg-slate-100 object-cover" />
+                <div className="p-3">
+                  <p className="truncate text-xs font-medium text-slate-800" title={m.name ?? ""}>{m.name ?? "Picture"}</p>
+                  <p className="text-[11px] text-slate-500">{Math.max(1, Math.round(m.size / 1024))} KB · {date(m.createdAt)}</p>
+                  <div className="mt-2 flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="min-w-0 flex-1"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(m.url);
+                        flash.ok("Link copied");
+                      }}
+                    >
+                      <Copy className="size-4" /> Copy
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`Delete ${m.name ?? "picture"}`}
+                      onClick={async () => {
+                        if (!window.confirm("Delete this picture?")) return;
+                        try {
+                          await api.del(`/api/admin/media/${m.id}`);
+                          await qc.invalidateQueries({ queryKey: ["admin/media"] });
+                        } catch (ex) {
+                          flash.err(ex);
+                        }
+                      }}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+          <Pagination page={q.data.page} pageSize={q.data.pageSize} total={q.data.total} onPage={setPage} />
+        </>
+      )}
     </div>
   );
 }

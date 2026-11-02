@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { env } from "../env";
@@ -11,6 +11,8 @@ import { hashPassword, verifyPassword } from "../auth/passwords";
 import { ensureCustomerConversation } from "../services/chat";
 import { notify, usersWithPerm } from "../services/notify";
 import { audit } from "../services/audit";
+import { mailConfigured, sendMail } from "../services/mail";
+import { siteSettings } from "../services/settings";
 
 export const authRouter = Router();
 
@@ -48,6 +50,7 @@ authRouter.post(
     if (!email) throw bad("Unknown demo role");
     const [u] = await db().select().from(s.users).where(eq(s.users.email, email)).limit(1);
     if (!u) throw bad("Demo data missing — run npm run setup");
+    if (u.mustChangePassword) await db().update(s.users).set({ mustChangePassword: false }).where(eq(s.users.id, u.id)); // a demo role has no password to change
     const sess = await sessionFor(req, res, u.id);
     return { user: publicMe(await loadAuthUser(u.id)), ...sess };
   }),
@@ -169,7 +172,7 @@ authRouter.post(
     const [u] = await db().select().from(s.users).where(eq(s.users.id, me.id)).limit(1);
     if (!(await verifyPassword(body.password, u?.passwordHash))) throw bad("Your password is not correct");
     if (u?.email === body.email) throw bad("That is already your e-mail");
-    const [taken] = await db().select({ id: s.users.id }).from(s.users).where(eq(s.users.email, body.email)).limit(1);
+    const [taken] = await db().select({ id: s.users.id }).from(s.users).where(sql`lower(${s.users.email}) = ${body.email}`).limit(1);
     if (taken) throw conflict("Another account already uses this e-mail");
     await db().update(s.users).set({ email: body.email, updatedAt: new Date() }).where(eq(s.users.id, me.id));
     await audit(db(), { actorUserId: me.id, actorKind: "human", action: "auth.email_changed", entity: "user", entityId: me.id, summary: `${me.name} changed their sign-in e-mail` });
@@ -200,6 +203,52 @@ authRouter.post(
     await db().update(s.users).set({ recoveryKeyHash: await hashPassword(key), updatedAt: new Date() }).where(eq(s.users.id, me.id));
     await audit(db(), { actorUserId: me.id, actorKind: "human", action: "auth.recovery_key", entity: "user", entityId: me.id, summary: `${me.name} made a new recovery key` });
     return { recoveryKey: key };
+  }),
+);
+
+/**
+ * A customer's forgotten password: a link that works once, for an hour. Only its hash is stored. The answer is the same
+ * whether the account exists or not. With no mail server, demo mode shows the link on the page (never in production, and
+ * on the public demo only for the fictional @example.com buyers, so a visitor's own account cannot be taken).
+ */
+const sha256 = (x: string) => createHash("sha256").update(x).digest("hex");
+const forgotTries = new Map<string, { n: number; until: number }>();
+authRouter.post(
+  "/forgot",
+  h(async (req) => {
+    const body = parse(z.object({ email: z.string().trim().toLowerCase().email().max(120) }), req.body);
+    const k = req.ip ?? "";
+    const t = forgotTries.get(k);
+    const fresh = t && t.until > Date.now();
+    if (fresh && t.n >= 8) throw new HttpError(429, "Too many requests. Try again in 15 minutes");
+    forgotTries.set(k, { n: (fresh ? t.n : 0) + 1, until: fresh ? t.until : Date.now() + 15 * 60_000 });
+    const message = "If this e-mail has an account, a reset link is on its way. It works once, for one hour.";
+    const [u] = await db().select().from(s.users).where(sql`lower(${s.users.email}) = ${body.email}`).limit(1);
+    if (!u || !u.isActive || u.kind !== "customer") return { ok: true, message };
+    const token = randomBytes(32).toString("base64url");
+    await db().update(s.users).set({ resetTokenHash: sha256(token), resetTokenExpiresAt: new Date(Date.now() + 3600_000), updatedAt: new Date() }).where(eq(s.users.id, u.id));
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "auth.reset_requested", entity: "user", entityId: u.id, summary: `${u.name} asked for a password reset link` });
+    const path = `/reset-password?token=${token}`;
+    if (mailConfigured()) {
+      const site = await siteSettings();
+      await sendMail({ to: u.email!, subject: `Reset your ${site.companyName} password`, text: `Hello ${u.name},\n\nUse this link to choose a new password. It works once, for one hour:\n${env.PUBLIC_URL.replace(/\/$/, "")}${path}\n\nIf you did not ask for this, you can ignore this message.` }).catch((e) => console.error("[mail]", (e as Error).message));
+      return { ok: true, message };
+    }
+    const showLink = env.DEMO_MODE && (!env.PUBLIC_DEMO || body.email.endsWith("@example.com"));
+    return { ok: true, message, ...(showLink ? { demoLink: path } : {}) };
+  }),
+);
+
+authRouter.post(
+  "/reset",
+  h(async (req) => {
+    const body = parse(z.object({ token: z.string().min(20).max(200), newPassword: z.string().min(8).max(200) }), req.body);
+    const [u] = await db().select().from(s.users).where(eq(s.users.resetTokenHash, sha256(body.token))).limit(1);
+    if (!u || !u.isActive || !u.resetTokenExpiresAt || u.resetTokenExpiresAt < new Date()) throw bad("This link is not valid any more. Ask for a new one");
+    await db().update(s.users).set({ passwordHash: await hashPassword(body.newPassword), resetTokenHash: null, resetTokenExpiresAt: null, mustChangePassword: false, updatedAt: new Date() }).where(eq(s.users.id, u.id));
+    await db().delete(s.sessions).where(eq(s.sessions.userId, u.id)); // every old sign-in ends
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "auth.password_reset", entity: "user", entityId: u.id, summary: `${u.name} set a new password with a reset link` });
+    return { ok: true, message: "Password changed. Sign in with the new one." };
   }),
 );
 

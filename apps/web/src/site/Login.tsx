@@ -17,6 +17,50 @@ const DEMO: Record<string, { label: string; who: string; icon: React.ReactNode; 
 };
 
 /** Lost password: staff use the recovery key they saved; customers get a one-time password from the team. */
+function ForgotForm() {
+  const [email, setEmail] = useState("");
+  const [res, setRes] = useState<{ message: string; demoLink?: string } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="mt-6 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setErr(null);
+        setRes(null);
+        try {
+          setRes(await api.post<{ message: string; demoLink?: string }>("/api/auth/forgot", { email }));
+        } catch (ex) {
+          setErr((ex as Error).message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <p className="text-sm font-semibold text-slate-900">Forgot your password?</p>
+      <p className="text-xs text-slate-500">Type your account e-mail and we send a link to choose a new one.</p>
+      <Field label="Account e-mail">
+        <Input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
+      </Field>
+      {err && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</p>}
+      {res && <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{res.message}</p>}
+      {res?.demoLink && (
+        <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          This demo has no mail server, so here is the link the e-mail would carry:{" "}
+          <Link to={res.demoLink} className="font-semibold underline">
+            Choose a new password
+          </Link>
+        </p>
+      )}
+      <Button type="submit" variant="secondary" className="w-full" loading={busy}>
+        Send the link
+      </Button>
+    </form>
+  );
+}
+
 function RecoverForm() {
   const [f, setF] = useState({ email: "", recoveryKey: "", newPassword: "" });
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -40,7 +84,6 @@ function RecoverForm() {
       }}
     >
       <p className="text-sm font-semibold text-slate-900">Reset with your recovery key (staff)</p>
-      <p className="text-xs text-slate-500">Customers: ask us in the chat — a team member sends you a one-time password.</p>
       <Field label="E-mail">
         <Input required type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="username" />
       </Field>
@@ -67,6 +110,7 @@ export default function Login() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [forgot, setForgot] = useState(false);
+  const [staffRecover, setStaffRecover] = useState(false);
   const [params] = useSearchParams();
   const next = safeNext(params.get("next"));
 
@@ -119,7 +163,15 @@ export default function Login() {
             </button>
           </p>
         </form>
-        {forgot && <RecoverForm />}
+        {forgot && (
+          <>
+            <ForgotForm />
+            <button type="button" onClick={() => setStaffRecover((v) => !v)} className="mt-3 text-sm font-semibold text-brand-700">
+              Staff: use your recovery key
+            </button>
+            {staffRecover && <RecoverForm />}
+          </>
+        )}
       </Card>
       {roles.data && roles.data.length > 0 && (
         <Card className="border-violet-200 bg-gradient-to-br from-violet-50 to-white p-6 sm:p-8">

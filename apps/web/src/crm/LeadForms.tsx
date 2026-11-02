@@ -131,6 +131,66 @@ interface VehicleRow {
 }
 const emptyRow = (): VehicleRow => ({ vehicleId: null, unitLabel: "", year: "", color: "", chassisNo: "", engine: "", transmission: "", fuel: "", pushUsd: "", cnfUsd: "" });
 
+/** Supervisor corrects a lead. A customer who had no e-mail gets a website account as soon as one is added. */
+export function EditLeadModal({ lead, onClose, onDone }: { lead: { id: string; customerName: string; contactPerson: string; phone: string; email: string | null; address: string | null; countryCode: string | null; portId: string | null }; onClose: () => void; onDone: () => void }) {
+  const [f, setF] = useState({ customerName: lead.customerName, contactPerson: lead.contactPerson, phone: lead.phone, email: lead.email ?? "", address: lead.address ?? "", countryCode: lead.countryCode ?? "", portId: lead.portId ?? "" });
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Edit ${lead.customerName}`}
+      wide
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            loading={busy}
+            onClick={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                await api.patch(`/api/crm/leads/${lead.id}`, { ...f, email: f.email || null, address: f.address || null, portId: f.portId || null });
+                onDone();
+              } catch (ex) {
+                setErr((ex as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Save changes
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Customer / business name *">
+          <Input value={f.customerName} onChange={set("customerName")} />
+        </Field>
+        <Field label="Contact person *">
+          <Input value={f.contactPerson} onChange={set("contactPerson")} />
+        </Field>
+        <Field label="Phone *">
+          <Input value={f.phone} onChange={set("phone")} />
+        </Field>
+        <Field label="E-mail">
+          <Input type="email" value={f.email} onChange={set("email")} />
+        </Field>
+        <PortPicker country={f.countryCode} port={f.portId} onCountry={(c) => setF((x) => ({ ...x, countryCode: c }))} onPort={(p) => setF((x) => ({ ...x, portId: p }))} />
+        <Field label="Address" className="sm:col-span-2">
+          <Input value={f.address} onChange={set("address")} />
+        </Field>
+      </div>
+      {err && <p className="mt-3 text-sm text-rose-600">{err}</p>}
+    </Modal>
+  );
+}
+
 /** Agent's invoice request: several vehicles ("Add more"), prices optional (Supervisor can price later). */
 export function RequestInvoiceModal({ lead, onClose, onDone }: { lead: { id: string; customerName: string; phone: string; email: string | null; address: string | null; countryCode: string | null; portId: string | null }; onClose: () => void; onDone: (id: string) => void }) {
   const [c, setC] = useState({ consigneeName: lead.customerName, consigneePhone: lead.phone, consigneeEmail: lead.email ?? "", consigneeAddress: lead.address ?? "", consigneeCountryCode: lead.countryCode ?? "", consigneePortId: lead.portId ?? "" });

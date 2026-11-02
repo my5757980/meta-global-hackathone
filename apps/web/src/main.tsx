@@ -13,6 +13,8 @@ const Shop = lazy(() => import("./site/Shop"));
 const VehiclePage = lazy(() => import("./site/VehiclePage"));
 const Login = lazy(() => import("./site/Login"));
 const Register = lazy(() => import("./site/Register"));
+const ResetPassword = lazy(() => import("./site/ResetPassword"));
+const Credits = lazy(() => import("./site/Credits"));
 const info = () => import("./site/InfoPages");
 const ContentPage = ({ slug }: { slug: string }) => {
   const C = ContentPageLazy;
@@ -71,6 +73,8 @@ const AdminBrands = lazy(() => adminMore().then((m) => ({ default: m.AdminBrands
 const AdminCustomers = lazy(() => adminMore().then((m) => ({ default: m.AdminCustomers })));
 const AdminCustomerDetail = lazy(() => adminMore().then((m) => ({ default: m.AdminCustomerDetail })));
 const AdminRoles = lazy(() => adminMore().then((m) => ({ default: m.AdminRoles })));
+const AdminNewsletter = lazy(() => adminMore().then((m) => ({ default: m.AdminNewsletter })));
+const AdminMedia = lazy(() => adminMore().then((m) => ({ default: m.AdminMedia })));
 
 const page = (el: React.ReactNode) => (
   <Suspense
@@ -93,6 +97,8 @@ const router = createBrowserRouter([
       { path: "/vehicles/:slug", element: page(<VehiclePage />) },
       { path: "/login", element: page(<Login />) },
       { path: "/register", element: page(<Register />) },
+      { path: "/reset-password", element: page(<ResetPassword />) },
+      { path: "/credits", element: page(<Credits />) },
       { path: "/about", element: page(<ContentPage slug="about" />) },
       { path: "/how-to-buy", element: page(<ContentPage slug="how-to-buy" />) },
       { path: "/terms", element: page(<ContentPage slug="terms" />) },
@@ -148,6 +154,8 @@ const router = createBrowserRouter([
       { path: "/admin/customers", element: page(<AdminCustomers />) },
       { path: "/admin/customers/:id", element: page(<AdminCustomerDetail />) },
       { path: "/admin/roles", element: page(<AdminRoles />) },
+      { path: "/admin/newsletter", element: page(<AdminNewsletter />) },
+      { path: "/admin/media", element: page(<AdminMedia />) },
     ],
   },
 ]);

@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 import multer from "multer";
-import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z, type ZodObject, type ZodRawShape } from "zod";
 import { PERMISSIONS } from "@autofte/shared";
 import { env } from "../env";
@@ -11,7 +11,7 @@ import { can, clearPermCache, requireAuth, requirePerm, type AuthUser } from "..
 import { lastResetAt, resetDemo, resetRunning } from "../services/demoReset";
 import { hashPassword, oneTimePassword } from "../auth/passwords";
 import { audit } from "../services/audit";
-import { saveFile } from "../services/files";
+import { deleteFile, saveFile } from "../services/files";
 
 /**
  * The rest of the website admin: the simple content lists, brands and models, customers (with their CRM
@@ -453,6 +453,122 @@ adminContentRouter.post(
       await tx.update(s.leads).set({ customerUserId: c.id, updatedAt: new Date() }).where(eq(s.leads.id, lead.id));
       await audit(tx, { actorUserId: u.id, actorKind: "human", action: "customer.lead_linked", entity: "lead", entityId: lead.id, summary: `${u.name} linked ${lead.customerName} to the account of ${c.name}` });
     });
+    return { ok: true };
+  }),
+);
+
+// ---------- CRM customers the website cannot reach: no e-mail, so no account ----------
+adminContentRouter.get(
+  "/customers-no-email",
+  h(async (req) => {
+    const u = requirePerm(req, "website.customers.view");
+    const items = await db()
+      .select({ id: s.leads.id, customerName: s.leads.customerName, contactPerson: s.leads.contactPerson, phone: s.leads.phone, countryCode: s.leads.countryCode, owner: s.users.name })
+      .from(s.leads)
+      .leftJoin(s.users, eq(s.users.id, s.leads.ownerUserId))
+      .where(and(eq(s.leads.isCustomer, true), isNull(s.leads.customerUserId), or(isNull(s.leads.email), eq(s.leads.email, "")), can(u, "website.customers.view_all") ? undefined : eq(s.leads.ownerUserId, u.id)))
+      .orderBy(asc(s.leads.customerName))
+      .limit(200);
+    return { items };
+  }),
+);
+
+// ---------- one-time passwords in bulk, for accounts that have never signed in ----------
+const neverSignedIn = (u: AuthUser) => and(eq(s.users.kind, "customer"), eq(s.users.isActive, true), isNull(s.users.lastSeenAt), sql`${s.users.email} is not null`, visibleToStaff(u));
+adminContentRouter.get(
+  "/customers-bulk-passwords",
+  h(async (req) => {
+    const u = requirePerm(req, "website.customers.manage");
+    const items = await db().select({ id: s.users.id, name: s.users.name, email: s.users.email }).from(s.users).where(neverSignedIn(u)).orderBy(asc(s.users.name)).limit(100);
+    return { items };
+  }),
+);
+adminContentRouter.post(
+  "/customers-bulk-passwords",
+  h(async (req) => {
+    const u = requirePerm(req, "website.customers.manage");
+    const b = parse(z.object({ ids: z.array(z.string().min(8)).min(1).max(100) }), req.body);
+    const rows = await db().select({ id: s.users.id, name: s.users.name, email: s.users.email }).from(s.users).where(and(neverSignedIn(u), inArray(s.users.id, b.ids)));
+    if (!rows.length) throw bad("None of these accounts can get a new password here");
+    const made = await Promise.all(rows.map(async (r) => { const otp = oneTimePassword(); return { ...r, oneTimePassword: otp, hash: await hashPassword(otp) }; })); // hashed before the transaction: PGlite has one connection
+    await db().transaction(async (tx) => {
+      for (const m of made) await tx.update(s.users).set({ passwordHash: m.hash, mustChangePassword: true, updatedAt: new Date() }).where(eq(s.users.id, m.id));
+      await audit(tx, { actorUserId: u.id, actorKind: "human", action: "customer.password_bulk", summary: `${u.name} issued one-time passwords for ${made.length} account(s)` });
+    });
+    return { items: made.map(({ hash: _h, ...m }) => m) };
+  }),
+);
+
+// ---------- newsletter list ----------
+adminContentRouter.get(
+  "/newsletter",
+  h(async (req) => {
+    requirePerm(req, "website.content.manage");
+    const f = parse(z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(50) }), req.query);
+    const items = await db().select().from(s.newsletterSubscribers).orderBy(desc(s.newsletterSubscribers.createdAt), asc(s.newsletterSubscribers.email)).limit(f.pageSize).offset((f.page - 1) * f.pageSize);
+    const n = countOf((await db().select({ n: sql<number>`count(*)::int` }).from(s.newsletterSubscribers)) as { n: number }[]);
+    return { items, total: n, page: f.page, pageSize: f.pageSize };
+  }),
+);
+adminContentRouter.get(
+  "/newsletter.csv",
+  h(async (req, res) => {
+    requirePerm(req, "website.content.manage");
+    const rows = await db().select().from(s.newsletterSubscribers).orderBy(asc(s.newsletterSubscribers.email));
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="newsletter.csv"');
+    res.send(["email,signed_up", ...rows.map((r) => `${r.email},${new Date(r.createdAt).toISOString().slice(0, 10)}`)].join("\n") + "\n");
+    return undefined;
+  }),
+);
+adminContentRouter.delete(
+  "/newsletter/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "website.content.manage");
+    const [row] = await db().delete(s.newsletterSubscribers).where(eq(s.newsletterSubscribers.id, String(req.params.id))).returning();
+    if (!row) throw notFound("Not on the list");
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "newsletter.removed", summary: `${u.name} removed an address from the newsletter list` });
+    return { ok: true };
+  }),
+);
+
+// ---------- media library: every picture uploaded for the site ----------
+function requireMedia(req: Request) {
+  const u = requireAuth(req);
+  if (!can(u, "website.vehicles.manage") && !can(u, "website.content.manage") && !can(u, "website.settings.manage")) throw forbidden();
+  return u;
+}
+adminContentRouter.get(
+  "/media",
+  h(async (req) => {
+    requireMedia(req);
+    const f = parse(z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(48) }), req.query);
+    const rows = await db().select().from(s.files).where(eq(s.files.kind, "site-image")).orderBy(desc(s.files.createdAt), asc(s.files.id)).limit(f.pageSize).offset((f.page - 1) * f.pageSize);
+    const n = countOf((await db().select({ n: sql<number>`count(*)::int` }).from(s.files).where(eq(s.files.kind, "site-image"))) as { n: number }[]);
+    return { items: rows.map((r) => ({ id: r.id, url: `/api/media/site/${r.id}`, name: r.originalName, mime: r.mime, size: r.size, createdAt: r.createdAt })), total: n, page: f.page, pageSize: f.pageSize };
+  }),
+);
+adminContentRouter.delete(
+  "/media/:id",
+  h(async (req) => {
+    const u = requireMedia(req);
+    const id = String(req.params.id);
+    const [file] = await db().select().from(s.files).where(and(eq(s.files.id, id), eq(s.files.kind, "site-image"))).limit(1);
+    if (!file) throw notFound("Picture not found");
+    const url = `/api/media/site/${id}`;
+    const like = `%${url}%`;
+    const used = (await db().execute(sql`select
+      (select count(*)::int from vehicle_images where url = ${url}) as vehicles,
+      (select count(*)::int from brands where logo_url = ${url}) as brands,
+      (select count(*)::int from blog_posts where cover_url = ${url} or body like ${like}) as guides,
+      (select count(*)::int from pages where body like ${like}) as pages,
+      (select count(*)::int from home_sections where data::text like ${like}) as home,
+      (select count(*)::int from settings where value::text like ${like}) as settings,
+      (select count(*)::int from partners where logo_url = ${url}) as partners`)) as unknown as { rows: Record<string, number>[] };
+    const where = Object.entries(used.rows[0] ?? {}).filter(([, n]) => n > 0).map(([k]) => k);
+    if (where.length) throw conflict(`This picture is still used in: ${where.join(", ")}`);
+    await deleteFile(id);
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "media.deleted", entity: "file", entityId: id, summary: `${u.name} deleted the picture ${file.originalName ?? id}` });
     return { ok: true };
   }),
 );

@@ -107,6 +107,7 @@ const vehicleBody = z.object({
   brandId: z.string().min(1),
   modelId: z.string().min(1),
   modelCode: z.string().max(40).nullable().optional(),
+  grade: z.string().trim().max(60).nullable().optional(),
   chassisNo: z.string().max(40).nullable().optional(),
   year: z.number().int().min(1950).max(2100),
   month: z.number().int().min(1).max(12).nullable().optional(),

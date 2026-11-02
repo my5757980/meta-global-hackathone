@@ -62,7 +62,6 @@ export const PERMISSIONS = {
   "auction.lots.import": "Import auction lots from Excel",
   "auction.orders.manage": "Manage auction orders",
   "auction.enquiries.reply": "Reply to enquiries",
-  "auction.staff.manage": "Manage staff",
   "auction.roles.manage": "Manage roles and permissions",
   // chat
   "chat.desk": "Work at the chat desk",
@@ -75,7 +74,6 @@ export const PERMISSIONS = {
   "fte.evals.run": "Run Sora's eval suite",
   // system
   "system.demo.reset": "Reset demo data",
-  "system.mcp.tokens": "Issue MCP tokens",
 } as const;
 export type PermissionKey = keyof typeof PERMISSIONS;
 
@@ -191,6 +189,11 @@ export const SiteSettingsSchema = z.object({
   whatsapp: z.string().default("+81 90 0000 0000"),
   email: z.string().default("sales@hikari-motors.example"),
   address: z.string().default("1-2-3 Minato, Yokohama, Kanagawa, Japan (demo address)"),
+  hours: z.string().default("Mon to Sat, 9:00 to 18:00 JST"),
+  socialFacebook: z.string().default("https://www.facebook.com/"),
+  socialInstagram: z.string().default("https://www.instagram.com/"),
+  socialYoutube: z.string().default("https://www.youtube.com/"),
+  socialX: z.string().default("https://x.com/"),
   invoicePrefix: z.string().default("HK"),
   bank: z
     .object({

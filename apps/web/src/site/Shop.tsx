@@ -9,8 +9,9 @@ import { SearchBox } from "./SearchBox";
 import { VehicleGrid } from "./VehicleCard";
 
 interface Facets {
-  brands: { name: string; slug: string; models: { name: string; slug: string }[] }[];
+  brands: { name: string; slug: string; models: { name: string; slug: string; grades: string[] }[] }[];
   bodyTypes: { name: string; count: number }[];
+  grades: string[];
 }
 interface Country {
   code: string;
@@ -21,7 +22,7 @@ interface Country {
   note: string | null;
 }
 
-const KEYS = ["q", "brand", "model", "country", "body", "fuel", "transmission", "drive", "steering", "color", "yearMin", "yearMax", "priceMin", "priceMax", "mileageMax", "sort", "page"] as const;
+const KEYS = ["q", "brand", "model", "grade", "country", "body", "fuel", "transmission", "drive", "steering", "color", "yearMin", "yearMax", "priceMin", "priceMax", "mileageMax", "sort", "page"] as const;
 const CHIP: Partial<Record<(typeof KEYS)[number], string>> = { q: "Search", country: "Ship to", color: "Colour", yearMin: "Year from", yearMax: "Year to", priceMin: "Min price", priceMax: "Max price", mileageMax: "Max mileage" };
 
 export default function Shop() {
@@ -42,11 +43,13 @@ export default function Shop() {
     else n.delete(k);
     if (k !== "page") n.delete("page");
     if (k === "brand") n.delete("model");
+    if (k === "brand" || k === "model") n.delete("grade");
     setSp(n); // each change is a history entry: Back removes exactly one filter
   };
   const active = KEYS.filter((k) => k !== "page" && k !== "sort" && params[k]);
   const brand = facets.data?.brands.find((b) => b.slug === params.brand);
   const models = brand?.models ?? [];
+  const grades = params.model ? (models.find((m) => m.slug === params.model)?.grades ?? []) : brand ? [...new Set(models.flatMap((m) => m.grades))].sort() : (facets.data?.grades ?? []);
   const countries = useQuery({ queryKey: ["countries"], queryFn: () => api.get<Country[]>("/api/public/countries"), staleTime: 3600_000 });
   const shipTo = countries.data?.find((c) => c.code === params.country);
   const chipLabel = (k: (typeof KEYS)[number]) => CHIP[k] ?? k.charAt(0).toUpperCase() + k.slice(1);
@@ -78,6 +81,12 @@ export default function Shop() {
           <option key={m.slug} value={m.slug}>
             {m.name}
           </option>
+        ))}
+      </Select>
+      <Select value={params.grade} onChange={(e) => set("grade", e.target.value)} disabled={!grades.length} aria-label="Grade">
+        <option value="">All grades</option>
+        {grades.map((g) => (
+          <option key={g}>{g}</option>
         ))}
       </Select>
       <Select value={params.country} onChange={(e) => set("country", e.target.value)} aria-label="Ship to country">
@@ -142,6 +151,14 @@ export default function Shop() {
             <option key={x}>{x}</option>
           ))}
         </Select>
+        <Select value={params.priceMin} onChange={(e) => set("priceMin", e.target.value)} aria-label="Min price">
+          <option value="">Min price</option>
+          {[3000, 5000, 8000, 10000, 15000, 20000, 30000, 40000].map((x) => (
+            <option key={x} value={x}>
+              ${x.toLocaleString("en-US")}
+            </option>
+          ))}
+        </Select>
         <Select value={params.priceMax} onChange={(e) => set("priceMax", e.target.value)} aria-label="Max price">
           <option value="">Max price</option>
           {[5000, 8000, 10000, 15000, 20000, 30000, 40000, 60000].map((x) => (
@@ -172,6 +189,7 @@ export default function Shop() {
           </Button>
           <Select value={params.sort} onChange={(e) => set("sort", e.target.value)} className="w-44" aria-label="Sort">
             <option value="">Newest first</option>
+            <option value="featured">Featured</option>
             <option value="price_asc">Price: low to high</option>
             <option value="price_desc">Price: high to low</option>
             <option value="year_desc">Year: newest</option>

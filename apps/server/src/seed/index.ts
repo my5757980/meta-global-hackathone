@@ -36,8 +36,8 @@ const ROLE_PERMS: Record<RoleSlug, PermissionKey[] | "all"> = {
   admin: "all",
   manager: [
     "website.admin", "website.vehicles.manage", "website.content.manage", "website.orders.manage", "website.customers.view", "website.customers.view_all", "website.customers.manage",
-    "crm.access", "crm.leads.view_all", "crm.leads.status", "crm.leads.delete", "crm.leads.transfer", "crm.invoices.view_all", "crm.invoices.delete", "crm.payments.record", "crm.units.manage", "crm.progress.update", "crm.reports.view", "crm.backup.download", "crm.users.manage",
-    "auction.access", "auction.admin", "auction.lots.import", "auction.lots.view_sold", "auction.bids.view", "auction.bids.view_all", "auction.bids.manage", "auction.bids.export", "auction.clients.view", "auction.orders.manage", "auction.enquiries.reply", "auction.staff.manage",
+    "crm.access", "crm.leads.view_all", "crm.leads.status", "crm.leads.delete", "crm.leads.edit", "crm.leads.transfer", "crm.invoices.view_all", "crm.invoices.delete", "crm.invoices.download", "crm.payments.record", "crm.units.manage", "crm.progress.update", "crm.reports.view", "crm.backup.download", "crm.users.manage",
+    "auction.access", "auction.admin", "auction.lots.import", "auction.lots.view_sold", "auction.bids.view", "auction.bids.view_all", "auction.bids.manage", "auction.bids.export", "auction.clients.view", "auction.orders.manage", "auction.enquiries.reply",
     "chat.desk", "chat.view_all", "chat.groups", "fte.console", "fte.approvals.decide", "fte.evals.run",
   ],
   supervisor: [
@@ -51,7 +51,7 @@ const ROLE_PERMS: Record<RoleSlug, PermissionKey[] | "all"> = {
     "crm.access", "crm.leads.create", "crm.leads.upload", "crm.invoices.request", "crm.units.manage", "crm.progress.update",
     "auction.access", "auction.bids.place", "chat.desk", "chat.groups",
   ],
-  accounts: ["crm.access", "crm.invoices.view_all", "crm.payments.record", "crm.units.manage", "crm.reports.view", "chat.desk"],
+  accounts: ["crm.access", "crm.invoices.view_all", "crm.invoices.download", "crm.payments.record", "crm.units.manage", "crm.reports.view", "chat.desk"],
   customer: ["auction.access", "auction.bids.place"],
   fte: ["crm.access", "crm.leads.create", "crm.invoices.request", "crm.progress.update", "auction.access", "auction.bids.place", "chat.desk"],
 };
@@ -214,6 +214,8 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
       if (rng.chance(0.14)) sections.push("best_seller");
       if (rng.chance(0.1)) sections.push("upcoming");
       if (rng.chance(0.14)) sections.push("new_arrivals");
+      if (spec.brand === "Lexus" || ["Land Cruiser", "Alphard", "Crown", "Harrier"].includes(spec.model)) sections.push("luxury");
+      if (spec.body === "Truck" || spec.body === "Van") sections.push("commercial");
       stock.push({
         id,
         spec,
@@ -225,6 +227,7 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
         brandId: brandIds[spec.brand]!,
         modelId: modelIds[`${spec.brand}|${spec.model}`]!,
         modelCode: code,
+        grade: trim,
         chassisNo: `${code}-${rng.int(1000000, 9999999)}`,
         year,
         month,
@@ -237,7 +240,8 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
         bodyType: spec.body,
         engineCc: engine || null,
         color,
-        steering: "Right",
+        // some left-hand cars, so a left-hand market has something to buy (from the stock number: the random stream stays the same)
+        steering: ["SUV", "Pickup", "Sedan"].includes(spec.body) && Number(no.slice(3)) % 7 === 3 ? "Left" : "Right",
         drive,
         doors: spec.doors,
         seats: spec.seats,
@@ -445,7 +449,7 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
               fuel: v.fuel as string,
               mileageKm: v.mileageKm as number,
               transmission: v.transmission as string,
-              steering: "Right",
+              steering: v.steering as string,
               doors: v.doors as number,
               seats: v.seats as number,
               location: "Yokohama yard",
@@ -520,6 +524,41 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
       }
       leadStatus[leadId] = status === "pending" ? "invoice_requested" : "invoiced";
     }
+  }
+  // three buyers the CRM knows only by phone: no e-mail, so no website account until staff add one (admin Customers lists them)
+  const phoneOnly = leadRows.filter((l) => !l.email && !l.isCustomer && l.status === "in_progress").slice(0, 3);
+  for (const lead of phoneOnly) {
+    const [v] = available.splice(0, 1);
+    if (!v) break;
+    const country = countriesByCode[lead.countryCode!]!;
+    const port = firstPort(lead.countryCode!);
+    const q = quote({ basis: { kind: "stock", priceUsd: Number(v.discountPriceUsd ?? v.priceUsd) }, m3: Number(v.m3), port, country, policy });
+    const invId = genId();
+    const created = addDays(now, -8);
+    v.status = "sold";
+    invVehRows.push({ id: genId(), invoiceId: invId, position: 0, vehicleId: v.id, unitLabel: `${v.spec.brand} ${v.spec.model}`, year: v.year as number, color: v.color as string, chassisNo: v.chassisNo as string, engine: v.engineCc ? `${v.engineCc} cc` : "EV", transmission: v.transmission as string, fuel: v.fuel as string, pushUsd: q.fobUsd, cnfUsd: q.cnfUsd });
+    invoiceRows.push({
+      id: invId,
+      number: `${SiteSettingsSchema.parse({}).invoicePrefix}${String(2601 + invSeq++).padStart(5, "0")}`,
+      leadId: lead.id!,
+      requestedBy: lead.ownerUserId,
+      approvedBy: userIds.supervisor!,
+      status: "approved",
+      consigneeName: lead.customerName,
+      consigneeAddress: country.name,
+      consigneePhone: lead.phone,
+      consigneeCountryCode: lead.countryCode,
+      consigneePortId: port.id,
+      m3Rate: port.freightUsdPerM3,
+      exchangeRate: policy.fxJpyPerUsd,
+      totalPushUsd: Math.round(q.fobUsd * 100) / 100,
+      totalCnfUsd: Math.round(q.cnfUsd * 100) / 100,
+      advancePercent: policy.advancePercent,
+      createdAt: created,
+      approvedAt: addDays(created, 1),
+    });
+    leadStatus[lead.id!] = "invoiced";
+    await db.execute(sql`update leads set is_customer = true where id = ${lead.id!}`);
   }
   await chunkInsert(db, s.invoices, invoiceRows);
   await chunkInsert(db, s.invoiceVehicles, invVehRows);

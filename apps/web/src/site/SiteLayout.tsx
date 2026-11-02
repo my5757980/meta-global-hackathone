@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
-import { Bot, ChevronDown, Heart, LayoutDashboard, LogOut, Mail, Menu, Phone, Search, ShoppingCart, User, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Bot, ChevronDown, Clock, Facebook, Heart, Instagram, LayoutDashboard, LogOut, Mail, Menu, Phone, Search, ShoppingCart, Twitter, User, X, Youtube } from "lucide-react";
+import { api } from "../lib/api";
 import { useAuth, usePresencePing } from "../lib/auth";
 import { useLiveStream } from "../lib/sse";
 import { useBrandTheme, useSite } from "../lib/site";
@@ -47,6 +49,77 @@ export function PublicDemoLine() {
   return <p className="bg-amber-100 px-4 py-1 text-center text-xs font-medium text-amber-900">Public demo with fictional data. Try anything, even Admin: it puts itself back every {publicDemoHours} hours.</p>;
 }
 
+const CLOCKS = [
+  ["Tokyo", "Asia/Tokyo"],
+  ["Nairobi", "Africa/Nairobi"],
+  ["Dubai", "Asia/Dubai"],
+  ["London", "Europe/London"],
+] as const;
+const timeIn = (d: Date, zone: string) => new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: zone }).format(d);
+
+function useNow() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  return now;
+}
+
+function useRate() {
+  return useQuery({ queryKey: ["usd-jpy"], queryFn: () => api.get<{ usdJpy: number; date: string | null; source: string }>("/api/public/rate"), staleTime: 3600_000 });
+}
+
+/** World clocks and the yen rate, on every page. */
+function TopBar() {
+  const site = useSite();
+  const now = useNow();
+  const rate = useRate().data;
+  const rateText = rate ? `USD/JPY ${rate.usdJpy.toFixed(2)}` : "";
+  const rateTitle = rate?.source === "ecb" ? `European Central Bank reference rate, ${rate.date}` : "The company's working rate";
+  return (
+    <>
+      <div className="flex h-7 items-center justify-center gap-2 bg-brand-800 text-[11px] whitespace-nowrap text-brand-100 md:hidden">
+        <span>Tokyo {timeIn(now, "Asia/Tokyo")}</span>
+        <span aria-hidden="true">·</span>
+        <span>Nairobi {timeIn(now, "Africa/Nairobi")}</span>
+        {rateText && <span aria-hidden="true">·</span>}
+        <span title={rateTitle}>{rateText}</span>
+      </div>
+      <div className="hidden bg-brand-800 text-xs text-brand-100 md:block">
+        <div className="container-page flex h-9 items-center justify-between gap-4">
+          <div className="flex items-center gap-5">
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
+              <Phone className="size-3.5" /> {site?.phone}
+            </span>
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
+              <Mail className="size-3.5" /> {site?.email}
+            </span>
+            <span className="hidden items-center gap-1.5 whitespace-nowrap xl:flex">
+              <Clock className="size-3.5" /> {site?.hours}
+            </span>
+          </div>
+          <div className="flex items-center gap-4 whitespace-nowrap">
+            <span className="hidden items-center gap-1.5 2xl:flex">
+              <Bot className="size-3.5" /> {site?.ftEName ?? "Sora"}, our AI sales executive, answers 24/7 · Built with Muse Spark Open
+            </span>
+            {CLOCKS.map(([city, zone], i) => (
+              <span key={city} className={clsx(i > 1 && "hidden lg:inline")}>
+                {city} <strong className="font-semibold text-white">{timeIn(now, zone)}</strong>
+              </span>
+            ))}
+            {rateText && (
+              <span title={rateTitle} className="rounded bg-white/10 px-2 py-0.5 font-semibold text-white">
+                {rateText}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function SiteLayout() {
   const site = useSite();
   const { me, logout } = useAuth();
@@ -65,21 +138,7 @@ export function SiteLayout() {
   return (
     <div className="flex min-h-screen flex-col">
       <PublicDemoLine />
-      <div className="hidden bg-brand-800 text-xs text-brand-100 md:block">
-        <div className="container-page flex h-9 items-center justify-between gap-4">
-          <div className="flex items-center gap-5">
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
-              <Phone className="size-3.5" /> {site?.phone}
-            </span>
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
-              <Mail className="size-3.5" /> {site?.email}
-            </span>
-          </div>
-          <span className="hidden items-center gap-1.5 lg:flex">
-            <Bot className="size-3.5" /> {site?.ftEName ?? "Sora"}, our AI sales executive, answers 24/7 · Built with Muse Spark Open
-          </span>
-        </div>
-      </div>
+      <TopBar />
       <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/90 backdrop-blur">
         <div className="container-page flex h-16 items-center gap-3">
           <Link to="/" className="shrink-0">
@@ -184,15 +243,74 @@ export function SiteLayout() {
   );
 }
 
+function NewsletterForm() {
+  const [email, setEmail] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="w-full max-w-md"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setMsg(null);
+        try {
+          const r = await api.post<{ message: string }>("/api/public/newsletter", { email });
+          setMsg({ ok: true, text: r.message });
+          setEmail("");
+        } catch (ex) {
+          setMsg({ ok: false, text: (ex as Error).message });
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <div className="flex gap-2">
+        <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Your e-mail" aria-label="Your e-mail" className="h-10 min-w-0 flex-1 rounded-xl border border-white/15 bg-white/5 px-3 text-sm text-white placeholder:text-slate-400 focus:border-white/40 focus:outline-none" />
+        <button type="submit" disabled={busy} className="h-10 shrink-0 rounded-xl bg-accent-500 px-4 text-sm font-semibold text-slate-900 hover:bg-accent-400 disabled:opacity-60">
+          Sign up
+        </button>
+      </div>
+      {msg && <p className={clsx("mt-2 text-xs", msg.ok ? "text-emerald-300" : "text-rose-300")}>{msg.text}</p>}
+    </form>
+  );
+}
+
 function Footer() {
   const site = useSite();
+  const facets = useQuery({ queryKey: ["facets"], queryFn: () => api.get<{ brands: { name: string; slug: string }[]; bodyTypes: { name: string; count: number }[] }>("/api/public/vehicles/facets"), staleTime: 300_000 });
+  const offices = useQuery({ queryKey: ["locations"], queryFn: () => api.get<{ id: string; name: string; city?: string | null; country?: string | null }[]>("/api/public/locations"), staleTime: 3600_000 });
+  const social = [
+    { href: site?.socialFacebook, label: "Facebook", icon: <Facebook className="size-4" /> },
+    { href: site?.socialInstagram, label: "Instagram", icon: <Instagram className="size-4" /> },
+    { href: site?.socialYoutube, label: "YouTube", icon: <Youtube className="size-4" /> },
+    { href: site?.socialX, label: "X", icon: <Twitter className="size-4" /> },
+  ].filter((x) => x.href);
   return (
     <footer className="mt-16 bg-slate-900 text-slate-300">
-      <div className="container-page grid gap-8 py-12 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="border-b border-white/10">
+        <div className="container-page flex flex-col items-start justify-between gap-3 py-6 sm:flex-row sm:items-center">
+          <div>
+            <p className="font-semibold text-white">Hear about new stock first</p>
+            <p className="text-sm text-slate-400">Join the list. You can ask us to take you off at any time.</p>
+          </div>
+          <NewsletterForm />
+        </div>
+      </div>
+      <div className="container-page grid gap-8 py-12 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         <div>
           <Logo name={site?.companyName} light />
           <p className="mt-3 text-sm text-slate-400">{site?.tagline}</p>
           <p className="mt-3 text-xs text-slate-500">Demo company for the AutoFTE hackathon project. All data is fictional.</p>
+          {social.length > 0 && (
+            <div className="mt-4 flex gap-2">
+              {social.map((x) => (
+                <a key={x.label} href={x.href} target="_blank" rel="noreferrer" aria-label={x.label} className="flex size-9 items-center justify-center rounded-lg bg-white/5 text-slate-300 ring-1 ring-white/10 hover:text-white">
+                  {x.icon}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <p className="mb-3 text-sm font-semibold text-white">Buy</p>
@@ -214,7 +332,29 @@ function Footer() {
           </ul>
         </div>
         <div>
-          <p className="mb-3 text-sm font-semibold text-white">Contact</p>
+          <p className="mb-3 text-sm font-semibold text-white">By type</p>
+          <ul className="space-y-2 text-sm">
+            {facets.data?.bodyTypes.slice(0, 7).map((b) => (
+              <li key={b.name}><Link to={`/shop?body=${encodeURIComponent(b.name)}`} className="hover:text-white">{b.name}</Link></li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="mb-3 text-sm font-semibold text-white">By brand</p>
+          <ul className="space-y-2 text-sm">
+            {facets.data?.brands.slice(0, 7).map((b) => (
+              <li key={b.slug}><Link to={`/shop?brand=${b.slug}`} className="hover:text-white">{b.name}</Link></li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="mb-3 text-sm font-semibold text-white">Global offices</p>
+          <ul className="space-y-2 text-sm text-slate-400">
+            {offices.data?.slice(0, 6).map((o) => (
+              <li key={o.id}><Link to="/locations" className="hover:text-white">{o.name}</Link></li>
+            ))}
+          </ul>
+          <p className="mt-5 mb-3 text-sm font-semibold text-white">Contact</p>
           <ul className="space-y-2 text-sm text-slate-400">
             <li>{site?.address}</li>
             <li>{site?.phone}</li>
@@ -226,7 +366,7 @@ function Footer() {
         </div>
       </div>
       <div className="border-t border-white/10 py-4 text-center text-xs text-slate-500">
-        © {new Date().getFullYear()} {site?.companyName ?? "Hikari Motors"} (demo) · Powered by AutoFTE · <Link to="/terms" className="hover:text-slate-300">Terms</Link> · <Link to="/privacy" className="hover:text-slate-300">Privacy</Link>
+        © {new Date().getFullYear()} {site?.companyName ?? "Hikari Motors"} (demo) · Powered by AutoFTE · <Link to="/terms" className="hover:text-slate-300">Terms</Link> · <Link to="/privacy" className="hover:text-slate-300">Privacy</Link> · <Link to="/credits" className="hover:text-slate-300">Photo credits</Link>
       </div>
     </footer>
   );

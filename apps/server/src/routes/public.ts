@@ -3,12 +3,13 @@ import { asc, desc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
 import * as s from "../db/schema";
-import { h, notFound, parse } from "../lib/http";
+import { h, HttpError, notFound, parse } from "../lib/http";
 import { carSvg } from "../services/carArt";
 import { getFile } from "../services/files";
 import { siteSettings } from "../services/settings";
 import { catalogFacets, getVehicleBySlugOrId, listVehicles, relatedVehicles, suggest, type VehicleFilters } from "../services/website";
 import { notify, usersWithPerm } from "../services/notify";
+import { usdJpy } from "../services/fx";
 
 export const publicRouter = Router();
 
@@ -37,7 +38,7 @@ publicRouter.get(
       const hs = (sec.data as { homeSection?: string }).homeSection;
       if (hs) lists[sec.key] = (await listVehicles({ homeSection: hs, limit: 8, sort: "newest" })).items;
     }
-    return { site, sections, lists, testimonials, blog, faqs, brands: brandRows, bodyTypes: facets.bodyTypes };
+    return { site, sections, lists, testimonials, blog, faqs, brands: brandRows, bodyTypes: facets.bodyTypes, steering: facets.steering };
   }),
 );
 
@@ -45,6 +46,7 @@ const filtersSchema = z.object({
   q: z.string().max(100).optional(),
   brand: z.string().max(60).optional(),
   model: z.string().max(60).optional(),
+  grade: z.string().max(60).optional(),
   body: z.string().max(30).optional(),
   fuel: z.string().max(20).optional(),
   transmission: z.string().max(20).optional(),
@@ -57,7 +59,7 @@ const filtersSchema = z.object({
   priceMax: z.coerce.number().optional(),
   mileageMax: z.coerce.number().optional(),
   country: z.string().max(3).optional(),
-  sort: z.enum(["newest", "price_asc", "price_desc", "year_desc", "mileage_asc"]).optional(),
+  sort: z.enum(["newest", "featured", "price_asc", "price_desc", "year_desc", "mileage_asc"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(60).default(24),
 });
@@ -72,6 +74,22 @@ publicRouter.get(
 );
 
 publicRouter.get("/vehicles/facets", h(() => catalogFacets()));
+publicRouter.get("/rate", h(() => usdJpy()));
+
+const newsletterTries = new Map<string, { n: number; until: number }>();
+publicRouter.post(
+  "/newsletter",
+  h(async (req) => {
+    const { email } = parse(z.object({ email: z.string().trim().toLowerCase().email().max(120) }), req.body);
+    const k = req.ip ?? "";
+    const t = newsletterTries.get(k);
+    const fresh = t && t.until > Date.now();
+    if (fresh && t.n >= 10) throw new HttpError(429, "Too many sign-ups from here. Try again later");
+    newsletterTries.set(k, { n: (fresh ? t.n : 0) + 1, until: fresh ? t.until : Date.now() + 3600_000 });
+    await db().insert(s.newsletterSubscribers).values({ email }).onConflictDoNothing(); // the answer never tells who is already on the list
+    return { ok: true, message: "Thank you, you are on the list." };
+  }),
+);
 publicRouter.get("/vehicles/suggest", h((req) => suggest(String(req.query.q ?? ""))));
 
 publicRouter.get(
