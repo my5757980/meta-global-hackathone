@@ -21,7 +21,7 @@ import { openMcpSession } from "./mcp";
 import { transcribeMessage } from "./voice";
 import { skillIndex } from "./skills";
 import { SUMMARY_PROMPT, systemPrompt } from "./prompts";
-import { promisesPerson, promisesWork } from "./guards";
+import { asksPermissionAgain, promisesPerson, promisesWork, saidYes } from "./guards";
 import { overBudget } from "../services/publicDemo";
 
 const MAX_STEPS = 8;
@@ -70,6 +70,9 @@ function dataUrl(fileRow: { path: string; mime: string }): string | null {
     return null;
   }
 }
+
+/** Tools that are the work itself: after one of these, a further "shall I...?" is the next honest question. */
+const WORK_TOOLS = new Set(["search_stock", "search_auction_lots", "read_auction_sheet", "quote_cnf", "request_invoice", "place_bid"]);
 
 async function buildHistory(conversationId: string, soraId: string): Promise<ChatCompletionMessageParam[]> {
   const msgs = await listMessages(conversationId, { limit: 24 });
@@ -195,6 +198,8 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
   ];
   if (trigger.note) messages.push({ role: "user", content: `[System event for you to act on now: ${trigger.note}]` });
 
+  const lastInHistory = messages.at(-1);
+  const buyerSaidYes = trigger.kind === "message" && lastInHistory?.role === "user" && typeof lastInHistory.content === "string" && saidYes(lastInHistory.content);
   const mcp = await openMcpSession({ principalUserId: sora.id, principalName: sora.name, principalKind: "fte", conversationId, buyerUserId: conv.customerUserId, runId: run!.id });
   const toolCalls: { name: string; args: unknown; ok: boolean; ms: number; preview: string; guard?: true }[] = [];
   let promptTokens = 0;
@@ -229,6 +234,13 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
           nudged = true;
           toolCalls.push({ name: "keep_your_word", args: { said: finalText.slice(0, 300) }, ok: true, ms: 0, preview: "[guard] the reply promised work with no tool call; the model was told to do it now", guard: true });
           messages.push({ role: "assistant", content: finalText }, { role: "user", content: "[System note: your reply says you are doing something now, but you called no tool, so nothing happened and the buyer would wait for nothing. Call the tool now and answer with its result. The buyer has not seen that reply. If you truly need something from the buyer first, ask for it and promise nothing.]" });
+          continue;
+        }
+        // A plain yes answered with "Shall I...?" and no real work: the buyer would have to say yes twice. Back to the model, once; the buyer never saw it.
+        if (!nudged && !handedOver && step < MAX_STEPS - 1 && buyerSaidYes && asksPermissionAgain(finalText) && !toolCalls.some((t) => t.ok && WORK_TOOLS.has(t.name))) {
+          nudged = true;
+          toolCalls.push({ name: "act_on_the_yes", args: { said: finalText.slice(0, 300) }, ok: true, ms: 0, preview: "[guard] the buyer said yes and the reply asked again; the model was told to do it now", guard: true });
+          messages.push({ role: "assistant", content: finalText }, { role: "user", content: "[System note: the buyer just said yes to what you offered, so do not ask again. Do the work now with your tools, in this turn, then tell them what you did. Ask only for a fact you truly do not have, such as the consignee's name. The buyer never saw your last reply, so do not refer to it.]" });
           continue;
         }
         break;

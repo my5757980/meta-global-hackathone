@@ -178,6 +178,9 @@ export const PricingPolicySchema = z.object({
 });
 export type PricingPolicy = z.infer<typeof PricingPolicySchema>;
 
+/** fte_runs.provider of the demo history the seed writes: the console counts them and says so. */
+export const SEEDED_RUN = "demo seed";
+
 export const SiteSettingsSchema = z.object({
   companyName: z.string().default("Hikari Motors"),
   logoUrl: z.string().default(""), // empty = the built-in mark

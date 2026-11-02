@@ -25,3 +25,13 @@ const LATER = /\b(?:once|as soon as|when|after|if you)\b/i;
 export function promisesWork(text: string): boolean {
   return sentences(text).some((s) => !/[?؟]\s*$/.test(s) && !LATER.test(s) && (WORK_NOW.test(s) || WORK_DOING.test(s) || WORK_OTHER.test(s)));
 }
+
+/**
+ * A plain yes to an offer, answered with "Shall I prepare the invoice?": the buyer has to say yes twice and the sale cools.
+ * Only when the turn produced no real work: after a quote, "shall I reserve it?" is the next honest question.
+ */
+const PLAIN_YES = /^(?:yes|yes please|yep|yeah|ok|okay|sure|please do|go ahead|proceed|do it|confirm|confirmed|deal|agreed|haan?|haan ji|han ji|ji|ji haan|jee|theek hai|thik hai|bilkul|kar do|kardo|ndiyo|sawa|ہاں|ہاں جی|جی|جی ہاں|ٹھیک ہے|بالکل)(?=$|[\s.!,👍🙏])[\s.!,👍🙏]*(?:please|ji)?[\s.!👍🙏]*$/i;
+export const saidYes = (text: string) => text.trim().length <= 40 && PLAIN_YES.test(text.trim());
+const ASKS_AGAIN = /\b(?:shall i|should i|would you like me to|do you want me to|want me to|may i|can i go ahead|do you confirm|please confirm|are you sure)\b[^?؟]*[?؟]/i;
+const ASKS_AGAIN_OTHER = /(کیا میں|کروں\s*[?؟]|kar doon\s*\?|kar dun\s*\?|karun\s*\?)/i;
+export const asksPermissionAgain = (reply: string) => ASKS_AGAIN.test(reply) || ASKS_AGAIN_OTHER.test(reply);

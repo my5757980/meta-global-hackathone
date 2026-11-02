@@ -10,6 +10,7 @@ import { siteSettings } from "../services/settings";
 import { catalogFacets, getVehicleBySlugOrId, listVehicles, relatedVehicles, suggest, type VehicleFilters } from "../services/website";
 import { notify, usersWithPerm } from "../services/notify";
 import { usdJpy } from "../services/fx";
+import { BODY_PHOTOS } from "../seed/photos";
 
 export const publicRouter = Router();
 
@@ -38,7 +39,7 @@ publicRouter.get(
       const hs = (sec.data as { homeSection?: string }).homeSection;
       if (hs) lists[sec.key] = (await listVehicles({ homeSection: hs, limit: 8, sort: "newest" })).items;
     }
-    return { site, sections, lists, testimonials, blog, faqs, brands: brandRows, bodyTypes: facets.bodyTypes, steering: facets.steering };
+    return { site, sections, lists, testimonials, blog, faqs, brands: brandRows, bodyTypes: facets.bodyTypes.map((b) => ({ ...b, photo: BODY_PHOTOS[b.name] ?? null })), steering: facets.steering };
   }),
 );
 

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
-import { EnvelopeSchema } from "@autofte/shared";
+import { EnvelopeSchema, SEEDED_RUN } from "@autofte/shared";
 import { z } from "zod";
 import { db } from "../db/client";
 import * as s from "../db/schema";
@@ -100,9 +100,10 @@ fteRouter.get(
       .orderBy(desc(s.invoices.createdAt));
     // ~8 minutes of an agent's time per handled chat turn is the planning assumption shown in the console
     const hoursSaved = Math.round(((runs?.n ?? 0) * 8) / 6) / 10;
+    const [seeded] = await db().select({ n: sql<number>`count(*)::int` }).from(s.fteRuns).where(and(eq(s.fteRuns.provider, SEEDED_RUN), gt(s.fteRuns.startedAt, since)));
     return {
       model: { name: primaryModelName(), configured: modelConfigured(), family: "Muse Spark Open (Meta, open weights)" },
-      week: { runs: runs?.n ?? 0, ok: runs?.ok ?? 0, conversations: conv?.n ?? 0, leadsCreated: leads?.n ?? 0, invoicesRequested: invs?.n ?? 0, handovers: handovers?.n ?? 0, p50FirstReplyMs: Math.round(runs?.p50 ?? 0), p90FirstReplyMs: Math.round(runs?.p90 ?? 0), tokens: runs?.tokens ?? 0, hoursSaved },
+      week: { seededRuns: seeded?.n ?? 0, runs: runs?.n ?? 0, ok: runs?.ok ?? 0, conversations: conv?.n ?? 0, leadsCreated: leads?.n ?? 0, invoicesRequested: invs?.n ?? 0, handovers: handovers?.n ?? 0, p50FirstReplyMs: Math.round(runs?.p50 ?? 0), p90FirstReplyMs: Math.round(runs?.p90 ?? 0), tokens: runs?.tokens ?? 0, hoursSaved },
       pendingApprovals,
       pendingInvoices,
       envelope: await envelope(),

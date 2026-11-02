@@ -12,7 +12,7 @@ import { FteName, useFte } from "../lib/site";
 
 interface Overview {
   model: { name: string; configured: boolean; family: string };
-  week: { runs: number; ok: number; conversations: number; leadsCreated: number; invoicesRequested: number; handovers: number; p50FirstReplyMs: number; p90FirstReplyMs: number; tokens: number; hoursSaved: number };
+  week: { seededRuns: number; runs: number; ok: number; conversations: number; leadsCreated: number; invoicesRequested: number; handovers: number; p50FirstReplyMs: number; p90FirstReplyMs: number; tokens: number; hoursSaved: number };
   pendingApprovals: { id: string; kind: string; reason: string; payload: { discountPct?: number }; createdAt: string; conversationId: string | null }[];
   pendingInvoices: { id: string; number: string; consignee: string; total: number; createdAt: string }[];
   envelope: Envelope;
@@ -96,12 +96,15 @@ export default function FteConsole() {
       {!d ? (
         <Skeleton className="h-28" />
       ) : (
+        <>
+        {d.week.seededRuns > 0 && <p className="mb-3 text-xs text-slate-500">Includes {d.week.seededRuns} seeded demo turns, so this page is not empty on a fresh demo. Real turns add to them.</p>}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Stat label="Turns handled (7 days)" value={d.week.runs} hint={`${d.week.conversations} conversations`} icon={<Activity className="size-5" />} />
           <Stat label="Median first reply" value={d.week.p50FirstReplyMs ? `${(d.week.p50FirstReplyMs / 1000).toFixed(1)} s` : "—"} hint={d.week.p90FirstReplyMs ? `p90 ${(d.week.p90FirstReplyMs / 1000).toFixed(1)} s` : undefined} icon={<Gauge className="size-5" />} />
           <Stat label="Leads · invoice requests" value={`${d.week.leadsCreated} · ${d.week.invoicesRequested}`} hint={`${d.week.handovers} handed to people`} icon={<Users className="size-5" />} />
           <Stat label="Agent hours saved (est.)" value={d.week.hoursSaved} hint={d.lastEval ? `Last eval ${d.lastEval.passed}/${d.lastEval.total} passed` : "Eval suite: run npm run eval"} icon={<Clock className="size-5" />} />
         </div>
+        </>
       )}
       <div className="mt-6 mb-4">
         <Tabs

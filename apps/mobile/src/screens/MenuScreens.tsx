@@ -5,7 +5,7 @@ import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import { api, errText } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { getServer, isWeb, setServer, setToken } from "../lib/config";
+import { absUrl, getServer, isWeb, setServer, setToken } from "../lib/config";
 import { useFetch } from "../lib/data";
 import { downloadAndShare } from "../lib/download";
 import { date, initials, usd } from "../lib/format";
@@ -74,6 +74,7 @@ export function MenuScreen() {
         <ListRow icon="card-outline" title="Bank details" onPress={go("Bank")} />
         <ListRow icon="mail-outline" title="Contact us" onPress={go("Contact")} />
         <ListRow icon="shield-checkmark-outline" title="Terms & privacy" onPress={go("Page", { slug: "terms" })} />
+        <ListRow icon="camera-outline" title="Photo credits" onPress={() => void Linking.openURL(absUrl("/credits"))} />
       </Card>
 
       <SectionTitle title="App" />

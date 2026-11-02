@@ -93,7 +93,7 @@ export default function VehiclePage() {
             )}
             <span className="absolute bottom-2 left-2 rounded-lg bg-slate-900/70 px-2 py-0.5 text-xs text-white">
               {img + 1} / {v.images.length}
-              {v.images[img]?.startsWith("/api/media/car") ? " · illustration" : ""}
+              {v.images[img]?.startsWith("/api/media/car") ? " · illustration" : v.images[img]?.startsWith("/cars/") ? " · photo of this model" : ""}
             </span>
           </div>
           <div className="scrollbar-thin mt-3 flex gap-2 overflow-x-auto">

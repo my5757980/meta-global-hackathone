@@ -17,7 +17,7 @@ export default function Credits() {
   return (
     <div className="container-page max-w-4xl py-10">
       <h1 className="text-3xl font-bold text-slate-900">Photo credits</h1>
-      <p className="mt-2 text-slate-600">The car photos on this demo are real photos of each model, used under free licences from Wikimedia Commons. They show the model, not the exact car on sale, so the colour can differ. Photos were resized only.</p>
+      <p className="mt-2 text-slate-600">The car photos on this demo are real photos of each model, used under free licences from Wikimedia Commons. They show the model, not the exact car on sale. Photos were resized only.</p>
       {q.isLoading ? (
         <Skeleton className="mt-6 h-64" />
       ) : (

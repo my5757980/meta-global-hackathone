@@ -1,4 +1,5 @@
 /** Website content for the fictional demo exporter "Hikari Motors". Editable later in Admin. */
+import { HERO_PHOTOS } from "./photos";
 
 export const HOME_SECTIONS = [
   {
@@ -6,9 +7,9 @@ export const HOME_SECTIONS = [
     title: "Hero slides",
     data: {
       slides: [
-        { title: "Japanese quality, delivered to your port", subtitle: "80+ inspected cars in stock and 1,700+ auction lots every week — quoted in USD to your port, any hour, by Sora, our AI sales executive.", cta: "Browse stock", link: "/shop", body: "SUV", color: "Pearl White" },
-        { title: "Buy straight from Japan's auctions", subtitle: "We read every auction sheet for you, bid inside your budget and ship RoRo or container.", cta: "See auction lots", link: "/auction", body: "Pickup", color: "Silver" },
-        { title: "Track every step to your port", subtitle: "Invoices, payments, documents and shipping progress — all in your account.", cta: "Create account", link: "/register", body: "Minivan", color: "Dark Blue" },
+        { title: "Japanese quality, delivered to your port", subtitle: "80+ inspected cars in stock and 1,700+ auction lots every week — quoted in USD to your port, any hour, by Sora, our AI sales executive.", cta: "Browse stock", link: "/shop", body: "SUV", color: "Pearl White", image: HERO_PHOTOS[0] },
+        { title: "Buy straight from Japan's auctions", subtitle: "We read every auction sheet for you, bid inside your budget and ship RoRo or container.", cta: "See auction lots", link: "/auction", body: "Pickup", color: "Silver", image: HERO_PHOTOS[1] },
+        { title: "Track every step to your port", subtitle: "Invoices, payments, documents and shipping progress — all in your account.", cta: "Create account", link: "/register", body: "Minivan", color: "Dark Blue", image: HERO_PHOTOS[2] },
       ],
     },
   },
@@ -96,9 +97,9 @@ export const HOME_SECTIONS = [
     title: "Our clients and their cars",
     data: {
       items: [
-        { title: "Hilux delivered to Mombasa", country: "Kenya", body: "Pickup", color: "Silver" },
-        { title: "Fleet of Probox for Dar es Salaam", country: "Tanzania", body: "Wagon", color: "Pearl White" },
-        { title: "Prado for a family in Kingston", country: "Jamaica", body: "SUV", color: "Black" },
+        { title: "Hilux delivered to Mombasa", country: "Kenya", body: "Pickup", color: "Silver", image: "/cars/toyota-hilux-2.jpg" },
+        { title: "Fleet of Probox for Dar es Salaam", country: "Tanzania", body: "Wagon", color: "Pearl White", image: "/cars/toyota-probox-2.jpg" },
+        { title: "Prado for a family in Kingston", country: "Jamaica", body: "SUV", color: "Black", image: "/cars/toyota-land-cruiser-prado-2.jpg" },
       ],
     },
   },

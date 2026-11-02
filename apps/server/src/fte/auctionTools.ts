@@ -11,6 +11,7 @@ import type { ToolDef } from "./tools";
 import { ToolError } from "./errors";
 import { carImageUrl } from "../services/carArt";
 import { colorHex } from "../seed/catalog";
+import { photoFor, photoPath } from "../seed/photos";
 
 const yen = (n: number | null | undefined) => (n == null ? null : Math.round(n));
 
@@ -99,7 +100,10 @@ export const AUCTION_TOOLS: ToolDef[] = [
           avg_price_jpy: yen(l.avgPriceJpy),
           est_fob_usd: l.avgPriceJpy ? fobFromLot(l.avgPriceJpy, policy) : null,
           link: `/auction/lots/${l.id}`,
-          image: (l.photoUrls as string[] | null)?.[0] ?? carImageUrl(l.bodyType, colorHex(l.color), "side"),
+          image: (l.photoUrls as string[] | null)?.[0] ?? (() => {
+            const p = photoFor(l.make, l.model, l.color);
+            return p ? photoPath(p.file) : carImageUrl(l.bodyType, colorHex(l.color), "side");
+          })(),
         })),
       };
     },

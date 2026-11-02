@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Banknote, Bot, ChevronLeft, ChevronRight, ClipboardCheck, FileText, Gavel, Landmark, Play, Quote, ShieldCheck, Ship, Star, WalletCards } from "lucide-react";
+import { ArrowRight, Banknote, Bot, ChevronLeft, ChevronRight, ClipboardCheck, FileText, Gavel, Landmark, Quote, ShieldCheck, Ship, Star, WalletCards } from "lucide-react";
 import { api } from "../lib/api";
 import { date } from "../lib/format";
 import type { VehicleCard as V } from "../lib/site";
@@ -17,7 +17,7 @@ interface HomeData {
   blog: { slug: string; title: string; excerpt: string; coverUrl: string; publishedAt: string }[];
   faqs: { question: string; answer: string }[];
   brands: { name: string; slug: string }[];
-  bodyTypes: { name: string; count: number }[];
+  bodyTypes: { name: string; count: number; photo: string | null }[];
   steering: { name: string; count: number }[];
 }
 
@@ -168,7 +168,7 @@ export default function Home() {
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {d.bodyTypes.map((b) => (
               <Link key={b.name} to={`/shop?body=${b.name}`} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md">
-                <img src={`/api/media/car?body=${b.name}&color=%23b8bcc2&view=side`} alt="" className="aspect-[16/9] w-full object-cover" loading="lazy" />
+                <img src={b.photo ?? `/api/media/car?body=${b.name}&color=%23b8bcc2&view=side`} alt="" className="aspect-[16/9] w-full object-cover" loading="lazy" />
                 <div className="flex flex-wrap items-center justify-between gap-x-2 px-3 py-2">
                   <span className="font-semibold text-slate-800">{b.name}</span>
                   <span className="text-xs text-slate-500">{b.count} cars</span>
@@ -182,16 +182,9 @@ export default function Home() {
         <section className="container-page mt-16">
           <h2 className="text-2xl font-bold text-slate-900">{sec("videos")!.title}</h2>
           <div className="mt-5 grid gap-4 sm:grid-cols-3">
-            {sec("videos")!.data.items.map((v: { title: string; country: string; body: string; color: string }) => (
+            {sec("videos")!.data.items.map((v: { title: string; country: string; body: string; color: string; image?: string }) => (
               <div key={v.title} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="relative">
-                  <img src={carImg(v.body, v.color)} alt="" className="aspect-video w-full object-cover" loading="lazy" />
-                  <span className="absolute inset-0 flex items-center justify-center">
-                    <span className="flex size-12 items-center justify-center rounded-full bg-white/90 text-brand-700 shadow">
-                      <Play className="size-5 fill-current" />
-                    </span>
-                  </span>
-                </div>
+                <img src={v.image ?? carImg(v.body, v.color)} alt="" className="aspect-video w-full object-cover" loading="lazy" />
                 <div className="p-4">
                   <p className="font-semibold text-slate-900">{v.title}</p>
                   <p className="text-sm text-slate-500">{v.country}</p>
@@ -270,7 +263,7 @@ export default function Home() {
   );
 }
 
-function Hero({ data, brands, fte }: { fte: string; data?: { slides: { title: string; subtitle: string; cta: string; link: string; body: string; color: string }[] }; brands: { name: string; slug: string }[] }) {
+function Hero({ data, brands, fte }: { fte: string; data?: { slides: { title: string; subtitle: string; cta: string; link: string; body: string; color: string; image?: string }[] }; brands: { name: string; slug: string }[] }) {
   const [i, setI] = useState(0);
   const slides = data?.slides ?? [];
   useEffect(() => {
@@ -311,7 +304,7 @@ function Hero({ data, brands, fte }: { fte: string; data?: { slides: { title: st
           )}
         </div>
         <div className="relative">
-          {s && <img key={i} src={carImg(s.body, s.color)} alt="" className="w-full rounded-3xl shadow-2xl ring-1 ring-white/10" />}
+          {s && <img key={i} src={s.image ?? carImg(s.body, s.color)} alt="" className="aspect-[16/10] w-full rounded-3xl object-cover shadow-2xl ring-1 ring-white/10" />}
         </div>
       </div>
       <div className="container-page mt-10">

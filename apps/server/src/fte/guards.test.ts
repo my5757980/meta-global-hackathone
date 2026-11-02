@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { promisesPerson, promisesWork } from "./guards";
+import { asksPermissionAgain, promisesPerson, promisesWork, saidYes } from "./guards";
 
 describe("promisesPerson — a reply that says a person is joining", () => {
   it.each([
@@ -51,4 +51,22 @@ describe("promisesWork — a reply that says work is happening now", () => {
     "A supervisor will reply about your discount request shortly.",
     "Here are 3 Hilux trucks in stock: HK-10021, HK-10044 and HK-10102.",
   ])("not a promise: %s", (text) => expect(promisesWork(text)).toBe(false));
+});
+
+describe("saidYes: a plain yes to an offer", () => {
+  it.each(["yes", "Yes please", "YES!", "ok", "okay.", "go ahead", "Yes 👍", "haan", "haan ji", "theek hai", "ndiyo", "ہاں", "ٹھیک ہے", "confirm", "please do"])("%s", (x) => {
+    expect(saidYes(x)).toBe(true);
+  });
+  it.each(["yes but what about the price?", "ok, and what about Dar es Salaam?", "no", "not yet", "yesterday I paid", "How much?", "ok but the colour must be white and it must be 2018", ""])("not: %s", (x) => {
+    expect(saidYes(x)).toBe(false);
+  });
+});
+
+describe("asksPermissionAgain: a reply that wants a second yes", () => {
+  it.each(["Great! Shall I prepare the invoice?", "Would you like me to go ahead with the invoice?", "Thank you. Should I reserve it for you?", "Do you want me to send the request?", "Please confirm you want this car?", "کیا میں انوائس بنا دوں؟"])("%s", (x) => {
+    expect(asksPermissionAgain(x)).toBe(true);
+  });
+  it.each(["Your invoice request is with our Supervisor. You will hear back soon.", "Please share the consignee's full name and phone number.", "What is your port?", "Done. I have sent the request."])("not: %s", (x) => {
+    expect(asksPermissionAgain(x)).toBe(false);
+  });
 });

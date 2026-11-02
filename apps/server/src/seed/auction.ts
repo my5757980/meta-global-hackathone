@@ -7,6 +7,7 @@ import type { DB } from "../db/client";
 import * as s from "../db/schema";
 import { genId } from "../lib/id";
 import { CATALOG, COLORS, type ModelSpec } from "./catalog";
+import { MODEL_PHOTOS } from "./photos";
 import { Rng } from "./rng";
 import { addDays, chunkInsert, isoDate } from "./util";
 
@@ -120,7 +121,10 @@ export async function seedAuction(db: DB, rng: Rng, now: Date, userIds: Record<s
       grade,
       interiorGrade: interior,
       year,
-      color: rng.weighted(COLORS.map((c) => [c.name, c.weight] as const)),
+      color: ((any) => {
+        const photos = MODEL_PHOTOS[`${spec.brand}|${spec.model}`]; // a lot takes the colour of its picture
+        return photos?.length ? photos[lotNo % photos.length]!.color : any;
+      })(rng.weighted(COLORS.map((c) => [c.name, c.weight] as const))),
       transmission: rng.pick(spec.transmission),
       fuel,
       drive: rng.pick(spec.drive),

@@ -22,6 +22,7 @@ import { m3FromDims, quote } from "../services/pricing";
 import { CATALOG, COLORS, FEATURES_BY_BODY, colorHex, type ModelSpec } from "./catalog";
 import { BLOG, FAQS, HOME_SECTIONS, LOCATIONS, PAGES, PARTNERS, SERVICES, TESTIMONIALS } from "./content";
 import { COUNTRIES } from "./geo";
+import { BODY_PHOTOS, MODEL_PHOTOS, photoPath, type ModelPhoto } from "./photos";
 import { COMPANY_SUFFIX, CUSTOMERS, FIRST_NAMES, LAST_NAMES, STAFF } from "./people";
 import { Rng, slugify } from "./rng";
 import { seedAuction } from "./auction";
@@ -30,6 +31,7 @@ import { addDays, chunkInsert, isoDate } from "./util";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ROOT } from "../env";
+import { SEEDED_RUN } from "@autofte/shared";
 export { addDays, chunkInsert, isoDate };
 
 const ROLE_PERMS: Record<RoleSlug, PermissionKey[] | "all"> = {
@@ -184,7 +186,7 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
     }),
   );
 
-  type StockRow = typeof s.vehicles.$inferInsert & { id: string; spec: ModelSpec; colorHex: string };
+  type StockRow = typeof s.vehicles.$inferInsert & { id: string; spec: ModelSpec; colorHex: string; photo: ModelPhoto | null };
   const stock: StockRow[] = [];
   let stockNo = 10001;
   for (const spec of CATALOG) {
@@ -193,7 +195,10 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
       const year = rng.int(spec.years[0], spec.years[1]);
       const month = rng.int(1, 12);
       const mileage = rng.round(Math.max(8000, rng.int(15000, 120000) - (year - 2015) * 6000), 100);
-      const color = rng.weighted(COLORS.map((c) => [c.name, c.weight] as const));
+      const anyColor = rng.weighted(COLORS.map((c) => [c.name, c.weight] as const));
+      const photos = MODEL_PHOTOS[`${spec.brand}|${spec.model}`] ?? [];
+      const photo = photos.length ? photos[stockNo % photos.length]! : null;
+      const color = photo?.color ?? anyColor; // a listing takes the colour of its picture
       const trim = rng.pick(spec.trims);
       const fuel = rng.pick(spec.fuel);
       const engine = spec.engineCc[Math.min(spec.engineCc.length - 1, spec.fuel.indexOf(fuel))] ?? spec.engineCc[0]!;
@@ -220,6 +225,7 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
         id,
         spec,
         colorHex: colorHex(color),
+        photo,
         stockNo: no,
         refNo: `R${(100000 + rng.int(0, 899999)).toString()}`,
         slug: `${slugify(title)}-${no.toLowerCase()}`,
@@ -283,11 +289,13 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
   await chunkInsert(
     db,
     s.vehicles,
-    stock.map(({ spec: _s, colorHex: _c, ...row }) => row),
+    stock.map(({ spec: _s, colorHex: _c, photo: _p, ...row }) => row),
   );
-  const images = stock.flatMap((v) =>
-    (["side", "front", "rear", "interior"] as const).map((view, i) => ({ vehicleId: v.id, url: carImageUrl(v.spec.body, v.colorHex, view), sort: i })),
-  );
+  const images = stock.flatMap((v) => {
+    const real = v.photo ? [photoPath(v.photo.file), ...(v.photo.also ? [photoPath(v.photo.also)] : [])] : [];
+    const views = real.length ? (["side", "rear", "interior"] as const) : (["side", "front", "rear", "interior"] as const);
+    return [...real, ...views.map((view) => carImageUrl(v.spec.body, v.colorHex, view))].map((url, i) => ({ vehicleId: v.id, url, sort: i }));
+  });
   await chunkInsert(db, s.vehicleImages, images);
   sum.vehicles = stock.length;
   log(`stock vehicles ${stock.length}`);
@@ -301,7 +309,7 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
   await db.insert(s.locations).values(LOCATIONS.map((x, i) => ({ ...x, sort: i })));
   await db.insert(s.pages).values(PAGES.map((p) => ({ ...p, seoTitle: p.title })));
   await db.insert(s.blogPosts).values(
-    BLOG.map((b, i) => ({ ...b, publishedAt: addDays(now, -(i * 6 + 2)), coverUrl: carImageUrl(rng.pick(["SUV", "Sedan", "Pickup", "Wagon", "Minivan"]), rng.pick(COLORS).hex, "side"), seoTitle: b.title, seoDescription: b.excerpt })),
+    BLOG.map((b, i) => ({ ...b, publishedAt: addDays(now, -(i * 6 + 2)), coverUrl: BODY_PHOTOS[(rng.pick(COLORS), rng.pick(["SUV", "Sedan", "Pickup", "Wagon", "Minivan"]))] ?? null, seoTitle: b.title, seoDescription: b.excerpt })),
   );
   await db.insert(s.contactMessages).values([
     { name: "Brian Otieno", email: "brian.otieno@example.com", phone: "+254 700 111 222", subject: "Fleet of Probox", message: "Hello, I need 5 Probox vans for a delivery business in Nairobi. Can you quote C&F Mombasa?", createdAt: addDays(now, -2) },
@@ -604,6 +612,39 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
   await db.insert(s.chatMessages).values([
     { conversationId: custConv, senderUserId: userIds.customer!, body: "Hello, when will my second car be booked on a vessel?", createdAt: addDays(now, -3) },
     { conversationId: custConv, senderUserId: userIds.fte!, body: "Hi Joseph — your advance is received. The car is booked for the next vessel once the balance arrives; I'll update you at every step.", createdAt: addDays(now, -3) },
+  ]);
+
+  // a week of the AI employee's work, so its console is not empty on a fresh demo; the console says how many of these are seeded
+  const runTools = [["search_stock"], ["search_stock", "quote_cnf"], ["list_ports", "quote_cnf"], ["search_auction_lots"], ["search_auction_lots", "read_auction_sheet"], ["find_or_create_lead", "quote_cnf", "request_invoice"], ["get_customer_record"], ["load_skill", "search_stock", "quote_cnf"]];
+  const seededRuns = Array.from({ length: 64 }, () => {
+    const startedAt = new Date(now.getTime() - rng.int(26 * 60, 6.8 * 24 * 60) * 60_000);
+    const first = rng.int(1400, 5200);
+    const latency = first + rng.int(200, 6000);
+    const names = rng.pick(runTools);
+    return {
+      trigger: "message",
+      conversationId: custConv,
+      status: rng.chance(0.05) ? "handover" : "ok",
+      steps: names.length + 1,
+      provider: SEEDED_RUN,
+      model: "meta-models/muse-spark-open-1026",
+      promptTokens: rng.int(3500, 9000),
+      completionTokens: rng.int(120, 700),
+      latencyMs: latency,
+      firstReplyMs: first,
+      toolCalls: names.map((name) => ({ name, args: {}, ok: true, ms: rng.int(20, 300), preview: "" })),
+      startedAt,
+      finishedAt: new Date(startedAt.getTime() + latency),
+    };
+  });
+  await chunkInsert(db, s.fteRuns, seededRuns);
+  const weekAgo = addDays(now, -7).getTime();
+  const fteLeads = leadRows.filter((l) => l.ownerUserId === agents.fte && new Date(l.createdAt as Date).getTime() > weekAgo).slice(0, 12);
+  const fteInvoices = invoiceRows.filter((i) => i.requestedBy === agents.fte && new Date(i.createdAt as Date).getTime() > weekAgo).slice(0, 6);
+  await chunkInsert(db, s.auditLog, [
+    ...fteLeads.map((l) => ({ actorUserId: userIds.fte!, actorKind: "fte", action: "lead.created", entity: "lead", entityId: l.id, summary: `Created lead ${l.customerName} from chat`, createdAt: l.createdAt as Date })),
+    ...fteInvoices.map((i) => ({ actorUserId: userIds.fte!, actorKind: "fte", action: "invoice.requested", entity: "invoice", entityId: i.id, summary: `Requested invoice ${i.number} for ${i.consigneeName}`, createdAt: i.createdAt as Date })),
+    ...[1, 3].map((d) => ({ actorUserId: userIds.fte!, actorKind: "fte", action: "chat.handover", entity: "conversation", entityId: custConv, summary: "Handed a chat to a team member", createdAt: addDays(now, -d) })),
   ]);
 
   log("seed done");

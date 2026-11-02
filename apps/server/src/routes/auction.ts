@@ -15,6 +15,10 @@ import { renderPdf } from "../services/pdf";
 import { audit } from "../services/audit";
 import { notify, usersWithPerm } from "../services/notify";
 import { colorHex } from "../seed/catalog";
+import { photoFor, photoPath } from "../seed/photos";
+import { ROOT } from "../env";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 export const auctionRouter = Router();
 
@@ -47,7 +51,16 @@ function toFilters(q: z.infer<typeof filterSchema>, archive: boolean): LotFilter
 }
 
 const ownPhotos = (l: { photoUrls?: unknown }) => (Array.isArray(l.photoUrls) ? (l.photoUrls as string[]) : []);
-const photosFor = (l: { bodyType: string; color: string; photoCount: number; photoUrls?: unknown }) => (ownPhotos(l).length ? ownPhotos(l) : (["side", "front", "rear", "interior"] as const).map((v) => carImageUrl(l.bodyType, colorHex(l.color), v)));
+const modelPhotoPaths = (l: { make: string; model: string; color: string }) => {
+  const p = photoFor(l.make, l.model, l.color);
+  return p ? [photoPath(p.file), ...(p.also ? [photoPath(p.also)] : [])] : [];
+};
+const photosFor = (l: { make: string; model: string; bodyType: string; color: string; photoCount: number; photoUrls?: unknown }) => {
+  if (ownPhotos(l).length) return ownPhotos(l);
+  const real = modelPhotoPaths(l);
+  const views = real.length ? (["side", "rear", "interior"] as const) : (["side", "front", "rear", "interior"] as const);
+  return [...real, ...views.map((v) => carImageUrl(l.bodyType, colorHex(l.color), v))];
+};
 
 auctionRouter.get(
   "/facets",
@@ -152,6 +165,10 @@ auctionRouter.get(
         if (img) zip.append(img.buf, { name: `photos/${i + 1}.${img.ext}` });
       }
     } else {
+      modelPhotoPaths(l).forEach((path, i) => {
+        const abs = resolve(ROOT, "apps/web/public", path.slice(1));
+        if (existsSync(abs)) zip.append(readFileSync(abs), { name: `photos/model-${i + 1}.jpg` });
+      });
       (["side", "front", "rear", "interior"] as const).forEach((v, i) => zip.append(carSvg({ body: l.bodyType, color: colorHex(l.color), view: v }), { name: `photos/${i + 1}-${v}.svg` }));
     }
     if (l.sheetUrl === null) zip.append(sheetPng(toSheetLot(l)), { name: "auction-sheet.png" });
