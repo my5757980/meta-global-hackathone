@@ -56,7 +56,7 @@ export const AUCTION_TOOLS: ToolDef[] = [
       min_grade: z.number().min(1).max(6).optional().describe("Minimum numeric grade, e.g. 4"),
       sale_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       sort: z.enum(["price_asc", "year_desc", "mileage_asc", "lot"]).optional(),
-      limit: z.number().int().min(1).max(6).optional(),
+      limit: z.number().int().min(1).max(100).optional().describe("At most 6 come back"),
     },
     async run(a) {
       const policy = await pricingPolicy();
@@ -80,7 +80,7 @@ export const AUCTION_TOOLS: ToolDef[] = [
         items.sort((x, y) => key(x) - key(y));
       }
       if (a.min_grade) items = items.filter((l) => Number.parseFloat(l.grade) >= Number(a.min_grade));
-      items = items.slice(0, (a.limit as number) ?? 4);
+      items = items.slice(0, Math.min((a.limit as number) ?? 4, 6));
       return {
         total_matches: found.reduce((n, r) => n + r.total, 0),
         results: items.map((l) => ({

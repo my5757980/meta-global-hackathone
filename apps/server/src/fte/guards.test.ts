@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { promisesPerson } from "./guards";
+import { promisesPerson, promisesWork } from "./guards";
 
 describe("promisesPerson — a reply that says a person is joining", () => {
   it.each([
@@ -23,4 +23,32 @@ describe("promisesPerson — a reply that says a person is joining", () => {
     "Here are 3 Hilux trucks in stock: HK-10021, HK-10044 and HK-10102.",
     "Let me check this with a colleague and come back to you shortly.",
   ])("not a promise: %s", (text) => expect(promisesPerson(text)).toBe(false));
+});
+
+describe("promisesWork — a reply that says work is happening now", () => {
+  it.each([
+    // both seen live in the evals: the turn ended here, with no tool call
+    "Let me pull what we have in stock right now for those models.",
+    "Thanks for confirming the amount, Carlos. I'll check lot 76 for you right away and place your bid of ¥489,000 for the auction on 2026-11-03.",
+    "One moment while I look that up.",
+    "I am checking the auction list now.",
+    "Give me a moment to find the best options.",
+    "I'll get you the exact price to Mombasa now.",
+    "Main abhi check karta hoon.",
+    "میں ابھی چیک کرتا ہوں۔",
+    "Ngoja nikuangalie bei.",
+  ])("promise: %s", (text) => expect(promisesWork(text)).toBe(true));
+
+  it.each([
+    "Let me know your budget and port.",
+    "I can check the Hiace too if you like.",
+    "Shall I check the auction for you?",
+    "Would you like me to place the bid?",
+    "Once you confirm the port, I'll prepare the quote.",
+    "If you confirm, I'll place the bid.",
+    "I'll place the bid as soon as you confirm the amount.",
+    "I'll need your delivery port to quote you.",
+    "A supervisor will reply about your discount request shortly.",
+    "Here are 3 Hilux trucks in stock: HK-10021, HK-10044 and HK-10102.",
+  ])("not a promise: %s", (text) => expect(promisesWork(text)).toBe(false));
 });

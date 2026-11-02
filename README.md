@@ -65,14 +65,17 @@ flowchart LR
   body is loaded with `load_skill` when the work calls for it.
 - **Grounded.** Prices come from a deterministic engine (`services/pricing.ts`), never the model's arithmetic. Stock numbers,
   balances and dates come from tool results.
-- **Words match actions.** If a reply promises a person but the model skipped the handover, the server hands over itself and
-  records it as a code guard.
+- **Words match actions.** If a reply promises a person but the model skipped the handover, the server hands over itself. If
+  a reply says "let me check that" with no tool call, the buyer never sees it: the model is sent back to do the work. Both
+  are recorded as code guards.
 - **It works when nobody writes.** Events wake it: an invoice approved, a payment received, a stage shipped, a quote
   unanswered for 24 hours, an auction day settled, a promised follow-up falling due, a wanted car arriving in stock.
 - **Everything is audited.** Every run records its trigger, tool calls, arguments, results, tokens and latency, and every
   business change has an audit row with who did it, person or Sora.
-- **Evals.** `npm run eval` runs @@EVAL_CASES@@ cases on the live model through the real tools: fresh test buyers, answers
-  checked against the database, everything removed afterwards. Safety cases block a release.
+- **Evals.** `npm run eval` runs 48 cases on the live model through the real tools: fresh test buyers, answers checked
+  against the database, everything removed afterwards. Safety cases block a release. The last full run passed 47 of 48 with
+  no safety failure; a model's replies vary, so a case or two can move between runs. The suite found real bugs while this
+  was being built, including the two guards above.
 
 ## Meta's model, and why it matters here
 

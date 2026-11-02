@@ -40,6 +40,7 @@ export { ToolError };
 import { AUCTION_TOOLS, lotRef, resolveLot } from "./auctionTools";
 import { FOLLOW_TOOLS } from "./followTools";
 import { getLot } from "../services/auction";
+import { HttpError } from "../lib/http";
 
 const money = (n: number | null | undefined) => (n == null ? null : Math.round(Number(n) * 100) / 100);
 
@@ -77,7 +78,7 @@ const BASE_TOOLS: ToolDef[] = [
       transmission: z.string().max(20).optional(),
       drive: z.string().max(10).optional().describe("2WD, 4WD or AWD"),
       sort: z.enum(["price_asc", "price_desc", "year_desc", "mileage_asc", "newest"]).optional(),
-      limit: z.number().int().min(1).max(6).optional(),
+      limit: z.number().int().min(1).max(100).optional().describe("At most 6 come back"),
     },
     async run(a) {
       const r = await listVehicles({
@@ -93,7 +94,7 @@ const BASE_TOOLS: ToolDef[] = [
         transmission: a.transmission as string,
         drive: a.drive as string,
         sort: (a.sort as never) ?? "price_asc",
-        limit: (a.limit as number) ?? 4,
+        limit: Math.min((a.limit as number) ?? 4, 6),
       });
       return {
         total_matches: r.total,
@@ -267,13 +268,15 @@ const BASE_TOOLS: ToolDef[] = [
       phone: z.string().min(6).max(30),
       email: z.string().email().max(120).optional(),
       country_code: z.string().length(2).describe("ISO country code of the destination"),
-      port_id: z.string().max(40).optional(),
+      port_id: z.string().max(80).optional().describe("port_id from list_ports, or the port's name"),
     },
     async run(a, ctx) {
       const [c] = await db().select().from(s.countries).where(eq(s.countries.code, String(a.country_code).toUpperCase())).limit(1);
       if (!c) throw new ToolError("Unknown country_code");
+      // a port the database does not know must not fail the whole lead (it would hit the foreign key): it can be set later
+      const port = a.port_id ? await resolvePort(String(a.port_id), c.code, String(a.port_id)) : null;
       const r = await findOrCreateLead(
-        { customerName: String(a.customer_name), contactPerson: a.contact_person as string, phone: String(a.phone), email: (a.email as string) ?? null, countryCode: c.code, portId: (a.port_id as string) ?? null, ownerUserId: ctx.principalUserId, customerUserId: ctx.buyerUserId ?? null, source: "web_chat" },
+        { customerName: String(a.customer_name), contactPerson: a.contact_person as string, phone: String(a.phone), email: (a.email as string) ?? null, countryCode: c.code, portId: port?.id ?? null, ownerUserId: ctx.principalUserId, customerUserId: ctx.buyerUserId ?? null, source: "web_chat" },
         actorOf(ctx),
       );
       return { lead_id: r.lead.id, status: r.lead.status, matched_existing: !r.created };
@@ -466,8 +469,10 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
   try {
     return { ok: true, result: await def.run(parsed.data, ctx) };
   } catch (e) {
-    const msg = e instanceof ToolError ? e.message : (e as { message?: string })?.message ?? String(e);
-    return { ok: false, result: { error: msg } };
+    if (e instanceof ToolError || e instanceof HttpError) return { ok: false, result: { error: e.message } };
+    // a bug or the database: the model gets no SQL to explain to the buyer, and is told plainly what to do
+    console.error(`[tool ${name}]`, (e as { message?: string })?.message ?? e);
+    return { ok: false, result: { error: "This tool failed on our side and saved nothing. Try once more. If it fails again, tell the buyer plainly that something went wrong, promise nothing about what happens next, and call handover_to_human." } };
   }
 }
 

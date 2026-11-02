@@ -21,9 +21,10 @@ import { openMcpSession } from "./mcp";
 import { transcribeMessage } from "./voice";
 import { skillIndex } from "./skills";
 import { SUMMARY_PROMPT, systemPrompt } from "./prompts";
-import { promisesPerson } from "./guards";
+import { promisesPerson, promisesWork } from "./guards";
 
 const MAX_STEPS = 8;
+const PROMISE_ONLY_CHARS = 300;
 
 const running = new Map<string, Promise<void>>();
 const again = new Set<string>();
@@ -204,6 +205,7 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
   let lastSearch: unknown[] | null = null;
   let lastLots: { lot_id: string; lot_no: number; hall: string; sale_date: string; title: string; grade: string; mileage_km: number; start_price_jpy: number; est_fob_usd: number | null; link: string; image: string }[] | null = null;
   let handedOver = false;
+  let nudged = false;
   let status: "ok" | "error" | "handover" = "ok";
   let error: string | null = null;
 
@@ -218,6 +220,14 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
       const calls = r.message.tool_calls ?? [];
       if (!calls.length) {
         finalText = (r.message.content ?? "").trim();
+        // "Let me check..." with no call: the turn would end and the buyer would wait for nothing. Back to the model, once; the buyer never saw it.
+        // After real work, only a short reply: a long one is already an answer (a list of cars ending "I'll get you the price"), and the next reply would refer to words the buyer never saw.
+        if (!nudged && !handedOver && step < MAX_STEPS - 1 && (!toolCalls.length || finalText.length <= PROMISE_ONLY_CHARS) && promisesWork(finalText)) {
+          nudged = true;
+          toolCalls.push({ name: "keep_your_word", args: { said: finalText.slice(0, 300) }, ok: true, ms: 0, preview: "[guard] the reply promised work with no tool call; the model was told to do it now", guard: true });
+          messages.push({ role: "assistant", content: finalText }, { role: "user", content: "[System note: your reply says you are doing something now, but you called no tool, so nothing happened and the buyer would wait for nothing. Call the tool now and answer with its result. The buyer has not seen that reply. If you truly need something from the buyer first, ask for it and promise nothing.]" });
+          continue;
+        }
         break;
       }
       messages.push({ role: "assistant", content: r.message.content ?? "", tool_calls: calls } as ChatCompletionMessageParam);
@@ -233,7 +243,10 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
         const res = await mcp.call(call.function.name, args);
         toolCalls.push({ name: call.function.name, args, ok: res.ok, ms: Date.now() - ct, preview: res.text.slice(0, 300) });
         messages.push({ role: "tool", tool_call_id: call.id, content: res.text.slice(0, 12000) });
-        if (!res.ok) continue;
+        if (!res.ok) {
+          console.warn(`[sora tool] ${call.function.name} failed: ${res.text.slice(0, 300)}`);
+          continue;
+        }
         try {
           const data = JSON.parse(res.text);
           if (call.function.name === "search_stock") lastSearch = data.results ?? null;

@@ -12,4 +12,4 @@ description: Use when the buyer wants suggestions, asks what is available, or na
    - One line each, with the reason that fits THIS buyer.
 4. Offer the next step: "Shall I calculate the price delivered to <port>?"
 5. Never mention a car, price or stock number that is not in a tool result. If the buyer asks about a specific stock number, use `get_vehicle`.
-6. If the buyer wants something we don't have, say so honestly and offer the closest alternatives.
+6. If the buyer wants something we don't have, say so honestly and offer the closest alternatives. If they already asked to be told when one arrives, call `save_buyer_request` now and say it is saved; do not ask them to confirm. If they did not ask, offer it.
