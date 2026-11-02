@@ -141,7 +141,7 @@ export function Modal({ open, onClose, title, children, footer, wide }: { open: 
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-4" onMouseDown={onClose}>
-      <div className={clsx("max-h-[92vh] w-full overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl", wide ? "sm:max-w-3xl" : "sm:max-w-lg")} onMouseDown={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={title} className={clsx("max-h-[92vh] w-full overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl", wide ? "sm:max-w-3xl" : "sm:max-w-lg")} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <h3 className="text-base font-semibold text-slate-900">{title}</h3>
           <button onClick={onClose} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100" aria-label="Close">
@@ -157,10 +157,12 @@ export function Modal({ open, onClose, title, children, footer, wide }: { open: 
 
 export function Tabs<T extends string>({ value, onChange, items }: { value: T; onChange: (v: T) => void; items: { value: T; label: ReactNode; count?: number }[] }) {
   return (
-    <div className="scrollbar-thin -mx-1 flex gap-1 overflow-x-auto px-1">
+    <div role="tablist" className="scrollbar-thin -mx-1 flex gap-1 overflow-x-auto px-1">
       {items.map((it) => (
         <button
           key={it.value}
+          role="tab"
+          aria-selected={value === it.value}
           onClick={() => onChange(it.value)}
           className={clsx("inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition", value === it.value ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-white")}
         >

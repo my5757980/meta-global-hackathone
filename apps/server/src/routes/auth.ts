@@ -160,6 +160,23 @@ authRouter.post(
   }),
 );
 
+authRouter.post(
+  "/email",
+  h(async (req) => {
+    const me = requireAuth(req);
+    const body = parse(z.object({ password: z.string().min(1).max(200), email: z.string().trim().toLowerCase().email().max(120) }), req.body);
+    if (env.PUBLIC_DEMO && Object.values(DEMO_USERS).includes(me.email ?? "")) throw forbidden("The shared demo accounts keep their e-mail, so the next visitor can still sign in");
+    const [u] = await db().select().from(s.users).where(eq(s.users.id, me.id)).limit(1);
+    if (!(await verifyPassword(body.password, u?.passwordHash))) throw bad("Your password is not correct");
+    if (u?.email === body.email) throw bad("That is already your e-mail");
+    const [taken] = await db().select({ id: s.users.id }).from(s.users).where(eq(s.users.email, body.email)).limit(1);
+    if (taken) throw conflict("Another account already uses this e-mail");
+    await db().update(s.users).set({ email: body.email, updatedAt: new Date() }).where(eq(s.users.id, me.id));
+    await audit(db(), { actorUserId: me.id, actorKind: "human", action: "auth.email_changed", entity: "user", entityId: me.id, summary: `${me.name} changed their sign-in e-mail` });
+    return { ok: true, email: body.email };
+  }),
+);
+
 /**
  * Recovery key (staff): there is no e-mail server in the demo, so a lost password is recovered with a key the
  * person saved earlier. It is shown once, stored only as a hash, and works once — then they make a new one.

@@ -38,7 +38,8 @@ crmRouter.get(
       .where(invScope)
       .orderBy(desc(s.invoices.createdAt))
       .limit(8);
-    return { leads: counts, invoices: inv, recent };
+    const [{ customers }] = (await db().select({ customers: sql<number>`count(*)::int` }).from(s.leads).where(and(scope, eq(s.leads.isCustomer, true)))) as [{ customers: number }];
+    return { leads: counts, invoices: inv, recent, customers };
   }),
 );
 
@@ -46,18 +47,28 @@ crmRouter.get(
   "/leads",
   h(async (req) => {
     const u = requirePerm(req, "crm.access");
-    const q = parse(z.object({ q: z.string().max(80).optional(), status: z.string().max(30).optional(), country: z.string().max(2).optional(), agent: z.string().max(40).optional(), from: z.string().max(10).optional(), to: z.string().max(10).optional() }).passthrough(), req.query);
+    const q = parse(z.object({ q: z.string().max(80).optional(), status: z.string().max(30).optional(), country: z.string().max(2).optional(), port: z.string().max(40).optional(), customers: z.enum(["1"]).optional(), agent: z.string().max(40).optional(), from: z.string().max(10).optional(), to: z.string().max(10).optional() }).passthrough(), req.query);
     const { pageSize, offset, page: pageNo } = page(req.query, 25);
     const w: (SQL | undefined)[] = [leadScope(u)];
     if (q.q) w.push(or(ilike(s.leads.customerName, `%${q.q}%`), ilike(s.leads.contactPerson, `%${q.q}%`), ilike(s.leads.phone, `%${q.q}%`), ilike(s.leads.email, `%${q.q}%`)));
     if (q.status) w.push(eq(s.leads.status, q.status));
     if (q.country) w.push(eq(s.leads.countryCode, q.country.toUpperCase()));
+    if (q.port) w.push(eq(s.leads.portId, q.port));
+    if (q.customers) w.push(eq(s.leads.isCustomer, true));
     if (q.agent && can(u, "crm.leads.view_all")) w.push(eq(s.leads.ownerUserId, q.agent));
     if (q.from) w.push(sql`${s.leads.createdAt} >= ${q.from}::date`);
     if (q.to) w.push(sql`${s.leads.createdAt} < (${q.to}::date + interval '1 day')`);
     const where = and(...w);
     const rows = await db()
-      .select({ lead: s.leads, owner: s.users.name, ownerKind: s.users.kind, country: s.countries.name, port: s.ports.name })
+      .select({
+        lead: s.leads,
+        owner: s.users.name,
+        ownerKind: s.users.kind,
+        country: s.countries.name,
+        port: s.ports.name,
+        invoiced: sql<number>`(select coalesce(sum(i.total_cnf_usd),0)::float from invoices i where i.lead_id = "leads"."id" and i.status in ('approved','sent'))`,
+        paid: sql<number>`(select coalesce(sum(p.amount_usd),0)::float from payments p join invoices i on i.id = p.invoice_id where i.lead_id = "leads"."id")`,
+      })
       .from(s.leads)
       .leftJoin(s.users, eq(s.users.id, s.leads.ownerUserId))
       .leftJoin(s.countries, eq(s.countries.code, s.leads.countryCode))
@@ -70,7 +81,7 @@ crmRouter.get(
     const agents = can(u, "crm.leads.view_all")
       ? await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind, n: sql<number>`(select count(*)::int from leads l where l.owner_user_id = "users"."id")` }).from(s.users).where(inArray(s.users.kind, ["staff", "fte"])).orderBy(s.users.name)
       : [];
-    return { items: rows.map((r) => ({ ...r.lead, owner: r.owner, ownerKind: r.ownerKind, country: r.country, port: r.port })), total: n, page: pageNo, pageSize, agents: agents.filter((a) => a.n > 0) };
+    return { items: rows.map((r) => ({ ...r.lead, owner: r.owner, ownerKind: r.ownerKind, country: r.country, port: r.port, invoiced: r.invoiced, paid: r.paid })), total: n, page: pageNo, pageSize, agents: agents.filter((a) => a.n > 0) };
   }),
 );
 

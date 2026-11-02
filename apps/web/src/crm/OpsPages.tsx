@@ -67,6 +67,9 @@ export function ReportsPage() {
             <a href={`/api/crm/reports.xlsx${qs({ from, to })}`} className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
               <Download className="size-4" /> Export Excel
             </a>
+            <a href={`/api/crm/reports.docx${qs({ from, to })}`} className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
+              <Download className="size-4" /> Export Word
+            </a>
             {can("crm.backup.download") && (
               <a href="/api/crm/backup.xlsx" className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
                 <Download className="size-4" /> Full backup

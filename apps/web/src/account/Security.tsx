@@ -47,6 +47,47 @@ function ChangePasswordForm({ currentLabel, onDone }: { currentLabel: string; on
   );
 }
 
+function ChangeEmailForm() {
+  const { me, refresh } = useAuth();
+  const [f, setF] = useState({ email: "", password: "" });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setMsg(null);
+        try {
+          await api.post("/api/auth/email", f);
+          setF({ email: "", password: "" });
+          setMsg({ ok: true, text: "E-mail changed. Use the new one to sign in." });
+          await refresh();
+        } catch (ex) {
+          setMsg({ ok: false, text: (ex as Error).message });
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <p className="text-sm text-slate-600">
+        You sign in with <strong className="break-all text-slate-900">{me?.email}</strong>
+      </p>
+      <Field label="New e-mail">
+        <Input required type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="email" />
+      </Field>
+      <Field label="Your password">
+        <Input required type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} autoComplete="current-password" />
+      </Field>
+      {msg && <p className={`rounded-xl px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-700"}`}>{msg.text}</p>}
+      <Button type="submit" variant="secondary" loading={busy}>
+        Save new e-mail
+      </Button>
+    </form>
+  );
+}
+
 /** First sign-in with a one-time password from staff: choose your own before anything else. */
 export function MustChangePassword() {
   const { me, logout } = useAuth();
@@ -69,7 +110,7 @@ export function MustChangePassword() {
 
 /** Staff: change password and make a recovery key (shown once). */
 export function SecurityModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { me, refresh } = useAuth();
+  const { me, refresh, demoMode } = useAuth();
   const [pw, setPw] = useState("");
   const [key, setKey] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -98,9 +139,14 @@ export function SecurityModal({ open, onClose }: { open: boolean; onClose: () =>
       title="My account security"
     >
       <div className="space-y-6">
+        {demoMode && <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">The one-click demo accounts have no password you can type. To try these forms, make a new user on the Users page and sign in with their one-time password.</p>}
         <section>
           <p className="mb-3 font-semibold text-slate-900">Change password</p>
           <ChangePasswordForm currentLabel="Current password" />
+        </section>
+        <section className="border-t border-slate-100 pt-5">
+          <p className="mb-3 font-semibold text-slate-900">Change e-mail</p>
+          <ChangeEmailForm />
         </section>
         {me?.kind === "staff" && (
           <section className="border-t border-slate-100 pt-5">

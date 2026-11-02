@@ -9,8 +9,18 @@ type Full = NonNullable<Awaited<ReturnType<typeof getInvoiceFull>>>;
 const money = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const day = (d: Date | string | null) => (d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "");
 
-export async function invoicePdf(f: Full): Promise<Buffer> {
+/** The company invoices from three entities, each on its own letterhead (demo addresses). */
+export type Letterhead = "main" | "us" | "jdm";
+export const letterheadOf = (v: unknown): Letterhead => (v === "us" || v === "jdm" ? v : "main");
+async function letterSite(which: Letterhead) {
   const site = await siteSettings();
+  if (which === "us") return { ...site, companyName: `${site.companyName} USA`, address: "Harbor Way, Long Beach, California, USA (demo address)", primaryColor: "#7a1f2b" };
+  if (which === "jdm") return { ...site, companyName: `${site.companyName} JDM`, address: "Minato Ward, Osaka, Japan (demo address)", primaryColor: "#1f5e4a" };
+  return site;
+}
+
+export async function invoicePdf(f: Full, letterhead: Letterhead = "main"): Promise<Buffer> {
+  const site = await letterSite(letterhead);
   const inv = f.invoice;
   return renderPdf((doc) => {
     const W = doc.page.width;
@@ -89,8 +99,8 @@ export async function invoicePdf(f: Full): Promise<Buffer> {
   });
 }
 
-export async function invoiceXlsx(f: Full): Promise<Buffer> {
-  const site = await siteSettings();
+export async function invoiceXlsx(f: Full, letterhead: Letterhead = "main"): Promise<Buffer> {
+  const site = await letterSite(letterhead);
   const inv = f.invoice;
   const wb = new ExcelJS.Workbook();
   wb.creator = "AutoFTE";

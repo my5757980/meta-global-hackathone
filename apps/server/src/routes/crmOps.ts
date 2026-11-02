@@ -14,13 +14,14 @@ import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, conflict, forbidden, h, notFound, parse } from "../lib/http";
 import { can, clearPermCache, requirePerm, type AuthUser } from "../auth/session";
-import { getInvoiceFull, requestInvoice, type Actor } from "../services/crm";
+import { attachFinalPdf, editInvoice, getInvoiceFull, requestInvoice, type Actor } from "../services/crm";
+import { notify, usersWithPerm } from "../services/notify";
 import { audit } from "../services/audit";
 import { emit } from "../services/events";
 import { getFile, saveFile } from "../services/files";
-import { invoicePdf, invoiceXlsx } from "../services/invoiceDocs";
+import { invoicePdf, invoiceXlsx, letterheadOf } from "../services/invoiceDocs";
 import { hashPassword, oneTimePassword, randomPassword } from "../auth/passwords";
-import { reportData, reportXlsx, backupXlsx } from "../services/reports";
+import { reportData, reportDocx, reportXlsx, backupXlsx } from "../services/reports";
 import { cellText } from "../lib/excel";
 
 export const crmOps = Router();
@@ -73,6 +74,56 @@ crmOps.post(
   }),
 );
 
+// ---------- Supervisor edits an invoice: consignee, terms, prices, the whole vehicle list ----------
+crmOps.put(
+  "/invoices/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.invoices.approve");
+    const b = parse(
+      z.object({
+        consigneeName: z.string().trim().min(2).max(120),
+        consigneePhone: z.string().trim().min(6).max(30),
+        consigneeEmail: z.string().trim().email().max(120).optional().nullable().or(z.literal("")),
+        consigneeAddress: z.string().max(200).optional().nullable(),
+        consigneeCountryCode: z.string().length(2),
+        consigneePortId: z.string().optional().nullable(),
+        m3Rate: z.number().min(0).max(100000).optional().nullable(),
+        exchangeRate: z.number().min(0).max(100000).optional().nullable(),
+        advancePercent: z.number().int().min(1).max(100).optional(),
+        vehicles: z.array(vehicleSchema.extend({ id: z.string().optional().nullable() })).min(1).max(50),
+      }),
+      req.body,
+    );
+    return editInvoice(String(req.params.id), b, actor(u));
+  }),
+);
+
+// ---------- the final PDF the buyer receives: uploaded by the Supervisor, or the generated one ----------
+crmOps.post(
+  "/invoices/:id/final-pdf",
+  upload.single("file"),
+  h(async (req) => {
+    const u = requirePerm(req, "crm.invoices.approve");
+    const full = await invoiceVisible(u, String(req.params.id));
+    if (full.invoice.status !== "approved") throw conflict("The final PDF goes on an approved invoice, before it is sent");
+    const f = req.file;
+    if (!f) throw bad("Attach the PDF");
+    if (f.buffer.subarray(0, 5).toString("latin1") !== "%PDF-") throw bad("Only a PDF file can be the final invoice");
+    const saved = await saveFile(f.buffer, { kind: "invoices", mime: "application/pdf", originalName: f.originalname, ownerUserId: u.id });
+    return attachFinalPdf(full.invoice.id, saved.id, "Uploaded", actor(u));
+  }),
+);
+crmOps.post(
+  "/invoices/:id/final-pdf/generated",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.invoices.approve");
+    const full = await invoiceVisible(u, String(req.params.id));
+    if (full.invoice.status !== "approved") throw conflict("The final PDF goes on an approved invoice, before it is sent");
+    const saved = await saveFile(await invoicePdf(full), { kind: "invoices", mime: "application/pdf", originalName: `${full.invoice.number}.pdf`, ownerUserId: u.id });
+    return attachFinalPdf(full.invoice.id, saved.id, "Generated", actor(u));
+  }),
+);
+
 // ---------- documents ----------
 crmOps.get(
   "/invoices/:id/pdf",
@@ -81,7 +132,7 @@ crmOps.get(
     const full = await invoiceVisible(u, String(req.params.id));
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="${full.invoice.number}.pdf"`);
-    res.send(await invoicePdf(full));
+    res.send(await invoicePdf(full, letterheadOf(req.query.letterhead)));
     return undefined;
   }),
 );
@@ -92,7 +143,7 @@ crmOps.get(
     const full = await invoiceVisible(u, String(req.params.id));
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${full.invoice.number}.xlsx"`);
-    res.send(await invoiceXlsx(full));
+    res.send(await invoiceXlsx(full, letterheadOf(req.query.letterhead)));
     return undefined;
   }),
 );
@@ -318,6 +369,50 @@ crmOps.post(
   }),
 );
 
+// ---------- Supervisor hands his own imported leads to agents, country by country (never an agent's leads) ----------
+const assignable = (userId: string) => and(eq(s.leads.ownerUserId, userId), eq(s.leads.source, "excel"), eq(s.leads.status, "new"));
+function requireAssigner(req: Parameters<typeof requirePerm>[0]) {
+  const u = requirePerm(req, "crm.leads.upload");
+  if (!can(u, "crm.leads.view_all")) throw forbidden("Only a Supervisor assigns imported leads");
+  return u;
+}
+crmOps.get(
+  "/lead-assignment",
+  h(async (req) => {
+    const u = requireAssigner(req);
+    const groups = await db()
+      .select({ code: s.leads.countryCode, country: s.countries.name, n: sql<number>`count(*)::int` })
+      .from(s.leads)
+      .leftJoin(s.countries, eq(s.countries.code, s.leads.countryCode))
+      .where(assignable(u.id))
+      .groupBy(s.leads.countryCode, s.countries.name)
+      .orderBy(s.countries.name);
+    const ids = await usersWithPerm("crm.invoices.request");
+    const agents = ids.length ? await db().select({ id: s.users.id, name: s.users.name }).from(s.users).where(and(inArray(s.users.id, ids), eq(s.users.kind, "staff"), eq(s.users.isActive, true))).orderBy(s.users.name) : [];
+    return { groups, agents };
+  }),
+);
+crmOps.post(
+  "/lead-assignment",
+  h(async (req) => {
+    const u = requireAssigner(req);
+    const b = parse(z.object({ countryCode: z.string().length(2), toUserId: z.string().min(8) }), req.body);
+    const ids = await usersWithPerm("crm.invoices.request");
+    const [to] = await db().select().from(s.users).where(eq(s.users.id, b.toUserId)).limit(1);
+    if (!to || !to.isActive || to.kind !== "staff" || !ids.includes(to.id)) throw bad("Choose an active agent");
+    const moved = await db()
+      .update(s.leads)
+      .set({ ownerUserId: to.id, updatedAt: new Date() })
+      .where(and(assignable(u.id), eq(s.leads.countryCode, b.countryCode)))
+      .returning({ id: s.leads.id });
+    if (moved.length) {
+      await audit(db(), { actorUserId: u.id, actorKind: "human", action: "lead.assign_country", summary: `${u.name} assigned ${moved.length} imported lead(s) in ${b.countryCode} to ${to.name}` });
+      await notify([to.id], { type: "leads_assigned", title: `${moved.length} new lead${moved.length > 1 ? "s" : ""} assigned to you`, body: `${u.name} assigned them from an Excel import`, link: "/crm/leads" });
+    }
+    return { moved: moved.length };
+  }),
+);
+
 // ---------- reports + backup ----------
 crmOps.get(
   "/reports",
@@ -335,6 +430,17 @@ crmOps.get(
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="report-${q.from}-to-${q.to}.xlsx"`);
     res.send(await reportXlsx(q.from, q.to));
+    return undefined;
+  }),
+);
+crmOps.get(
+  "/reports.docx",
+  h(async (req, res) => {
+    requirePerm(req, "crm.reports.view");
+    const q = parse(z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }), req.query);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="report-${q.from}-to-${q.to}.docx"`);
+    res.send(await reportDocx(q.from, q.to));
     return undefined;
   }),
 );

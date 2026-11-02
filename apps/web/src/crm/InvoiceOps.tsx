@@ -43,13 +43,29 @@ const COST_FIELDS: [string, string][] = [
   ["dhlJpy", "DHL"],
 ];
 
-export function InvoiceOps({ invoiceId, status, vehicles, balance }: { invoiceId: string; status: string; vehicles: Vehicle[]; balance: number }) {
+export function InvoiceOps({ invoiceId, status, vehicles, balance, finalPdfFileId, canApprove }: { invoiceId: string; status: string; vehicles: Vehicle[]; balance: number; finalPdfFileId: string | null; canApprove: boolean }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["invoice-units", invoiceId], queryFn: () => api.get<UnitsData>(`/api/crm/invoices/${invoiceId}/units`) });
   const [pay, setPay] = useState(false);
   const [unitFor, setUnitFor] = useState<Vehicle | null>(null);
   const [progressFor, setProgressFor] = useState<Vehicle | null>(null);
   const [costFor, setCostFor] = useState<UnitsData["units"][number] | null>(null);
+  const [letterhead, setLetterhead] = useState("main");
+  const lh = letterhead === "main" ? "" : `?letterhead=${letterhead}`;
+  const [finalBusy, setFinalBusy] = useState(false);
+  const [finalErr, setFinalErr] = useState<string | null>(null);
+  const sendFinal = async (body?: FormData) => {
+    setFinalBusy(true);
+    setFinalErr(null);
+    try {
+      await api.post(`/api/crm/invoices/${invoiceId}/final-pdf${body ? "" : "/generated"}`, body ?? {});
+      refresh();
+    } catch (ex) {
+      setFinalErr((ex as Error).message);
+    } finally {
+      setFinalBusy(false);
+    }
+  };
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["invoice-units", invoiceId] });
     void qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
@@ -61,11 +77,18 @@ export function InvoiceOps({ invoiceId, status, vehicles, balance }: { invoiceId
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="font-semibold text-slate-900">Documents</p>
-          <div className="flex flex-wrap gap-2">
-            <a href={`/api/crm/invoices/${invoiceId}/pdf`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="w-48">
+              <Select aria-label="Letterhead" value={letterhead} onChange={(e) => setLetterhead(e.target.value)}>
+                <option value="main">Main letterhead</option>
+                <option value="us">USA letterhead</option>
+                <option value="jdm">JDM letterhead</option>
+              </Select>
+            </div>
+            <a href={`/api/crm/invoices/${invoiceId}/pdf${lh}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
               <FileText className="size-4" /> Invoice PDF
             </a>
-            <a href={`/api/crm/invoices/${invoiceId}/xlsx`} className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
+            <a href={`/api/crm/invoices/${invoiceId}/xlsx${lh}`} className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
               <Download className="size-4" /> Excel
             </a>
             {d && d.units.some((u) => u.documents.length) && (
@@ -80,6 +103,41 @@ export function InvoiceOps({ invoiceId, status, vehicles, balance }: { invoiceId
             )}
           </div>
         </div>
+        {finalPdfFileId && (
+          <p className="mt-3 text-sm text-emerald-800">
+            The final PDF is ready.{" "}
+            <a href={`/api/crm/files/${finalPdfFileId}`} target="_blank" rel="noreferrer" className="font-semibold underline">
+              Open it
+            </a>
+          </p>
+        )}
+        {canApprove && status === "approved" && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 p-3">
+            {!finalPdfFileId && <p className="min-w-48 flex-1 text-sm text-slate-700">Add the final PDF the buyer will receive. Mark as sent waits for it.</p>}
+            <label className={clsx("inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50", finalBusy && "opacity-50")}>
+              <Upload className="size-4" /> {finalPdfFileId ? "Replace PDF" : "Upload final PDF"}
+              <input
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  const fd = new FormData();
+                  fd.append("file", f);
+                  void sendFinal(fd);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {!finalPdfFileId && (
+              <Button size="sm" variant="secondary" loading={finalBusy} onClick={() => void sendFinal()}>
+                Use the generated PDF
+              </Button>
+            )}
+          </div>
+        )}
+        {finalErr && <p className="mt-2 text-sm text-rose-600">{finalErr}</p>}
       </Card>
       {approved &&
         vehicles.map((v, idx) => {
@@ -93,7 +151,7 @@ export function InvoiceOps({ invoiceId, status, vehicles, balance }: { invoiceId
                     {v.year} {v.unitLabel}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {v.chassisNo} · {v.color}
+                    {[v.chassisNo, v.color].filter(Boolean).join(" · ")}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">

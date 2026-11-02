@@ -60,6 +60,14 @@ export function registerSoraHandlers() {
     });
   });
 
+  on("invoice.edited", async ({ invoiceId }) => {
+    const full = await getInvoiceFull(String(invoiceId));
+    if (!full?.lead) return;
+    const conv = await conversationForLead(full.lead.id);
+    if (!conv || !(await underDailyCap(conv.id))) return;
+    triggerSora(conv.id, { kind: "event", note: `The Supervisor changed approved invoice ${full.invoice.number}. New total C&F $${full.totals.total.toLocaleString("en-US")}, advance ${full.invoice.advancePercent}% = $${full.totals.advance.toLocaleString("en-US")}. Tell the buyer the new amounts in one short, polite message.` });
+  });
+
   on("invoice.rejected", async ({ invoiceId }) => {
     const full = await getInvoiceFull(String(invoiceId));
     if (!full?.lead) return;

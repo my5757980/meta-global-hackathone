@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { LEAD_STATUS_LABELS } from "@autofte/shared";
-import { Bot, FileText, Hourglass, Users } from "lucide-react";
+import { Bot, FileText, Handshake, Hourglass, Users } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { ago, usd } from "../lib/format";
@@ -12,6 +12,7 @@ interface Summary {
   leads: { status: keyof typeof LEAD_STATUS_LABELS; n: number }[];
   invoices: { status: string; n: number; total: number }[];
   recent: { id: string; number: string; status: string; total: number; consignee: string; createdAt: string; requestedBy: string; requestedKind: string }[];
+  customers: number;
 }
 
 export default function CrmDashboard() {
@@ -32,8 +33,13 @@ export default function CrmDashboard() {
         </div>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Leads" value={leadTotal.toLocaleString("en-US")} icon={<Users className="size-5" />} />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <Link to="/crm/leads" className="block rounded-2xl hover:opacity-90">
+              <Stat label="Leads" value={leadTotal.toLocaleString("en-US")} icon={<Users className="size-5" />} />
+            </Link>
+            <Link to="/crm/leads?customers=1" className="block rounded-2xl hover:opacity-90">
+              <Stat label="Customers" value={(d?.customers ?? 0).toLocaleString("en-US")} hint="with an approved invoice" icon={<Handshake className="size-5" />} />
+            </Link>
             <Stat label="Waiting for approval" value={inv("pending")?.n ?? 0} hint={usd(inv("pending")?.total ?? 0) + " C&F"} icon={<Hourglass className="size-5" />} />
             <Stat label="Approved / sent" value={(inv("approved")?.n ?? 0) + (inv("sent")?.n ?? 0)} hint={usd((inv("approved")?.total ?? 0) + (inv("sent")?.total ?? 0)) + " C&F"} icon={<FileText className="size-5" />} />
             <Stat label={`${fte}'s invoice requests`} value={d?.recent.filter((r) => r.requestedKind === "fte").length ?? 0} hint="in the latest 8" icon={<Bot className="size-5" />} />

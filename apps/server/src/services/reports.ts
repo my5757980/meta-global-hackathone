@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import * as s from "../db/schema";
@@ -78,6 +79,44 @@ export async function reportXlsx(from: string, to: string): Promise<Buffer> {
   sheet(wb, "Invoices", [{ header: "Invoice", key: "number" }, { header: "Consignee", key: "consignee", width: 28 }, { header: "Vehicle", key: "vehicle", width: 28 }, { header: "Chassis", key: "chassis" }, { header: "C&F (USD)", key: "total" }, { header: "Status", key: "status" }, { header: "Agent", key: "agent", width: 20 }, { header: "Created", key: "createdAt", width: 22 }], d.invoices);
   sheet(wb, "Units", [{ header: "Invoice", key: "invoice" }, { header: "Make", key: "make" }, { header: "Model", key: "model", width: 22 }, { header: "Chassis", key: "chassis" }, { header: "Colour", key: "color" }, { header: "Added", key: "createdAt", width: 22 }], d.units);
   return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+/** The same report as a Word document. */
+export async function reportDocx(from: string, to: string): Promise<Buffer> {
+  const d = await reportData(from, to);
+  const when = (v: unknown) => (v ? new Date(String(v)).toISOString().slice(0, 10) : "");
+  const table = (head: string[], rows: (string | number | null | undefined)[][]) =>
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [head, ...rows].map(
+        (cells, r) =>
+          new TableRow({
+            tableHeader: r === 0,
+            children: cells.map((c) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: String(c ?? ""), bold: r === 0, size: 18 })] })] })),
+          }),
+      ),
+    });
+  const heading = (text: string) => new Paragraph({ text, heading: HeadingLevel.HEADING_2, spacing: { before: 280, after: 100 } });
+  const doc = new Document({
+    sections: [
+      {
+        children: [
+          new Paragraph({ text: "Sales report", heading: HeadingLevel.HEADING_1 }),
+          new Paragraph({ text: `${from} to ${to}`, spacing: { after: 200 } }),
+          table(["Leads", "Invoices", "Units", "Invoiced value (USD)", "Payments received (USD)"], [[d.totals.leads, d.totals.invoices, d.totals.units, d.totals.invoicedValue, d.totals.received]]),
+          heading("Per agent"),
+          table(["Agent", "Leads", "Invoices", "Value (USD)"], d.perAgent.map((a) => [a.kind === "fte" ? `${a.name} (Digital FTE)` : a.name, a.leads, a.invoices, a.value])),
+          heading("Leads"),
+          table(["Customer", "Contact", "Country", "Status", "Agent", "Created"], d.leads.map((l) => [l.customer, l.contact, l.country, l.status, l.agent, when(l.createdAt)])),
+          heading("Invoices"),
+          table(["Invoice", "Consignee", "Vehicle", "Chassis", "C&F (USD)", "Status", "Agent", "Created"], d.invoices.map((i) => [i.number, i.consignee, i.vehicle, i.chassis, Number(i.total), i.status, i.agent, when(i.createdAt)])),
+          heading("Units"),
+          table(["Invoice", "Make", "Model", "Chassis", "Colour", "Added"], d.units.map((u) => [u.invoice, u.make, u.model, u.chassis, u.color, when(u.createdAt)])),
+        ],
+      },
+    ],
+  });
+  return Packer.toBuffer(doc);
 }
 
 /** Manager's full backup: every CRM table in one workbook. */

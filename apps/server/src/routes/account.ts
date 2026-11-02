@@ -65,6 +65,11 @@ accountRouter.get(
     if (!full) throw notFound("Invoice not found");
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="${full.invoice.number}.pdf"`);
+    const final = full.invoice.finalPdfFileId ? await getFile(full.invoice.finalPdfFileId) : null;
+    if (final) {
+      res.sendFile(final.abs, { dotfiles: "allow" });
+      return undefined;
+    }
     res.send(await invoicePdf(full));
     return undefined;
   }),

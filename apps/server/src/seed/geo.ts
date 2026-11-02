@@ -163,6 +163,67 @@ SE|Sweden|Europe|0|0|Europe/Stockholm|0|Gothenburg:105:42
 PL|Poland|Europe|0|0|Europe/Warsaw|0|Gdańsk:106:43
 UA|Ukraine|Europe|0|0|Europe/Kyiv|0|Odesa:100:38
 TR|Türkiye|Europe|0|0|Europe/Istanbul|0|Mersin:90:30
+FR|France|Europe|0|0|Europe/Paris|0|Le Havre:104:42;Marseille Fos:100:38
+ES|Spain|Europe|0|0|Europe/Madrid|0|Valencia:98:36;Barcelona:98:36
+IT|Italy|Europe|0|0|Europe/Rome|0|Genoa:98:36;Gioia Tauro:96:34
+PT|Portugal|Europe|0|0|Europe/Lisbon|0|Lisbon:106:42
+GR|Greece|Europe|0|0|Europe/Athens|0|Piraeus:96:32;Thessaloniki:98:34
+DK|Denmark|Europe|0|0|Europe/Copenhagen|0|Aarhus:108:44
+IS|Iceland|Europe|0|0|Atlantic/Reykjavik|0|Reykjavik:125:50
+EE|Estonia|Europe|0|0|Europe/Tallinn|0|Tallinn:112:46
+LV|Latvia|Europe|0|0|Europe/Riga|0|Riga:112:46
+LT|Lithuania|Europe|0|0|Europe/Vilnius|0|Klaipeda:110:45
+BG|Bulgaria|Europe|0|0|Europe/Sofia|0|Varna:102:38
+RO|Romania|Europe|0|0|Europe/Bucharest|0|Constanta:100:37
+HR|Croatia|Europe|0|0|Europe/Zagreb|0|Rijeka:100:37
+SI|Slovenia|Europe|0|0|Europe/Ljubljana|0|Koper:98:36
+AL|Albania|Europe|0|0|Europe/Tirane|0|Durres:102:38
+ME|Montenegro|Europe|0|0|Europe/Podgorica|0|Bar:102:38
+BA|Bosnia and Herzegovina|Europe|0|0|Europe/Sarajevo|0|Ploce:102:38
+MK|North Macedonia|Europe|0|0|Europe/Skopje|0|Thessaloniki (for Skopje):98:34
+AT|Austria|Europe|0|0|Europe/Vienna|0|Koper (for Vienna):98:36
+CH|Switzerland|Europe|0|0|Europe/Zurich|0|Genoa (for Zurich):98:36
+CZ|Czechia|Europe|0|0|Europe/Prague|0|Hamburg (for Prague):102:40
+SK|Slovakia|Europe|0|0|Europe/Bratislava|0|Koper (for Bratislava):98:36
+HU|Hungary|Europe|0|0|Europe/Budapest|0|Koper (for Budapest):98:36
+RS|Serbia|Europe|0|0|Europe/Belgrade|0|Bar (for Belgrade):102:38
+BY|Belarus|Europe|0|0|Europe/Minsk|0|Klaipeda (for Minsk):110:45
+MD|Moldova|Europe|0|0|Europe/Chisinau|0|Constanta (for Chisinau):100:37
+LU|Luxembourg|Europe|0|0|Europe/Luxembourg|0|Antwerp (for Luxembourg):104:41
+GI|Gibraltar|Europe|0|0|Europe/Gibraltar|1|Gibraltar:106:40
+MA|Morocco|North Africa|0|0|Africa/Casablanca|0|Casablanca:102:40
+DZ|Algeria|North Africa|0|0|Africa/Algiers|0|Algiers:104:42
+TN|Tunisia|North Africa|0|0|Africa/Tunis|0|Rades (Tunis):102:40
+ML|Mali|West Africa|0|0|Africa/Bamako|0|Dakar (for Bamako):108:40
+BF|Burkina Faso|West Africa|0|0|Africa/Ouagadougou|0|Tema (for Ouagadougou):104:38
+NE|Niger|West Africa|0|0|Africa/Niamey|0|Cotonou (for Niamey):106:40
+GW|Guinea-Bissau|West Africa|0|0|Africa/Bissau|0|Bissau:114:44
+TD|Chad|Central Africa|0|0|Africa/Ndjamena|0|Douala (for N'Djamena):108:42
+CF|Central African Republic|Central Africa|0|0|Africa/Bangui|0|Douala (for Bangui):108:42
+RE|Reunion|East Africa|0|0|Indian/Reunion|0|Le Port:92:28
+YT|Mayotte|East Africa|0|0|Indian/Mayotte|0|Longoni:104:34
+IN|India|South Asia|1|250|Asia/Kolkata|1|Nhava Sheva (Mumbai):58:18;Chennai:56:16
+KR|South Korea|East Asia|0|0|Asia/Seoul|0|Incheon:42:5;Busan:40:4
+TW|Taiwan|East Asia|0|0|Asia/Taipei|0|Keelung:45:6;Kaohsiung:45:7
+SY|Syria|Middle East|0|0|Asia/Damascus|0|Latakia:88:30
+LB|Lebanon|Middle East|0|0|Asia/Beirut|0|Beirut:88:30
+IL|Israel|Middle East|0|0|Asia/Jerusalem|0|Haifa:90:30;Ashdod:90:31
+IR|Iran|Middle East|0|0|Asia/Tehran|0|Bandar Abbas:66:22
+GP|Guadeloupe|Caribbean|0|0|America/Guadeloupe|0|Pointe-a-Pitre:112:38
+MQ|Martinique|Caribbean|0|0|America/Martinique|0|Fort-de-France:112:38
+GF|French Guiana|South America|0|0|America/Cayenne|0|Degrad des Cannes:118:42
+AW|Aruba|Caribbean|0|0|America/Aruba|0|Oranjestad:108:34
+CW|Curacao|Caribbean|0|0|America/Curacao|0|Willemstad:108:34
+SX|Sint Maarten|Caribbean|0|0|America/Lower_Princes|1|Philipsburg:110:36
+BQ|Bonaire|Caribbean|0|0|America/Kralendijk|0|Kralendijk:112:36
+MF|Saint Martin|Caribbean|0|0|America/Marigot|0|Marigot:112:37
+BL|Saint Barthelemy|Caribbean|0|0|America/St_Barthelemy|0|Gustavia:115:38
+FK|Falkland Islands|South America|0|0|Atlantic/Stanley|1|Stanley:130:55
+GU|Guam|Oceania|0|0|Pacific/Guam|0|Apra Harbor:72:10
+MP|Northern Mariana Islands|Oceania|0|0|Pacific/Saipan|0|Saipan:74:11
+AS|American Samoa|Oceania|0|0|Pacific/Pago_Pago|0|Pago Pago:92:24
+NU|Niue|Oceania|0|0|Pacific/Niue|1|Alofi:110:30
+WF|Wallis and Futuna|Oceania|0|0|Pacific/Wallis|0|Mata-Utu:110:30
 `;
 
 export interface PortSeed {

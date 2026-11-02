@@ -1,17 +1,18 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Check, ChevronLeft, MessageSquare, Printer, ShieldCheck, X } from "lucide-react";
+import { Bot, Check, ChevronLeft, MessageSquare, Pencil, Printer, ShieldCheck, X } from "lucide-react";
 import { api } from "../lib/api";
 import { dateTime, date, usd2 } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Modal, Skeleton, StatusBadge, Textarea } from "../ui";
 import { InvoiceOps } from "./InvoiceOps";
+import { EditInvoiceModal } from "./LeadForms";
 import { FteName, useFte } from "../lib/site";
 
 interface Full {
-  invoice: { id: string; number: string; status: string; consigneeName: string; consigneePhone: string; consigneeEmail: string | null; consigneeAddress: string | null; totalCnfUsd: number; totalPushUsd: number; advancePercent: number; rejectionNote: string | null; createdAt: string; approvedAt: string | null; m3Rate: number | null; exchangeRate: number | null; salesperson: string | null };
+  invoice: { id: string; number: string; status: string; consigneeName: string; consigneePhone: string; consigneeEmail: string | null; consigneeAddress: string | null; consigneeCountryCode: string | null; consigneePortId: string | null; finalPdfFileId: string | null; totalCnfUsd: number; totalPushUsd: number; advancePercent: number; rejectionNote: string | null; createdAt: string; approvedAt: string | null; m3Rate: number | null; exchangeRate: number | null; salesperson: string | null };
   lead: { id: string; customerName: string; contactPerson: string; phone: string; email: string | null; status: string } | null;
-  vehicles: { id: string; unitLabel: string; year: number; color: string; chassisNo: string; engine: string; transmission: string; fuel: string; pushUsd: number; cnfUsd: number }[];
+  vehicles: { id: string; vehicleId: string | null; unitLabel: string; year: number | null; color: string | null; chassisNo: string | null; engine: string | null; transmission: string | null; fuel: string | null; pushUsd: number; cnfUsd: number }[];
   payments: { id: string; amountUsd: number; receivedDate: string }[];
   port: { name: string } | null;
   country: { name: string } | null;
@@ -31,6 +32,7 @@ export default function InvoiceDetail() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["invoice", id], queryFn: () => api.get<Full>(`/api/crm/invoices/${id}`) });
   const [rejecting, setRejecting] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export default function InvoiceDetail() {
   const d = q.data;
   const inv = d.invoice;
   const bySora = d.requestedBy?.kind === "fte";
+  const noPrice = d.totals.total <= 0;
   return (
     <div>
       <Link to="/crm/invoices" className="mb-3 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-brand-700">
@@ -78,24 +81,34 @@ export default function InvoiceDetail() {
           <Button variant="secondary" onClick={() => window.print()}>
             <Printer className="size-4" /> Print
           </Button>
+          {d.canApprove && (inv.status === "pending" || inv.status === "approved") && (
+            <Button variant="secondary" onClick={() => setEditing(true)}>
+              <Pencil className="size-4" /> Edit invoice
+            </Button>
+          )}
           {d.canApprove && inv.status === "pending" && (
             <>
               <Button variant="danger" onClick={() => setRejecting(true)}>
                 <X className="size-4" /> Reject
               </Button>
-              <Button variant="success" loading={busy === "approve"} onClick={() => void act("approve")}>
+              <Button variant="success" loading={busy === "approve"} disabled={noPrice} title={noPrice ? "Set the price first: press Edit invoice" : undefined} onClick={() => void act("approve")}>
                 <Check className="size-4" /> Approve invoice
               </Button>
             </>
           )}
           {d.canApprove && inv.status === "approved" && (
-            <Button loading={busy === "sent"} onClick={() => void act("sent")}>
+            <Button loading={busy === "sent"} disabled={!inv.finalPdfFileId} title={inv.finalPdfFileId ? undefined : "Add the final PDF first"} onClick={() => void act("sent")}>
               Mark as sent
             </Button>
           )}
         </div>
       </div>
       {err && <p className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</p>}
+      {inv.status === "pending" && noPrice && (
+        <p className="mb-4 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {d.canApprove ? "This invoice has no price yet. Press Edit invoice, set the prices, then approve it." : "This invoice has no price yet. The Supervisor will price it."}
+        </p>
+      )}
       {inv.status === "pending" && bySora && (
         <Card className="mb-4 border-violet-200 bg-violet-50/60">
           <p className="flex items-center gap-2 font-semibold text-violet-900">
@@ -147,7 +160,7 @@ export default function InvoiceDetail() {
                           {v.year} {v.unitLabel}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {v.color} · {v.engine} · {v.transmission} · {v.fuel}
+                          {[v.color, v.engine, v.transmission, v.fuel].filter(Boolean).join(" · ")}
                         </p>
                       </td>
                       <td className="px-3 py-3 text-xs">{v.chassisNo}</td>
@@ -159,6 +172,16 @@ export default function InvoiceDetail() {
               </table>
             </div>
             <div className="flex flex-wrap justify-end gap-6 border-t border-slate-100 px-5 py-4 text-sm">
+              {inv.m3Rate ? (
+                <span>
+                  M3 rate <strong className="ml-1">{usd2(inv.m3Rate)}</strong>
+                </span>
+              ) : null}
+              {inv.exchangeRate ? (
+                <span>
+                  Exchange rate <strong className="ml-1">¥{inv.exchangeRate}</strong>
+                </span>
+              ) : null}
               <span>
                 Total C&F <strong className="ml-1 text-slate-900">{usd2(d.totals.total)}</strong>
               </span>
@@ -187,7 +210,7 @@ export default function InvoiceDetail() {
               <p className="mt-2 text-xs text-slate-400">Computed by the company price policy (not by the model).</p>
             </Card>
           )}
-          <InvoiceOps invoiceId={inv.id} status={inv.status} vehicles={d.vehicles} balance={d.totals.balance} />
+          <InvoiceOps invoiceId={inv.id} status={inv.status} vehicles={d.vehicles} balance={d.totals.balance} finalPdfFileId={inv.finalPdfFileId} canApprove={d.canApprove} />
           {inv.rejectionNote && (
             <Card className="border-rose-200 bg-rose-50">
               <p className="text-sm font-semibold text-rose-800">Internal rejection note</p>
@@ -253,6 +276,17 @@ export default function InvoiceDetail() {
           )}
         </div>
       </div>
+      {editing && (
+        <EditInvoiceModal
+          invoice={inv}
+          vehicles={d.vehicles}
+          onClose={() => setEditing(false)}
+          onDone={() => {
+            setEditing(false);
+            void qc.invalidateQueries();
+          }}
+        />
+      )}
       <Modal
         open={rejecting}
         onClose={() => setRejecting(false)}

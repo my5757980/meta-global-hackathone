@@ -21,6 +21,7 @@
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
+    "docx": "^9.5.1",
     "drizzle-orm": "^0.45.4",
     "exceljs": "^4.4.0",
     "express": "^5.1.0",

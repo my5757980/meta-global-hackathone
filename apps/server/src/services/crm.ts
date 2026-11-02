@@ -242,6 +242,7 @@ export async function approveInvoice(id: string, actor: Actor, edits?: { vehicle
       totalCnf = Math.round(vs.reduce((a, v) => a + Number(v.cnfUsd), 0) * 100) / 100;
       totalPush = Math.round(vs.reduce((a, v) => a + Number(v.pushUsd), 0) * 100) / 100;
     }
+    if (totalCnf <= 0) throw conflict("This invoice has no price yet. Press Edit invoice and set the C&F price first");
     await tx
       .update(s.invoices)
       .set({ status: "approved", approvedBy: actor.userId, approvedAt: new Date(), totalCnfUsd: totalCnf, totalPushUsd: totalPush, advancePercent: edits?.advancePercent ?? inv.advancePercent, rejectionNote: null })
@@ -276,8 +277,110 @@ export async function markInvoiceSent(id: string, actor: Actor) {
     const [inv] = await tx.select().from(s.invoices).where(eq(s.invoices.id, id)).limit(1);
     if (!inv) throw notFound("Invoice not found");
     if (inv.status !== "approved") throw conflict("Only an approved invoice can be marked as sent");
+    if (!inv.finalPdfFileId) throw conflict("Add the final invoice PDF first: upload it, or use the generated one");
     await tx.update(s.invoices).set({ status: "sent", sentAt: new Date() }).where(eq(s.invoices.id, id));
     await audit(tx, { actorUserId: actor.userId, actorKind: actor.kind, action: "invoice.sent", entity: "invoice", entityId: id, summary: `Marked invoice ${inv.number} as sent` });
     return { ok: true };
+  });
+}
+
+/** The copy the buyer receives. It goes on an approved invoice, and Mark as sent waits for it. */
+export async function attachFinalPdf(id: string, fileId: string, how: "Uploaded" | "Generated", actor: Actor) {
+  return db().transaction(async (tx) => {
+    const [inv] = await tx.select().from(s.invoices).where(eq(s.invoices.id, id)).limit(1);
+    if (!inv) throw notFound("Invoice not found");
+    if (inv.status !== "approved") throw conflict("The final PDF goes on an approved invoice, before it is sent");
+    await tx.update(s.invoices).set({ finalPdfFileId: fileId }).where(eq(s.invoices.id, id));
+    await audit(tx, { actorUserId: actor.userId, actorKind: actor.kind, action: "invoice.final_pdf", entity: "invoice", entityId: id, summary: `${how} the final PDF for invoice ${inv.number}` });
+    return { ok: true, fileId };
+  });
+}
+
+export interface InvoiceEditInput {
+  consigneeName: string;
+  consigneePhone: string;
+  consigneeEmail?: string | null;
+  consigneeAddress?: string | null;
+  consigneeCountryCode: string;
+  consigneePortId?: string | null;
+  m3Rate?: number | null;
+  exchangeRate?: number | null;
+  advancePercent?: number;
+  vehicles: { id?: string | null; vehicleId?: string | null; unitLabel: string; year?: number | null; color?: string | null; chassisNo?: string | null; engine?: string | null; transmission?: string | null; fuel?: string | null; pushUsd: number; cnfUsd: number }[];
+}
+
+/** The Supervisor changes an invoice before it goes out: consignee, terms, prices and the whole vehicle list. */
+export async function editInvoice(id: string, input: InvoiceEditInput, actor: Actor) {
+  if (!input.vehicles.length) throw bad("At least one vehicle is required");
+  if (input.vehicles.length > 50) throw bad("At most 50 vehicles on one invoice");
+  return db().transaction(async (tx) => {
+    const [inv] = await tx.select().from(s.invoices).where(eq(s.invoices.id, id)).limit(1);
+    if (!inv) throw notFound("Invoice not found");
+    if (inv.status !== "pending" && inv.status !== "approved") throw conflict(inv.status === "sent" ? "This invoice has gone to the buyer and can no longer be changed" : `A ${inv.status} invoice can no longer be changed`);
+    const [country] = await tx.select({ code: s.countries.code }).from(s.countries).where(eq(s.countries.code, input.consigneeCountryCode)).limit(1);
+    if (!country) throw bad("Choose a country from the list");
+    if (input.consigneePortId) {
+      const [port] = await tx.select({ id: s.ports.id }).from(s.ports).where(and(eq(s.ports.id, input.consigneePortId), eq(s.ports.countryCode, country.code))).limit(1);
+      if (!port) throw bad("That port is not in the chosen country");
+    }
+    const old = await tx.select().from(s.invoiceVehicles).where(eq(s.invoiceVehicles.invoiceId, id));
+    const oldIds = new Set(old.map((o) => o.id));
+    for (const v of input.vehicles) if (v.id && !oldIds.has(v.id)) throw bad("A vehicle on this form is no longer on the invoice. Reload the page and try again");
+    const newStock = [...new Set(input.vehicles.map((v) => v.vehicleId).filter(Boolean) as string[])];
+    if (newStock.length) {
+      const found = await tx.select({ id: s.vehicles.id }).from(s.vehicles).where(inArray(s.vehicles.id, newStock));
+      if (found.length !== newStock.length) throw bad("A vehicle on this form is no longer in stock. Pick it again");
+    }
+    const keptIds = new Set(input.vehicles.map((v) => v.id).filter(Boolean));
+    const removed = old.filter((o) => !keptIds.has(o.id));
+    if (removed.length) {
+      const ids = removed.map((r) => r.id);
+      const withUnit = await tx.select({ id: s.units.invoiceVehicleId }).from(s.units).where(inArray(s.units.invoiceVehicleId, ids));
+      const withProgress = await tx.select({ id: s.vehicleProgress.invoiceVehicleId }).from(s.vehicleProgress).where(inArray(s.vehicleProgress.invoiceVehicleId, ids));
+      const busy = new Set([...withUnit, ...withProgress].map((x) => x.id));
+      const stuck = removed.find((r) => busy.has(r.id));
+      if (stuck) throw conflict(`${stuck.unitLabel} already has a unit or shipping progress, so it cannot be removed`);
+    }
+    const totalCnf = Math.round(input.vehicles.reduce((a, v) => a + (v.cnfUsd || 0), 0) * 100) / 100;
+    const totalPush = Math.round(input.vehicles.reduce((a, v) => a + (v.pushUsd || 0), 0) * 100) / 100;
+    const [{ paid }] = (await tx.select({ paid: sql<number>`coalesce(sum(${s.payments.amountUsd}),0)::float` }).from(s.payments).where(eq(s.payments.invoiceId, id))) as [{ paid: number }];
+    if (totalCnf < paid) throw conflict(`$${paid.toLocaleString("en-US")} has already been received on this invoice. The total cannot go below that`);
+    if (inv.status === "approved" && totalCnf <= 0) throw bad("An approved invoice must keep a price");
+    if (removed.length) await tx.delete(s.invoiceVehicles).where(inArray(s.invoiceVehicles.id, removed.map((r) => r.id)));
+    for (const [i, v] of input.vehicles.entries()) {
+      const row = { position: i, vehicleId: v.vehicleId ?? null, unitLabel: v.unitLabel, year: v.year ?? null, color: v.color ?? null, chassisNo: v.chassisNo ?? null, engine: v.engine ?? null, transmission: v.transmission ?? null, fuel: v.fuel ?? null, pushUsd: v.pushUsd || 0, cnfUsd: v.cnfUsd || 0 };
+      if (v.id) await tx.update(s.invoiceVehicles).set(row).where(and(eq(s.invoiceVehicles.id, v.id), eq(s.invoiceVehicles.invoiceId, id)));
+      else await tx.insert(s.invoiceVehicles).values({ ...row, invoiceId: id });
+    }
+    // stock follows the list: a car taken off goes back on sale, a car put on is held
+    const oldStock = old.map((o) => o.vehicleId).filter(Boolean) as string[];
+    const freed = oldStock.filter((v) => !newStock.includes(v));
+    const taken = newStock.filter((v) => !oldStock.includes(v));
+    if (freed.length) await tx.update(s.vehicles).set({ status: "available" }).where(and(inArray(s.vehicles.id, freed), eq(s.vehicles.status, "reserved")));
+    if (taken.length) await tx.update(s.vehicles).set({ status: "reserved" }).where(and(inArray(s.vehicles.id, taken), eq(s.vehicles.status, "available")));
+    await tx
+      .update(s.invoices)
+      .set({
+        consigneeName: input.consigneeName,
+        consigneePhone: input.consigneePhone,
+        consigneeEmail: input.consigneeEmail || null,
+        consigneeAddress: input.consigneeAddress || null,
+        consigneeCountryCode: input.consigneeCountryCode,
+        consigneePortId: input.consigneePortId || null,
+        m3Rate: input.m3Rate ?? null,
+        exchangeRate: input.exchangeRate ?? null,
+        advancePercent: input.advancePercent ?? inv.advancePercent,
+        totalPushUsd: totalPush,
+        totalCnfUsd: totalCnf,
+        finalPdfFileId: null, // a PDF made before this change no longer matches the invoice
+      })
+      .where(eq(s.invoices.id, id));
+    const before = Number(inv.totalCnfUsd);
+    const fmt = (n: number) => `$${n.toLocaleString("en-US")}`;
+    const summary = `Edited invoice ${inv.number}: ${input.vehicles.length} vehicle(s), C&F ${before === totalCnf ? fmt(totalCnf) : `${fmt(before)} to ${fmt(totalCnf)}`}`;
+    await audit(tx, { actorUserId: actor.userId, actorKind: actor.kind, action: "invoice.edited", entity: "invoice", entityId: id, summary, data: { before: { total: before, vehicles: old.length }, after: { total: totalCnf, vehicles: input.vehicles.length } } });
+    if (inv.status === "approved" && before !== totalCnf) await emit("invoice.edited", { invoiceId: id, before, after: totalCnf }, { tx });
+    if (inv.requestedBy && inv.requestedBy !== actor.userId) await notify([inv.requestedBy], { type: "invoice_edited", title: `Invoice ${inv.number} was edited`, body: `${actor.name} changed it. Total C&F is now ${fmt(totalCnf)}`, link: `/crm/invoices/${id}` }, tx);
+    return { ok: true, totalCnf };
   });
 }
