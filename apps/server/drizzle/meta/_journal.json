@@ -29,6 +29,13 @@
       "when": 1793612575479,
       "tag": "0003_site_parity",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793613594478,
+      "tag": "0004_chat_delivered",
+      "breakpoints": true
     }
   ]
 }

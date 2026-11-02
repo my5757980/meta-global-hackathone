@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Maximize2, MessageCircle, X } from "lucide-react";
+import { Bot, Maximize2, MessageCircle, UserRound, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { CompanyName, FteName } from "../lib/site";
@@ -70,7 +70,7 @@ export function ChatPanel({ draft, onClose, full }: { draft?: string; onClose?: 
   useLiveEvent("presence", reload);
   const conv = mine.data?.conversation ?? null;
   const agent = mine.data?.agent ?? null;
-  const { messages, setMessages, typing } = useConversation(conv?.id ?? null, mine.data?.messages ?? []);
+  const { messages, setMessages, typing, receipts } = useConversation(conv?.id ?? null, mine.data?.messages ?? []);
   useEffect(() => {
     if (mine.data) setMessages(mine.data.messages);
   }, [mine.data, setMessages]);
@@ -123,10 +123,11 @@ export function ChatPanel({ draft, onClose, full }: { draft?: string; onClose?: 
                 Hi {me.name.split(" ")[0]}! I'm <FteName />. Tell me what car you need and your port — I'll find real cars and the exact price delivered.
               </div>
             )}
-            <MessageList messages={messages} meId={me.id} typing={typing} />
+            <MessageList messages={messages} meId={me.id} typing={typing} receipts={receipts} />
           </div>
+          {conv.holder === "fte" && <TalkToPerson onDone={reload} />}
           {conv.holder === "human" && (
-            <div className="flex items-center justify-center gap-2 bg-amber-50 px-3 py-1 text-[11px] text-amber-800">
+            <div className="flex flex-wrap items-center justify-center gap-2 bg-amber-50 px-3 py-1 text-[11px] text-amber-800">
               <span>
                 {agent ? `${agent.name}${agent.title ? ` (${agent.title})` : ""} is with you in this chat${agent.online ? " · online" : ""}.` : "A team member is with you in this chat."}
               </span>
@@ -135,6 +136,60 @@ export function ChatPanel({ draft, onClose, full }: { draft?: string; onClose?: 
           )}
           <Composer conversationId={conv.id} initial={draft} onSent={(m) => setMessages((p) => (p.some((x) => x.id === m.id) ? p : [...p, m]))} />
         </>
+      )}
+    </div>
+  );
+}
+
+/** The buyer can always leave the AI for a person: the team with green dots, or whoever is free. */
+function TalkToPerson({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
+  const people = useQuery({ queryKey: ["chat-people"], queryFn: () => api.get<{ id: string; name: string; title: string | null; online: boolean }[]>("/api/chat/people"), enabled: open });
+  const onPresence = useCallback(() => void qc.invalidateQueries({ queryKey: ["chat-people"] }), [qc]);
+  useLiveEvent("presence", onPresence);
+  const ask = async (userId?: string) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.post("/api/chat/mine/person", userId ? { userId } : {});
+      setOpen(false);
+      onDone();
+    } catch (ex) {
+      setErr((ex as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const online = people.data?.filter((p) => p.online).length ?? 0;
+  return (
+    <div className="border-t border-slate-200 bg-white">
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-slate-50">
+        <UserRound className="size-3.5" /> Talk to a person
+      </button>
+      {open && (
+        <div className="scrollbar-thin max-h-56 overflow-y-auto border-t border-slate-100 px-3 py-2">
+          <p className="mb-1 text-xs text-slate-500">{people.isLoading ? "Checking who is here..." : online ? `${online} of the team online now` : "The team is away. They answer here when they are back."}</p>
+          <button disabled={busy} onClick={() => void ask()} className="mb-1 w-full rounded-xl bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60">
+            Whoever is free
+          </button>
+          <ul>
+            {people.data?.map((p) => (
+              <li key={p.id}>
+                <button disabled={busy} onClick={() => void ask(p.id)} className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left hover:bg-slate-50 disabled:opacity-60">
+                  <Avatar name={p.name} kind="staff" size={30} online={p.online} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-slate-900">{p.name}</span>
+                    <span className="block truncate text-[11px] text-slate-500">{p.title ?? "Sales team"}{p.online ? " · online" : " · away"}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {err && <p className="mt-1 text-xs text-rose-600">{err}</p>}
+        </div>
       )}
     </div>
   );

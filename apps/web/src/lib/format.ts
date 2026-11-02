@@ -42,7 +42,13 @@ export function miniMarkdown(src: string): string {
     t
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<em>$2</em>")
-      .replace(/\[([^\]]+)\]\((\/[^\s)]*|https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>');
+      .replace(/\[([^\]]+)\]\((\/[^\s)]*|https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>')
+      // a bare web address is a link too (never one already inside an <a>, which follows a quote or a ">")
+      .replace(/(^|[\s(])((?:https?:\/\/|www\.)[^\s<)]+)/g, (_m, lead: string, url: string) => {
+        const tail = url.match(/[.,!?:;]+$/)?.[0] ?? "";
+        const bare = tail ? url.slice(0, -tail.length) : url;
+        return `${lead}<a href="${bare.startsWith("www.") ? `https://${bare}` : bare}" target="_blank" rel="noopener noreferrer">${bare}</a>${tail}`;
+      });
   for (const raw of lines) {
     const line = raw.trimEnd();
     const ul = line.match(/^\s*[-•]\s+(.*)$/);

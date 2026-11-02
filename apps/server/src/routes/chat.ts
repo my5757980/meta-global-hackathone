@@ -6,13 +6,14 @@ import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, forbidden, h, notFound, parse, HttpError } from "../lib/http";
 import { isStaff, requireAuth, requirePerm } from "../auth/session";
-import { addToGroup, canSeeConversation, createGroup, deskConversations, ensureCustomerConversation, ensureStaffDm, listMessages, markRead, postMessage, removeFromGroup, renameGroup, setHolder, teamDirectory } from "../services/chat";
+import { addToGroup, canSeeConversation, createGroup, deskAgents, deskConversations, ensureCustomerConversation, ensureStaffDm, listMessages, markRead, peopleForBuyers, postMessage, receiptsFor, removeFromGroup, renameGroup, setHolder, teamDirectory } from "../services/chat";
 import { iceServers, pendingCallFor, signalCall, startCall } from "../services/calls";
 import { isOnline } from "../services/sse";
 import { saveFile } from "../services/files";
 import { triggerSora } from "../fte/agent";
 import { transcribeMessage } from "../fte/voice";
 import { audit } from "../services/audit";
+import { notify, usersWithPerm } from "../services/notify";
 import { fteName } from "../services/settings";
 import { env } from "../env";
 import { tooMany } from "../services/publicDemo";
@@ -44,7 +45,70 @@ chatRouter.get(
       return deskConversations(u, "team");
     }
     const u = requirePerm(req, "chat.desk");
-    return deskConversations(u, req.query.scope === "all" ? "all" : "mine");
+    return deskConversations(u, req.query.scope === "all" ? "all" : "mine", typeof req.query.agent === "string" ? req.query.agent : undefined);
+  }),
+);
+
+/** See-everything staff drill down: agent, then that agent's customers. */
+chatRouter.get(
+  "/desk-agents",
+  h(async (req) => {
+    requirePerm(req, "chat.view_all");
+    return deskAgents();
+  }),
+);
+
+/** The ticks: what the other side has received and read in this conversation. */
+chatRouter.get(
+  "/conversations/:id/receipts",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const conv = await canSeeConversation(u, String(req.params.id));
+    return receiptsFor(conv, u.id);
+  }),
+);
+
+/** A buyer asks for a person: the team with green dots, then one of them, or whoever is free. */
+chatRouter.get(
+  "/people",
+  h(async (req) => {
+    const u = requireAuth(req);
+    if (isStaff(u)) throw bad("Staff use the desk");
+    return peopleForBuyers();
+  }),
+);
+chatRouter.post(
+  "/mine/person",
+  h(async (req) => {
+    const u = requireAuth(req);
+    if (isStaff(u)) throw bad("Staff use the desk");
+    const b = parse(z.object({ userId: z.string().min(8).optional() }), req.body ?? {});
+    const conv = await ensureCustomerConversation(u.id, req.query.channel === "app" ? "app" : "web");
+    const link = `/desk?c=${conv.id}`;
+    if (b.userId) {
+      const person = (await peopleForBuyers()).find((p) => p.id === b.userId);
+      if (!person) throw notFound("That person is not on the team");
+      if (conv.holder === "human" && conv.assignedUserId === person.id) return { ok: true };
+      await setHolder(conv.id, "human", { id: person.id, name: person.name }, person.online ? undefined : "they are away and will answer here when they are back");
+      await notify([person.id], { type: "handover", title: `${u.name} asked for you in the chat`, body: "Open the chat desk to answer", link });
+    } else {
+      if (conv.holder === "human") return { ok: true };
+      await setHolder(conv.id, "human", null, "the customer asked for a person");
+      await notify(await usersWithPerm("chat.desk"), { type: "handover", title: `${u.name} asked for a person`, body: "Open the chat desk to answer", link });
+    }
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "chat.person_requested", entity: "conversation", entityId: conv.id, summary: `${u.name} asked for a person in the chat` });
+    return { ok: true };
+  }),
+);
+chatRouter.post(
+  "/mine/back-to-fte",
+  h(async (req) => {
+    const u = requireAuth(req);
+    if (isStaff(u)) throw bad("Staff use the desk");
+    const conv = await ensureCustomerConversation(u.id, req.query.channel === "app" ? "app" : "web");
+    if (conv.holder === "fte") return { ok: true };
+    await setHolder(conv.id, "fte", null);
+    return { ok: true };
   }),
 );
 

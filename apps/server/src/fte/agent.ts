@@ -10,7 +10,7 @@ import type { ChatCard, VehicleCardItem } from "@autofte/shared";
 import { env } from "../env";
 import { db } from "../db/client";
 import * as s from "../db/schema";
-import { listMessages, postMessage, setHolder } from "../services/chat";
+import { listMessages, markRead, postMessage, setHolder, soraUserId } from "../services/chat";
 import { envelope, now as clockNow, siteSettings } from "../services/settings";
 import { fileAbsPath } from "../services/files";
 import { publish } from "../services/sse";
@@ -163,6 +163,7 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
   const [sora] = await db().select().from(s.users).where(eq(s.users.kind, "fte")).limit(1);
   if (!sora) return;
   const members = await conversationMembers(conversationId);
+  if (trigger.kind === "message") void soraUserId().then((id) => markRead(conversationId, id)).catch(() => {}); // the buyer sees the blue ticks: Sora has read it
   const [run] = await db().insert(s.fteRuns).values({ trigger: trigger.kind, conversationId, eventId: trigger.eventId ?? null, status: "running" }).returning();
   const t0 = Date.now();
   publish(members, "typing", { conversationId, userId: sora.id, on: true });

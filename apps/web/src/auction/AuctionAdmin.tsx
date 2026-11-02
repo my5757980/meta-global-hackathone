@@ -1,18 +1,19 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Bot, Download, FileSpreadsheet, Gavel, Inbox, ShoppingBag, Users } from "lucide-react";
-import { api } from "../lib/api";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Activity, Bot, Download, FileSpreadsheet, Gavel, Inbox, ShoppingBag, Trash2, Users } from "lucide-react";
+import { api, qs } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { ago, date, jpy } from "../lib/format";
-import { Badge, Button, Card, Empty, PageHeader, Select, Skeleton, Stat, Table, Tabs, Textarea } from "../ui";
+import { ago, date, jpy, km } from "../lib/format";
+import { Badge, Button, Card, Empty, Field, Input, PageHeader, Pagination, Select, Skeleton, Stat, StatusBadge, Table, Tabs, Textarea } from "../ui";
 import { FteName } from "../lib/site";
 import { LotImportModal } from "./LotImport";
 
 export function AuctionAdmin() {
   const { can } = useAuth();
-  const [tab, setTab] = useState<"overview" | "bids" | "orders" | "enquiries" | "clients">("overview");
+  const [tab, setTab] = useState<"overview" | "vehicles" | "bids" | "orders" | "enquiries" | "clients">("overview");
   const [importing, setImporting] = useState(false);
+  const signal = useQuery({ queryKey: ["auction-overview"], queryFn: () => api.get<OverviewData>("/api/auction/admin/overview") }).data?.feed;
   return (
     <div>
       <PageHeader
@@ -21,7 +22,14 @@ export function AuctionAdmin() {
             <Gavel className="size-6 text-brand-600" /> Auction admin
           </span>
         }
-        subtitle={<span className="inline-flex items-center gap-1.5 text-emerald-700"><span className="size-2 rounded-full bg-emerald-500" /> Auction is working</span>}
+        subtitle={
+          signal ? (
+            <span className={`inline-flex flex-wrap items-center gap-1.5 ${signal.status === "working" ? "text-emerald-700" : "text-rose-700"}`}>
+              <span className={`size-2 rounded-full ${signal.status === "working" ? "bg-emerald-500" : "bg-rose-500"}`} /> {signal.text}
+              <span className="text-slate-500">· {signal.detail}{signal.newestAt ? ` · newest lot added ${ago(signal.newestAt)}` : ""}</span>
+            </span>
+          ) : undefined
+        }
         actions={
           <>
           {can("auction.lots.import") && (
@@ -41,6 +49,7 @@ export function AuctionAdmin() {
           onChange={setTab}
           items={[
             { value: "overview", label: "Overview" },
+            { value: "vehicles", label: "Vehicles" },
             ...(can("auction.bids.view") ? [{ value: "bids" as const, label: "Bids" }] : []),
             ...(can("auction.orders.manage") ? [{ value: "orders" as const, label: "Orders" }] : []),
             ...(can("auction.enquiries.reply") ? [{ value: "enquiries" as const, label: "Enquiries" }] : []),
@@ -49,11 +58,96 @@ export function AuctionAdmin() {
         />
       </div>
       {tab === "overview" && <Overview />}
+      {tab === "vehicles" && <Vehicles />}
       {tab === "bids" && <Bids />}
       {tab === "orders" && <Orders />}
       {tab === "enquiries" && <Enquiries />}
       {tab === "clients" && <Clients />}
       <LotImportModal open={importing} onClose={() => setImporting(false)} />
+    </div>
+  );
+}
+
+interface OverviewData {
+  lots: { upcoming: number; total: number };
+  clients: number;
+  bids: { n: number; value: number };
+  orders: { pending: number; confirmed: number; pipeline: number };
+  enquiries: { open: number };
+  bidsByDay: { day: string; bids: number }[];
+  topBidders: { name: string; bids: number; value: number; share: number }[];
+  desk: { name: string; kind: string; lastSeenAt: string | null }[];
+  funnel: { clients: number; bidders: number; bids: number; won: number; orders: number; paid: number };
+  customerActions: { kind: string; name: string; at: string; lot_id: string; lot_no: number; make: string; model: string; amount: number | null }[];
+  deskActions: { id: string; summary: string; at: string; name: string | null }[];
+  recentBids: { id: string; amountJpy: number; status: string; createdAt: string; who: string; lotId: string; lotNo: number; make: string; model: string }[];
+  recentOrders: { id: string; orderNo: string; priceJpy: number; status: string; createdAt: string; who: string; lotId: string; lotNo: number; make: string; model: string }[];
+  feed: { status: string; text: string; detail: string; newestAt: string | null };
+}
+
+function Vehicles() {
+  const [f, setF] = useState({ q: "", status: "", hall: "", page: 1 });
+  const halls = useQuery({ queryKey: ["ahalls"], queryFn: () => api.get<{ id: string; name: string }[]>("/api/auction/halls"), staleTime: 3600_000 });
+  const q = useQuery({ queryKey: ["admin-vehicles", f], queryFn: () => api.get<{ items: { id: string; lotNo: number; saleDate: string; make: string; model: string; modelCode: string; year: number; mileageKm: number; grade: string; startPriceJpy: number; status: string; hall: string; bids: number }[]; total: number; page: number; pageSize: number }>(`/api/auction/admin/vehicles${qs(f)}`), placeholderData: keepPreviousData });
+  return (
+    <div>
+      <div className="mb-3 grid gap-2 sm:grid-cols-3">
+        <Field label="Search">
+          <Input key="vehicles-search" placeholder="Make, model, code or lot no." defaultValue={f.q} onKeyDown={(e) => e.key === "Enter" && setF({ ...f, q: (e.target as HTMLInputElement).value, page: 1 })} onBlur={(e) => e.target.value !== f.q && setF({ ...f, q: e.target.value, page: 1 })} />
+        </Field>
+        <Field label="Status">
+          <Select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value, page: 1 })}>
+            <option value="">All statuses</option>
+            <option value="upcoming">Upcoming</option>
+            <option value="sold">Sold</option>
+            <option value="unsold">Not sold</option>
+            <option value="withdrawn">Withdrawn</option>
+          </Select>
+        </Field>
+        <Field label="Hall">
+          <Select value={f.hall} onChange={(e) => setF({ ...f, hall: e.target.value, page: 1 })}>
+            <option value="">All halls</option>
+            {halls.data?.map((h) => (
+              <option key={h.id} value={h.id}>
+                {h.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+      {!q.data ? (
+        <Skeleton className="h-60" />
+      ) : !q.data.items.length ? (
+        <Empty title="No lots match" />
+      ) : (
+        <>
+          <p className="mb-2 text-sm text-slate-500">{q.data.total.toLocaleString("en-US")} lots</p>
+          <Table head={["Lot", "Vehicle", "Hall", "Sale date", "Mileage", "Grade", "Start price", "Bids", "Status"]}>
+            {q.data.items.map((l) => (
+              <tr key={l.id} className="hover:bg-slate-50">
+                <td className="px-4 py-2">
+                  <Link className="font-semibold text-brand-700" to={`/auction/lots/${l.id}`}>
+                    {l.lotNo}
+                  </Link>
+                </td>
+                <td className="px-4 py-2">
+                  {l.year} {l.make} {l.model} <span className="text-xs text-slate-500">{l.modelCode}</span>
+                </td>
+                <td className="px-4 py-2 whitespace-nowrap">{l.hall}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{date(l.saleDate)}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{km(l.mileageKm)}</td>
+                <td className="px-4 py-2">{l.grade}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{jpy(l.startPriceJpy)}</td>
+                <td className="px-4 py-2">{l.bids}</td>
+                <td className="px-4 py-2">
+                  <StatusBadge status={l.status} />
+                </td>
+              </tr>
+            ))}
+          </Table>
+          <Pagination page={q.data.page} pageSize={q.data.pageSize} total={q.data.total} onPage={(page) => setF({ ...f, page })} />
+        </>
+      )}
     </div>
   );
 }
@@ -76,7 +170,7 @@ function Bars({ rows, label, value }: { rows: Record<string, unknown>[]; label: 
 }
 
 function Overview() {
-  const q = useQuery({ queryKey: ["auction-overview"], queryFn: () => api.get<{ lots: { upcoming: number; total: number }; clients: number; bids: { n: number; value: number }; orders: { pending: number; confirmed: number; pipeline: number }; enquiries: { open: number }; bidsByDay: { day: string; bids: number }[]; topBidders: { name: string; bids: number; value: number }[]; desk: { name: string; lastSeenAt: string | null }[] }>("/api/auction/admin/overview") });
+  const q = useQuery({ queryKey: ["auction-overview"], queryFn: () => api.get<OverviewData>("/api/auction/admin/overview") });
   if (!q.data) return <Skeleton className="h-60" />;
   const d = q.data;
   return (
@@ -109,6 +203,113 @@ function Overview() {
           </ul>
         </Card>
       </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <p className="mb-3 font-semibold">From client to paid order</p>
+          <Bars rows={[{ step: "Clients", n: d.funnel.clients }, { step: "Clients who bid", n: d.funnel.bidders }, { step: "Bids", n: d.funnel.bids }, { step: "Bids won", n: d.funnel.won }, { step: "Orders", n: d.funnel.orders }, { step: "Paid orders", n: d.funnel.paid }]} label="step" value="n" />
+        </Card>
+        <Card padded={false}>
+          <p className="px-5 pt-5 font-semibold">Bids by customer</p>
+          {d.topBidders.length ? (
+            <div className="scrollbar-thin overflow-x-auto">
+              <table className="mt-2 w-full min-w-[360px] text-sm">
+                <thead className="text-left text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                  <tr>
+                    <th className="px-5 py-2">Customer</th>
+                    <th className="px-3 py-2 text-right">Bids</th>
+                    <th className="px-3 py-2 text-right">Share</th>
+                    <th className="px-5 py-2 text-right">Value</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {d.topBidders.map((b) => (
+                    <tr key={b.name}>
+                      <td className="px-5 py-2 font-medium text-slate-900">{b.name}</td>
+                      <td className="px-3 py-2 text-right">{b.bids}</td>
+                      <td className="px-3 py-2 text-right">{b.share}%</td>
+                      <td className="px-5 py-2 text-right whitespace-nowrap">{jpy(b.value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="px-5 pb-5 text-sm text-slate-500">No bids yet.</p>
+          )}
+        </Card>
+        <Card>
+          <p className="mb-3 font-semibold">What customers did</p>
+          {d.customerActions.length ? (
+            <ul className="space-y-2 text-sm">
+              {d.customerActions.map((a, i) => (
+                <li key={i} className="flex flex-wrap justify-between gap-x-3">
+                  <span className="min-w-0">
+                    <strong className="text-slate-900">{a.name}</strong> {a.kind === "bid" ? `bid ${jpy(a.amount)} on` : a.kind === "order" ? "ordered" : "asked about"}{" "}
+                    <Link className="font-medium text-brand-700" to={`/auction/lots/${a.lot_id}`}>
+                      lot {a.lot_no}
+                    </Link>{" "}
+                    <span className="text-slate-500">
+                      {a.make} {a.model}
+                    </span>
+                  </span>
+                  <span className="text-xs whitespace-nowrap text-slate-500">{ago(a.at)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-slate-500">Nothing yet.</p>
+          )}
+        </Card>
+        <Card>
+          <p className="mb-3 font-semibold">What the desk did</p>
+          {d.deskActions.length ? (
+            <ul className="space-y-2 text-sm">
+              {d.deskActions.map((a) => (
+                <li key={a.id} className="flex flex-wrap justify-between gap-x-3">
+                  <span className="min-w-0 text-slate-800">{a.summary}</span>
+                  <span className="text-xs whitespace-nowrap text-slate-500">{ago(a.at)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-slate-500">The desk has not touched a bid, order or enquiry yet.</p>
+          )}
+        </Card>
+        <Card>
+          <p className="mb-3 font-semibold">Recent bids</p>
+          <ul className="space-y-2 text-sm">
+            {d.recentBids.map((b) => (
+              <li key={b.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <Link className="min-w-0 font-medium text-brand-700" to={`/auction/lots/${b.lotId}`}>
+                  Lot {b.lotNo} · {b.make} {b.model}
+                </Link>
+                <span className="flex items-center gap-2 text-xs text-slate-600">
+                  {b.who} · <strong>{jpy(b.amountJpy)}</strong> <StatusBadge status={b.status} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+        <Card>
+          <p className="mb-3 font-semibold">Recent orders</p>
+          {d.recentOrders.length ? (
+            <ul className="space-y-2 text-sm">
+              {d.recentOrders.map((o) => (
+                <li key={o.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                  <Link className="min-w-0 font-medium text-brand-700" to={`/auction/lots/${o.lotId}`}>
+                    {o.orderNo} · {o.make} {o.model}
+                  </Link>
+                  <span className="flex items-center gap-2 text-xs text-slate-600">
+                    {o.who} · <strong>{jpy(o.priceJpy)}</strong> <StatusBadge status={o.status} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-slate-500">No orders yet.</p>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }
@@ -132,7 +333,7 @@ function Bids() {
       ) : !q.data.length ? (
         <Empty title="No bids" />
       ) : (
-        <Table head={["When", "Bidder", "Lot", "Vehicle", "Amount", "Note", "Status"]}>
+        <Table head={can("auction.bids.manage") ? ["When", "Bidder", "Lot", "Vehicle", "Amount", "Note", "Status", ""] : ["When", "Bidder", "Lot", "Vehicle", "Amount", "Note", "Status"]}>
           {q.data.map((b) => (
             <tr key={b.id}>
               <td className="px-4 py-2 text-xs whitespace-nowrap">{ago(b.createdAt)}</td>
@@ -164,6 +365,25 @@ function Bids() {
                   <Badge>{b.status}</Badge>
                 )}
               </td>
+              {can("auction.bids.manage") && (
+                <td className="px-4 py-2 text-right">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={b.status === "won"}
+                    title={b.status === "won" ? "A won bid has an order behind it" : undefined}
+                    aria-label={`Delete bid on lot ${b.lot.lotNo}`}
+                    onClick={async () => {
+                      if (!window.confirm(`Delete this bid on lot ${b.lot.lotNo}?`)) return;
+                      await api.del(`/api/auction/admin/bids/${b.id}`);
+                      await qc.invalidateQueries({ queryKey: ["admin-bids"] });
+                      await qc.invalidateQueries({ queryKey: ["auction-overview"] });
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </td>
+              )}
             </tr>
           ))}
         </Table>

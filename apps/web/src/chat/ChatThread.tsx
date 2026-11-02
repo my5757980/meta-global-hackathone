@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { Bot, CheckCheck, ChevronLeft, ChevronRight, FileText, Mic, Paperclip, Phone, Send, Ship, Square, Video, Volume2, X } from "lucide-react";
+import { Bot, Check, CheckCheck, ChevronLeft, ChevronRight, FileText, Mic, Paperclip, Phone, Send, Ship, Smile, Square, Video, Volume2, X } from "lucide-react";
 import { resizeImage, WavRecorder } from "./media";
 import type { ChatCard } from "@autofte/shared";
 import { api } from "../lib/api";
@@ -21,9 +21,22 @@ export interface ChatMsg {
   sender: { id: string; name: string; kind: string; title?: string | null } | null;
 }
 
+export interface Receipts {
+  deliveredAt: string | null;
+  readAt: string | null;
+}
+
 export function useConversation(conversationId: string | null, initial: ChatMsg[] = []) {
   const [messages, setMessages] = useState<ChatMsg[]>(initial);
   const [typing, setTyping] = useState(false);
+  const [receipts, setReceipts] = useState<Receipts | null>(null);
+  const loadReceipts = useCallback(() => {
+    if (conversationId) void api.get<Receipts>(`/api/chat/conversations/${conversationId}/receipts`).then(setReceipts).catch(() => {});
+  }, [conversationId]);
+  useEffect(loadReceipts, [loadReceipts]);
+  const onReceipt = useCallback((e: { conversationId?: string }) => (!e.conversationId || e.conversationId === conversationId) && loadReceipts(), [conversationId, loadReceipts]);
+  useLiveEvent("read", onReceipt);
+  useLiveEvent("delivered", onReceipt);
   useEffect(() => setMessages(initial), [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
   const onMessage = useCallback(
     (m: ChatMsg) => {
@@ -43,7 +56,15 @@ export function useConversation(conversationId: string | null, initial: ChatMsg[
   useLiveEvent("message", onMessage);
   useLiveEvent("message.meta", onMeta);
   useLiveEvent("typing", onTyping);
-  return { messages, setMessages, typing };
+  return { messages, setMessages, typing, receipts };
+}
+
+/** One tick: sent. Two: it reached them. Blue: they read it. */
+function Ticks({ at, receipts }: { at: string; receipts?: Receipts | null }) {
+  const t = new Date(at).getTime();
+  if (receipts?.readAt && new Date(receipts.readAt).getTime() >= t) return <CheckCheck className="size-3.5 text-sky-500" role="img" aria-label="Read" />;
+  if (receipts?.deliveredAt && new Date(receipts.deliveredAt).getTime() >= t) return <CheckCheck className="size-3.5" role="img" aria-label="Delivered" />;
+  return <Check className="size-3.5" role="img" aria-label="Sent" />;
 }
 
 function Cards({ cards, mine }: { cards: ChatCard[]; mine: boolean }) {
@@ -166,7 +187,7 @@ function SpeakButton({ text }: { text: string }) {
   );
 }
 
-export function MessageList({ messages, meId, typing, perspective = "buyer" }: { messages: ChatMsg[]; meId: string | null; typing?: boolean; perspective?: "buyer" | "staff" | "team" }) {
+export function MessageList({ messages, meId, typing, perspective = "buyer", receipts }: { messages: ChatMsg[]; meId: string | null; typing?: boolean; perspective?: "buyer" | "staff" | "team"; receipts?: Receipts | null }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -224,7 +245,7 @@ export function MessageList({ messages, meId, typing, perspective = "buyer" }: {
               {m.meta?.cards?.length ? <Cards cards={m.meta.cards} mine={mine} /> : null}
               {isSora && m.body && perspective === "buyer" && <SpeakButton text={m.body} />}
               <p className={clsx("mt-0.5 flex items-center gap-1 text-[11px] text-slate-400", mine && "justify-end")}>
-                {time(m.createdAt)} {mine && <CheckCheck className="size-3" />}
+                {time(m.createdAt)} {mine && <Ticks at={m.createdAt} receipts={receipts} />}
               </p>
             </div>
           </div>
@@ -246,15 +267,30 @@ export function MessageList({ messages, meId, typing, perspective = "buyer" }: {
   );
 }
 
+const EMOJI = ["😀", "😂", "😍", "😊", "👍", "🙏", "👏", "🎉", "🔥", "❤️", "🚗", "🚙", "🚚", "🛻", "🚢", "⚓", "📦", "💵", "💳", "📄", "✅", "❌", "⏳", "📞"];
+
 export function Composer({ conversationId, onSent, initial, placeholder, soraHint = true }: { conversationId: string; onSent?: (m: ChatMsg) => void; initial?: string; placeholder?: string; soraHint?: boolean }) {
   const [text, setText] = useState(initial ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [rec, setRec] = useState<WavRecorder | null>(null);
   const [secs, setSecs] = useState(0);
+  const [emoji, setEmoji] = useState(false);
+  const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (initial) setText(initial);
   }, [initial]);
+  const addEmoji = (e: string) => {
+    const el = box.current;
+    const at = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? at;
+    setText(text.slice(0, at) + e + text.slice(end));
+    setEmoji(false);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(at + e.length, at + e.length);
+    });
+  };
   useEffect(() => {
     if (!rec) return;
     const t = setInterval(() => setSecs(Math.round((Date.now() - rec.startedAt) / 1000)), 500);
@@ -341,12 +377,25 @@ export function Composer({ conversationId, onSent, initial, placeholder, soraHin
           </button>
         </div>
       ) : (
-        <div className="flex items-end gap-1.5">
+        <div className="relative flex items-end gap-1.5">
+          {emoji && (
+            <div role="menu" aria-label="Emoji" className="absolute bottom-12 left-0 z-10 grid w-[15.5rem] max-w-[calc(100vw-2rem)] grid-cols-6 gap-1 rounded-2xl bg-white p-2 shadow-xl ring-1 ring-slate-200">
+              {EMOJI.map((e) => (
+                <button key={e} type="button" role="menuitem" onClick={() => addEmoji(e)} className="flex size-9 items-center justify-center rounded-lg text-lg hover:bg-slate-100">
+                  {e}
+                </button>
+              ))}
+            </div>
+          )}
+          <button type="button" onClick={() => setEmoji((v) => !v)} className="flex size-10 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="Add an emoji" aria-expanded={emoji}>
+            <Smile className="size-5" />
+          </button>
           <label className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="Send pictures">
             <Paperclip className="size-5" />
             <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { void sendPictures([...(e.target.files ?? [])]); e.target.value = ""; }} />
           </label>
           <textarea
+            ref={box}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {

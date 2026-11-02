@@ -12,6 +12,8 @@ import { pushConfigured, pushToUsers } from "./push";
 onPresence((userId, online) => {
   publish(onlineUserIds(), "presence", { userId, online, at: new Date().toISOString() });
   if (!online) void db().update(s.users).set({ lastSeenAt: new Date() }).where(eq(s.users.id, userId)).catch(() => {});
+  // coming online brings every waiting message to this person's screen: two ticks for whoever sent them
+  else void db().update(s.chatMembers).set({ lastDeliveredAt: new Date() }).where(eq(s.chatMembers.userId, userId)).then(() => publish(onlineUserIds(), "delivered", { userId })).catch(() => {});
 });
 
 export async function soraUserId(): Promise<string> {
@@ -86,6 +88,15 @@ export async function postMessage(m: PostMessage, tx: DBorTx = db()) {
   const [cv] = await tx.select({ kind: s.chatConversations.kind }).from(s.chatConversations).where(eq(s.chatConversations.id, m.conversationId)).limit(1);
   const to = new Set([...(await conversationMembers(m.conversationId)), ...(cv?.kind === "customer" ? await onlineViewAll() : [])]);
   publish(to, "message", out);
+  // one tick became two for everyone already online (and for the AI employee, who is always here)
+  if (m.senderUserId && (m.kind ?? "text") !== "system") {
+    const sora = await soraUserId();
+    const here = [...(await conversationMembers(m.conversationId))].filter((id) => id !== m.senderUserId && (id === sora || isOnline(id)));
+    if (here.length) {
+      await tx.update(s.chatMembers).set({ lastDeliveredAt: new Date() }).where(and(eq(s.chatMembers.conversationId, m.conversationId), inArray(s.chatMembers.userId, here)));
+      publish(to, "delivered", { conversationId: m.conversationId });
+    }
+  }
   // whoever is away gets a push (not awaited: a message is never held up by Firebase, and it may be inside a transaction)
   if (m.senderUserId && (m.kind ?? "text") !== "system" && pushConfigured()) {
     const away = [...(await conversationMembers(m.conversationId))].filter((id) => id !== m.senderUserId && !isOnline(id));
@@ -110,9 +121,29 @@ export async function listMessages(conversationId: string, opts: { before?: Date
 }
 
 export async function markRead(conversationId: string, userId: string) {
-  await db().update(s.chatMembers).set({ lastReadAt: new Date() }).where(and(eq(s.chatMembers.conversationId, conversationId), eq(s.chatMembers.userId, userId)));
-  const others = (await conversationMembers(conversationId)).filter((x) => x !== userId);
-  publish(others, "read", { conversationId, userId, at: new Date().toISOString() });
+  const at = new Date();
+  await db().update(s.chatMembers).set({ lastReadAt: at, lastDeliveredAt: at }).where(and(eq(s.chatMembers.conversationId, conversationId), eq(s.chatMembers.userId, userId)));
+  const [cv] = await db().select({ kind: s.chatConversations.kind }).from(s.chatConversations).where(eq(s.chatConversations.id, conversationId)).limit(1);
+  const others = new Set([...(await conversationMembers(conversationId)), ...(cv?.kind === "customer" ? await onlineViewAll() : [])]);
+  others.delete(userId);
+  publish(others, "read", { conversationId, userId, at: at.toISOString() });
+}
+
+/**
+ * The ticks on my messages: what the other side has received and read. A buyer sees the team's answer to their messages;
+ * staff see the buyer's. In a group, read means everyone has read.
+ */
+export async function receiptsFor(conv: { id: string; kind: string; customerUserId: string | null }, viewerId: string) {
+  const rows = await db().select({ userId: s.chatMembers.userId, readAt: s.chatMembers.lastReadAt, deliveredAt: s.chatMembers.lastDeliveredAt }).from(s.chatMembers).where(eq(s.chatMembers.conversationId, conv.id));
+  const others = conv.kind === "customer" && viewerId !== conv.customerUserId ? rows.filter((r) => r.userId === conv.customerUserId) : rows.filter((r) => r.userId !== viewerId);
+  const times = (k: "readAt" | "deliveredAt") => others.map((o) => (o[k] ? new Date(o[k]!).getTime() : 0));
+  const pick = (k: "readAt" | "deliveredAt") => {
+    const t = times(k);
+    if (!t.length) return null;
+    const v = conv.kind === "group" ? Math.min(...t) : Math.max(...t);
+    return v ? new Date(v).toISOString() : null;
+  };
+  return { readAt: pick("readAt"), deliveredAt: pick("deliveredAt") };
 }
 
 /** A human takes a thread from Sora (or Sora hands over). Sora stops replying until it is handed back. */
@@ -133,13 +164,13 @@ export async function setHolder(conversationId: string, holder: "fte" | "human",
  * The desk lists. Buyers: "all" = every buyer conversation (needs chat.view_all), "mine" = the ones I am in.
  * Team: my staff DMs and groups — private to their members, whatever my permissions.
  */
-export async function deskConversations(u: AuthUser, scope: "mine" | "all" | "team") {
+export async function deskConversations(u: AuthUser, scope: "mine" | "all" | "team", agentId?: string) {
   const memberOf = db().select({ id: s.chatMembers.conversationId }).from(s.chatMembers).where(eq(s.chatMembers.userId, u.id));
   const where =
     scope === "team"
       ? and(inArray(s.chatConversations.kind, ["staff_dm", "group"]), inArray(s.chatConversations.id, memberOf))
       : scope === "all" && u.perms.has("chat.view_all")
-        ? eq(s.chatConversations.kind, "customer")
+        ? and(eq(s.chatConversations.kind, "customer"), agentId ? sql`(${s.chatConversations.assignedUserId} = ${agentId} or exists (select 1 from leads l where l.customer_user_id = ${s.chatConversations.customerUserId} and l.owner_user_id = ${agentId}))` : undefined)
         : and(eq(s.chatConversations.kind, "customer"), inArray(s.chatConversations.id, memberOf));
   const rows = await db()
     .select({
@@ -169,6 +200,29 @@ export async function deskConversations(u: AuthUser, scope: "mine" | "all" | "te
     lastKind: r.lastKind,
     unread: r.unread,
   }));
+}
+
+/** See-everything staff: each agent with how many buyers' chats are theirs, to drill down agent, then customers. */
+export async function deskAgents() {
+  const r = await db().execute(sql`select u.id, u.name, u.kind, count(distinct c.id)::int as n
+    from users u
+    join chat_conversations c on c.kind = 'customer' and (c.assigned_user_id = u.id or exists (select 1 from leads l where l.customer_user_id = c.customer_user_id and l.owner_user_id = u.id))
+    where u.kind in ('staff', 'fte')
+    group by u.id, u.name, u.kind
+    order by n desc, u.name`);
+  return (r as unknown as { rows: { id: string; name: string; kind: string; n: number }[] }).rows;
+}
+
+/** Who a buyer can ask for in the chat: people on the chat desk, with a green dot. No e-mail or phone. */
+export async function peopleForBuyers() {
+  const rows = await db()
+    .select({ id: s.users.id, name: s.users.name, title: s.users.title, roleId: s.users.roleId })
+    .from(s.users)
+    .where(and(eq(s.users.kind, "staff"), eq(s.users.isActive, true)))
+    .orderBy(asc(s.users.name));
+  const out: { id: string; name: string; title: string | null; online: boolean }[] = [];
+  for (const r of rows) if ((await permsForRole(r.roleId)).has("chat.desk")) out.push({ id: r.id, name: r.name, title: r.title, online: isOnline(r.id) });
+  return out.sort((a, b) => Number(b.online) - Number(a.online));
 }
 
 /** Everyone on the team chat (active staff, not Sora), with a live green dot and last seen. */

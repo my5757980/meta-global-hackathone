@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Hand, LogOut, MessagesSquare, Pencil, Plus, Undo2, UserMinus, UserPlus, Users } from "lucide-react";
+import { Bot, ChevronLeft, ChevronRight, Hand, LogOut, MessagesSquare, Pencil, Plus, Undo2, UserMinus, UserPlus, Users } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useLiveEvent } from "../lib/sse";
@@ -57,9 +57,16 @@ export default function Desk() {
   const qc = useQueryClient();
   const [sp, setSp] = useSearchParams();
   const tab = (sp.get("tab") === "team" ? "team" : "buyers") as "buyers" | "team";
-  const [scope, setScope] = useState<"mine" | "all">(can("chat.view_all") ? "all" : "mine");
+  const [scope, setScope] = useState<"mine" | "all" | "agents">(can("chat.view_all") ? "all" : "mine");
+  const [agent, setAgent] = useState<{ id: string; name: string } | null>(null);
   const selected = sp.get("c");
-  const list = useQuery({ queryKey: ["desk", tab === "team" ? "team" : scope], queryFn: () => api.get<ConvRow[]>(`/api/chat/conversations?scope=${tab === "team" ? "team" : scope}`) });
+  const byAgent = tab === "buyers" && scope === "agents";
+  const agents = useQuery({ queryKey: ["desk-agents"], queryFn: () => api.get<{ id: string; name: string; kind: string; n: number }[]>("/api/chat/desk-agents"), enabled: byAgent });
+  const list = useQuery({
+    queryKey: ["desk", tab === "team" ? "team" : scope, agent?.id ?? null],
+    queryFn: () => api.get<ConvRow[]>(`/api/chat/conversations?scope=${tab === "team" ? "team" : byAgent ? "all" : scope}${byAgent && agent ? `&agent=${agent.id}` : ""}`),
+    enabled: !byAgent || !!agent,
+  });
   const team = useQuery({ queryKey: ["team"], queryFn: () => api.get<Colleague[]>("/api/chat/team"), enabled: tab === "team" });
   const refresh = useCallback(() => void qc.invalidateQueries({ queryKey: ["desk"] }), [qc]);
   const onPresence = useCallback(() => {
@@ -97,9 +104,9 @@ export default function Desk() {
           />
           {tab === "buyers" && can("chat.view_all") && (
             <div className="flex gap-1 text-xs">
-              {(["all", "mine"] as const).map((v) => (
-                <button key={v} onClick={() => setScope(v)} className={clsx("rounded-full px-2.5 py-1 font-semibold", scope === v ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600")}>
-                  {v === "all" ? "All buyers" : "Mine"}
+              {(["all", "mine", "agents"] as const).map((v) => (
+                <button key={v} onClick={() => { setScope(v); setAgent(null); }} className={clsx("rounded-full px-2.5 py-1 font-semibold", scope === v ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600")}>
+                  {v === "all" ? "All buyers" : v === "mine" ? "Mine" : "By agent"}
                 </button>
               ))}
             </div>
@@ -130,7 +137,31 @@ export default function Desk() {
               )}
             </div>
           )}
-          {list.isLoading ? (
+          {byAgent && agent && (
+            <button onClick={() => setAgent(null)} className="flex w-full items-center gap-1.5 border-b border-slate-100 px-3 py-2 text-left text-sm font-semibold text-brand-700 hover:bg-slate-50">
+              <ChevronLeft className="size-4" /> All agents · {agent.name}
+            </button>
+          )}
+          {byAgent && !agent ? (
+            agents.isLoading ? (
+              <div className="flex justify-center p-6">
+                <Spinner />
+              </div>
+            ) : !agents.data?.length ? (
+              <p className="p-6 text-center text-sm text-slate-500">No agent has a buyer's chat yet.</p>
+            ) : (
+              agents.data.map((a) => (
+                <button key={a.id} onClick={() => setAgent({ id: a.id, name: a.name })} className="flex w-full items-center gap-3 border-b border-slate-50 px-3 py-3 text-left hover:bg-slate-50">
+                  <Avatar name={a.name} kind={a.kind === "fte" ? "fte" : "staff"} size={38} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-slate-900">{a.name}</span>
+                    <span className="block text-xs text-slate-500">{a.n} customer{a.n === 1 ? "" : "s"}</span>
+                  </span>
+                  <ChevronRight className="size-4 shrink-0 text-slate-400" />
+                </button>
+              ))
+            )
+          ) : list.isLoading ? (
             <div className="flex justify-center p-6">
               <Spinner />
             </div>
@@ -242,7 +273,7 @@ function DeskThread({ id, meId, onBack, onLeft }: { id: string; meId: string; on
   const fte = useFte();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["conv", id], queryFn: () => api.get<ConvDetail>(`/api/chat/conversations/${id}`) });
-  const { messages, setMessages, typing } = useConversation(id, q.data?.messages ?? []);
+  const { messages, setMessages, typing, receipts } = useConversation(id, q.data?.messages ?? []);
   useEffect(() => {
     if (q.data) setMessages(q.data.messages);
   }, [q.data, setMessages]);
@@ -328,7 +359,7 @@ function DeskThread({ id, meId, onBack, onLeft }: { id: string; meId: string; on
         </div>
       )}
       <div className="scrollbar-thin flex-1 overflow-y-auto bg-slate-50 px-4 py-4">
-        <MessageList messages={messages} meId={meId} typing={typing} perspective={c.kind === "customer" ? "staff" : "team"} />
+        <MessageList messages={messages} meId={meId} typing={typing} perspective={c.kind === "customer" ? "staff" : "team"} receipts={receipts} />
       </div>
       <Composer
         conversationId={id}

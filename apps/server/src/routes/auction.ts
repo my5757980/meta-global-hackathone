@@ -1,11 +1,11 @@
 import { Router } from "express";
 import archiver from "archiver";
 import ExcelJS from "exceljs";
-import { and, asc, desc, eq, gte, ilike, lte, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, lte, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
 import * as s from "../db/schema";
-import { bad, forbidden, h, notFound, page, parse } from "../lib/http";
+import { bad, conflict, forbidden, h, notFound, page, parse } from "../lib/http";
 import { can, requireAuth, requirePerm } from "../auth/session";
 import { getLot, listLots, lotFacets, lotVisible, placeBid, priceHistory, toSheetLot, today, type LotFilters } from "../services/auction";
 import { fetchImage } from "../services/lotImages";
@@ -222,7 +222,7 @@ auctionRouter.get(
   "/stats",
   h(async (req) => {
     requirePerm(req, "auction.access");
-    const q = parse(z.object({ make: z.string().max(40).optional(), model: z.string().max(60).optional(), yearMin: z.coerce.number().int().optional(), yearMax: z.coerce.number().int().optional(), grade: z.string().max(4).optional(), hall: z.string().max(40).optional(), sold: z.enum(["1", "0"]).optional() }).passthrough(), req.query);
+    const q = parse(z.object({ make: z.string().max(40).optional(), model: z.string().max(60).optional(), yearMin: z.coerce.number().int().optional(), yearMax: z.coerce.number().int().optional(), grade: z.string().max(4).optional(), hall: z.string().max(40).optional(), sold: z.enum(["1", "0"]).optional(), engine: z.string().regex(/^\d{0,5}-\d{0,5}$/).optional(), sort: z.enum(["date", "price_asc", "price_desc", "year_desc", "mileage_asc"]).optional() }).passthrough(), req.query);
     const { pageSize, offset, page: pageNo } = page(req.query, 20, 50);
     const [{ newest }] = (await db().select({ newest: sql<string>`max(${s.auctionResults.saleDate})::text` }).from(s.auctionResults)) as [{ newest: string }];
     const from = new Date(new Date(newest).getTime() - 92 * 86400_000).toISOString().slice(0, 10);
@@ -234,8 +234,14 @@ auctionRouter.get(
     if (q.grade) w.push(eq(s.auctionResults.grade, q.grade));
     if (q.hall) w.push(eq(s.auctionResults.hallId, q.hall));
     if (q.sold) w.push(eq(s.auctionResults.sold, Number(q.sold)));
+    if (q.engine) {
+      const [lo, hi] = q.engine.split("-");
+      if (lo) w.push(gte(s.auctionResults.engineCc, Number(lo)));
+      if (hi) w.push(lte(s.auctionResults.engineCc, Number(hi)));
+    }
     const where = and(...w);
-    const items = await db().select({ r: s.auctionResults, hall: s.auctionHalls.name }).from(s.auctionResults).innerJoin(s.auctionHalls, eq(s.auctionHalls.id, s.auctionResults.hallId)).where(where).orderBy(desc(s.auctionResults.saleDate), asc(s.auctionResults.lotNo)).limit(pageSize).offset(offset);
+    const order = q.sort === "price_asc" ? [asc(s.auctionResults.finalPriceJpy)] : q.sort === "price_desc" ? [desc(s.auctionResults.finalPriceJpy)] : q.sort === "year_desc" ? [desc(s.auctionResults.year)] : q.sort === "mileage_asc" ? [asc(s.auctionResults.mileageKm)] : [desc(s.auctionResults.saleDate)];
+    const items = await db().select({ r: s.auctionResults, hall: s.auctionHalls.name }).from(s.auctionResults).innerJoin(s.auctionHalls, eq(s.auctionHalls.id, s.auctionResults.hallId)).where(where).orderBy(...order, desc(s.auctionResults.saleDate), asc(s.auctionResults.lotNo), asc(s.auctionResults.id)).limit(pageSize).offset(offset);
     const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(s.auctionResults).where(where)) as [{ n: number }];
     return { items: items.map((x) => ({ ...x.r, hall: x.hall })), total: n, page: pageNo, pageSize, window: { from, to: newest } };
   }),
@@ -263,7 +269,7 @@ auctionRouter.get(
   h(async (req) => {
     requirePerm(req, "auction.admin");
     const t = await today();
-    const [[lots], [clients], [bids], [orders], [enq], byDay, topBidders, desk] = await Promise.all([
+    const [[lots], [clients], [bids], [orders], [enq], byDay, topBidders, desk, funnelRows, customerActs, deskActs, recentBids, recentOrders, [newestLot]] = await Promise.all([
       db().select({ upcoming: sql<number>`count(*) filter (where status = 'upcoming' and sale_date >= ${t})::int`, total: sql<number>`count(*)::int` }).from(s.auctionLots),
       db().select({ n: sql<number>`count(*)::int` }).from(s.users).where(eq(s.users.kind, "customer")),
       db().select({ n: sql<number>`count(*)::int`, value: sql<number>`coalesce(sum(amount_jpy),0)::float` }).from(s.auctionBids),
@@ -272,7 +278,25 @@ auctionRouter.get(
       db().execute(sql`select to_char(created_at, 'YYYY-MM-DD') as day, count(*)::int as bids from auction_bids where created_at > now() - interval '14 days' group by 1 order by 1`),
       db().execute(sql`select u.name, count(*)::int as bids, sum(b.amount_jpy)::float as value from auction_bids b join users u on u.id = b.user_id group by u.name order by bids desc limit 6`),
       db().select({ name: s.users.name, kind: s.users.kind, lastSeenAt: s.users.lastSeenAt }).from(s.users).where(eq(s.users.kind, "staff")).orderBy(desc(s.users.lastSeenAt)).limit(8),
+      db().execute(sql`select
+        (select count(*)::int from users where kind = 'customer') as clients,
+        (select count(distinct b.user_id)::int from auction_bids b join users u on u.id = b.user_id where u.kind = 'customer') as bidders,
+        (select count(*)::int from auction_bids) as bids,
+        (select count(*)::int from auction_bids where status = 'won') as won,
+        (select count(*)::int from auction_orders) as orders,
+        (select count(*)::int from auction_orders where status in ('paid','shipped','delivered')) as paid`),
+      db().execute(sql`select * from (
+          select 'bid' as kind, u.name, b.created_at as at, l.id as lot_id, l.lot_no, l.make, l.model, b.amount_jpy as amount from auction_bids b join users u on u.id = b.user_id join auction_lots l on l.id = b.lot_id where u.kind <> 'staff'
+          union all select 'order', u.name, o.created_at, l.id, l.lot_no, l.make, l.model, o.price_jpy from auction_orders o join users u on u.id = o.user_id join auction_lots l on l.id = o.lot_id where u.kind <> 'staff'
+          union all select 'enquiry', u.name, e.created_at, l.id, l.lot_no, l.make, l.model, null from auction_enquiries e join users u on u.id = e.user_id join auction_lots l on l.id = e.lot_id where u.kind <> 'staff'
+        ) x order by at desc limit 10`),
+      db().execute(sql`select a.id, a.summary, a.created_at as at, u.name from audit_log a left join users u on u.id = a.actor_user_id where a.actor_kind = 'human' and (a.action like 'bid.%' or a.action like 'order.%' or a.action like 'enquiry.%' or a.action like 'lots.%') and a.action <> 'bid.placed' order by a.created_at desc limit 10`),
+      db().select({ id: s.auctionBids.id, amountJpy: s.auctionBids.amountJpy, status: s.auctionBids.status, createdAt: s.auctionBids.createdAt, who: s.users.name, lotId: s.auctionLots.id, lotNo: s.auctionLots.lotNo, make: s.auctionLots.make, model: s.auctionLots.model }).from(s.auctionBids).innerJoin(s.users, eq(s.users.id, s.auctionBids.userId)).innerJoin(s.auctionLots, eq(s.auctionLots.id, s.auctionBids.lotId)).orderBy(desc(s.auctionBids.createdAt)).limit(6),
+      db().select({ id: s.auctionOrders.id, orderNo: s.auctionOrders.orderNo, priceJpy: s.auctionOrders.priceJpy, status: s.auctionOrders.status, createdAt: s.auctionOrders.createdAt, who: s.users.name, lotId: s.auctionLots.id, lotNo: s.auctionLots.lotNo, make: s.auctionLots.make, model: s.auctionLots.model }).from(s.auctionOrders).innerJoin(s.users, eq(s.users.id, s.auctionOrders.userId)).innerJoin(s.auctionLots, eq(s.auctionLots.id, s.auctionOrders.lotId)).orderBy(desc(s.auctionOrders.createdAt)).limit(6),
+      db().select({ at: sql<string | null>`max(created_at)` }).from(s.auctionLots),
     ]);
+    const totalBids = bids?.n ?? 0;
+    const upcoming = lots?.upcoming ?? 0;
     return {
       lots,
       clients: clients?.n ?? 0,
@@ -280,9 +304,15 @@ auctionRouter.get(
       orders,
       enquiries: enq,
       bidsByDay: (byDay as unknown as { rows: { day: string; bids: number }[] }).rows,
-      topBidders: (topBidders as unknown as { rows: { name: string; bids: number; value: number }[] }).rows,
+      topBidders: (topBidders as unknown as { rows: { name: string; bids: number; value: number }[] }).rows.map((r) => ({ ...r, share: totalBids ? Math.round((r.bids / totalBids) * 100) : 0 })),
       desk,
-      feed: { status: "working", text: "Auction is working" },
+      funnel: (funnelRows as unknown as { rows: Record<string, number>[] }).rows[0],
+      customerActions: (customerActs as unknown as { rows: unknown[] }).rows,
+      deskActions: (deskActs as unknown as { rows: unknown[] }).rows,
+      recentBids,
+      recentOrders,
+      // measured: it says working only while there are lots on sale
+      feed: upcoming > 0 ? { status: "working", text: "Auction is working", detail: `${upcoming.toLocaleString("en-US")} lots on sale`, newestAt: newestLot?.at ?? null } : { status: "not_working", text: "Auction is not working", detail: "No lots on sale. Import a lot list.", newestAt: newestLot?.at ?? null },
     };
   }),
 );
@@ -332,6 +362,47 @@ auctionRouter.put(
   }),
 );
 
+auctionRouter.delete(
+  "/admin/bids/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "auction.bids.manage");
+    const [b] = await db().select({ b: s.auctionBids, lotNo: s.auctionLots.lotNo, who: s.users.name }).from(s.auctionBids).innerJoin(s.auctionLots, eq(s.auctionLots.id, s.auctionBids.lotId)).innerJoin(s.users, eq(s.users.id, s.auctionBids.userId)).where(eq(s.auctionBids.id, String(req.params.id))).limit(1);
+    if (!b) throw notFound("Bid not found");
+    if (b.b.status === "won") throw conflict("A won bid has an order behind it, so it cannot be deleted. Change its status first");
+    await db().delete(s.auctionBids).where(eq(s.auctionBids.id, b.b.id));
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "bid.deleted", entity: "lot", entityId: b.b.lotId, summary: `${u.name} deleted a bid of ¥${b.b.amountJpy.toLocaleString("en-US")} by ${b.who} on lot ${b.lotNo}` });
+    return { ok: true };
+  }),
+);
+
+// ---------- every lot, whatever its state ----------
+auctionRouter.get(
+  "/admin/vehicles",
+  h(async (req) => {
+    requirePerm(req, "auction.admin");
+    const q = parse(z.object({ q: z.string().trim().max(60).optional(), status: z.enum(["upcoming", "sold", "unsold", "withdrawn"]).optional(), hall: z.string().max(40).optional() }).passthrough(), req.query);
+    const { pageSize, offset, page: pageNo } = page(req.query, 25, 100);
+    const w: (SQL | undefined)[] = [];
+    if (q.q) {
+      const like = `%${q.q}%`;
+      w.push(or(ilike(s.auctionLots.make, like), ilike(s.auctionLots.model, like), ilike(s.auctionLots.modelCode, like), /^\d+$/.test(q.q) ? eq(s.auctionLots.lotNo, Number(q.q)) : undefined));
+    }
+    if (q.status) w.push(eq(s.auctionLots.status, q.status));
+    if (q.hall) w.push(eq(s.auctionLots.hallId, q.hall));
+    const where = and(...w);
+    const rows = await db()
+      .select({ id: s.auctionLots.id, lotNo: s.auctionLots.lotNo, saleDate: s.auctionLots.saleDate, make: s.auctionLots.make, model: s.auctionLots.model, modelCode: s.auctionLots.modelCode, year: s.auctionLots.year, mileageKm: s.auctionLots.mileageKm, grade: s.auctionLots.grade, startPriceJpy: s.auctionLots.startPriceJpy, status: s.auctionLots.status, hall: s.auctionHalls.name, bids: sql<number>`(select count(*)::int from auction_bids b where b.lot_id = "auction_lots"."id")` })
+      .from(s.auctionLots)
+      .innerJoin(s.auctionHalls, eq(s.auctionHalls.id, s.auctionLots.hallId))
+      .where(where)
+      .orderBy(desc(s.auctionLots.saleDate), asc(s.auctionLots.lotNo), asc(s.auctionLots.id))
+      .limit(pageSize)
+      .offset(offset);
+    const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(s.auctionLots).where(where)) as [{ n: number }];
+    return { items: rows, total: n, page: pageNo, pageSize };
+  }),
+);
+
 auctionRouter.get(
   "/admin/orders",
   h(async (req) => {
@@ -370,6 +441,7 @@ auctionRouter.post(
     if (!e) throw notFound();
     await db().update(s.auctionEnquiries).set({ reply: b.reply, repliedBy: u.id, repliedAt: new Date(), status: "answered" }).where(eq(s.auctionEnquiries.id, e.id));
     await notify([e.userId], { type: "enquiry_reply", title: `Reply to ${e.enqNo}`, body: b.reply.slice(0, 140), link: `/auction/me` });
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "enquiry.replied", entity: "enquiry", entityId: e.id, summary: `${u.name} answered enquiry ${e.enqNo}` });
     return { ok: true };
   }),
 );

@@ -43,6 +43,7 @@ export const chatMembers = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     role: text().notNull().default("member"),
     lastReadAt: timestamp({ withTimezone: true }),
+    lastDeliveredAt: timestamp({ withTimezone: true }),
     joinedAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.conversationId, t.userId] }), index("members_user_idx").on(t.userId)],

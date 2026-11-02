@@ -148,8 +148,9 @@ export function AuctionList() {
   const { can } = useAuth();
   const [sp, setSp] = useSearchParams();
   const params = useMemo(() => Object.fromEntries(KEYS.map((k) => [k, sp.get(k) ?? ""])) as Record<(typeof KEYS)[number], string>, [sp]);
-  const facets = useQuery({ queryKey: ["afacets-list", params], queryFn: () => api.get<Facets>(`/api/auction/facets${qs({ ...params, page: undefined })}`), placeholderData: keepPreviousData });
-  const list = useQuery({ queryKey: ["alots", params], queryFn: () => api.get<{ items: Lot[]; total: number; page: number; pageSize: number }>(`/api/auction/lots${qs(params)}`), placeholderData: keepPreviousData });
+  // the list and its counts keep themselves up to date while the page is open
+  const facets = useQuery({ queryKey: ["afacets-list", params], queryFn: () => api.get<Facets>(`/api/auction/facets${qs({ ...params, page: undefined })}`), placeholderData: keepPreviousData, refetchInterval: 30_000 });
+  const list = useQuery({ queryKey: ["alots", params], queryFn: () => api.get<{ items: Lot[]; total: number; page: number; pageSize: number }>(`/api/auction/lots${qs(params)}`), refetchInterval: 30_000, placeholderData: keepPreviousData });
   const set = (k: string, v: string) => {
     const n = new URLSearchParams(sp);
     if (v && n.get(k) !== v) n.set(k, v);
@@ -320,9 +321,14 @@ export function AuctionLotPage() {
     <AuctionGate>
       <AuctionNav />
       <div className="container-page py-6">
-        <Link to="/auction/list" className="mb-3 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-brand-700">
-          <ChevronLeft className="size-4" /> Lots
-        </Link>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <Link to="/auction/list" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-brand-700">
+            <ChevronLeft className="size-4" /> Lots
+          </Link>
+          <Link to={`/auction/list${qs({ make: l.make, model: l.model })}`} className="inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:underline">
+            Find others like this →
+          </Link>
+        </div>
         <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
           <div>
             <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -508,7 +514,8 @@ export function AuctionLotPage() {
 
 export function AuctionStatistics() {
   const [sp, setSp] = useSearchParams();
-  const p = Object.fromEntries(["make", "model", "yearMin", "yearMax", "grade", "sold", "page"].map((k) => [k, sp.get(k) ?? ""]));
+  const p = Object.fromEntries(["make", "model", "yearMin", "yearMax", "grade", "sold", "hall", "engine", "sort", "page"].map((k) => [k, sp.get(k) ?? ""]));
+  const halls = useQuery({ queryKey: ["ahalls"], queryFn: () => api.get<{ id: string; name: string }[]>("/api/auction/halls"), staleTime: 3600_000 });
   const q = useQuery({ queryKey: ["astats", p], queryFn: () => api.get<{ items: { id: string; saleDate: string; hall: string; lotNo: number; make: string; model: string; modelCode: string; year: number; engineCc: number; mileageKm: number; grade: string; color: string; startPriceJpy: number; finalPriceJpy: number; sold: number }[]; total: number; page: number; pageSize: number; window: { from: string; to: string } }>(`/api/auction/stats${qs(p)}`), placeholderData: keepPreviousData });
   const set = (k: string, v: string) => {
     const n = new URLSearchParams(sp);
@@ -538,6 +545,35 @@ export function AuctionStatistics() {
               <option key={g}>{g}</option>
             ))}
           </Select>
+          <div className="w-44">
+            <Select aria-label="Hall" value={p.hall} onChange={(e) => set("hall", e.target.value)}>
+              <option value="">All halls</option>
+              {halls.data?.map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="w-40">
+            <Select aria-label="Engine" value={p.engine} onChange={(e) => set("engine", e.target.value)}>
+              <option value="">Any engine</option>
+              <option value="-1000">Up to 1,000 cc</option>
+              <option value="1001-1500">1,001 to 1,500 cc</option>
+              <option value="1501-2000">1,501 to 2,000 cc</option>
+              <option value="2001-3000">2,001 to 3,000 cc</option>
+              <option value="3001-">Over 3,000 cc</option>
+            </Select>
+          </div>
+          <div className="w-48">
+            <Select aria-label="Sort" value={p.sort} onChange={(e) => set("sort", e.target.value)}>
+              <option value="">Newest sale first</option>
+              <option value="price_desc">Price: high to low</option>
+              <option value="price_asc">Price: low to high</option>
+              <option value="year_desc">Year: newest</option>
+              <option value="mileage_asc">Mileage: lowest</option>
+            </Select>
+          </div>
           <Tabs
             value={p.sold}
             onChange={(v) => set("sold", v)}
