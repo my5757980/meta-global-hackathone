@@ -56,6 +56,7 @@ const filtersSchema = z.object({
   priceMin: z.coerce.number().optional(),
   priceMax: z.coerce.number().optional(),
   mileageMax: z.coerce.number().optional(),
+  country: z.string().max(3).optional(),
   sort: z.enum(["newest", "price_asc", "price_desc", "year_desc", "mileage_asc"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(60).default(24),

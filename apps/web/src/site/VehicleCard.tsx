@@ -18,14 +18,14 @@ export function VehicleCard({ v }: { v: V }) {
       </div>
       <div className="flex flex-1 flex-col p-4">
         <p className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold text-slate-900">{v.title}</p>
-        <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-slate-600">
-          <span className="flex items-center gap-1 truncate">
+        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+          <span className="flex items-center gap-1 whitespace-nowrap">
             <Gauge className="size-3.5 shrink-0 text-slate-400" /> {km(v.mileageKm)}
           </span>
-          <span className="flex items-center gap-1 truncate">
+          <span className="flex items-center gap-1 whitespace-nowrap">
             <Fuel className="size-3.5 shrink-0 text-slate-400" /> {v.fuel}
           </span>
-          <span className="flex items-center gap-1 truncate">
+          <span className="flex items-center gap-1 whitespace-nowrap">
             <Settings2 className="size-3.5 shrink-0 text-slate-400" /> {v.transmission}
           </span>
         </div>

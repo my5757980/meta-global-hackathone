@@ -1,18 +1,28 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { SlidersHorizontal, X, Search } from "lucide-react";
+import { SlidersHorizontal, X } from "lucide-react";
 import { api, qs } from "../lib/api";
 import { useFte, type VehicleCard as V } from "../lib/site";
-import { Button, Empty, Input, Pagination, Select, Skeleton, clsx } from "../ui";
+import { Button, Empty, Pagination, Select, Skeleton, clsx } from "../ui";
+import { SearchBox } from "./SearchBox";
 import { VehicleGrid } from "./VehicleCard";
 
 interface Facets {
   brands: { name: string; slug: string; models: { name: string; slug: string }[] }[];
   bodyTypes: { name: string; count: number }[];
 }
+interface Country {
+  code: string;
+  name: string;
+  rhdAllowed: boolean;
+  inspectionRequired: boolean;
+  inspectionFeeUsd: number;
+  note: string | null;
+}
 
-const KEYS = ["q", "brand", "model", "body", "fuel", "transmission", "drive", "steering", "color", "yearMin", "yearMax", "priceMin", "priceMax", "mileageMax", "sort", "page"] as const;
+const KEYS = ["q", "brand", "model", "country", "body", "fuel", "transmission", "drive", "steering", "color", "yearMin", "yearMax", "priceMin", "priceMax", "mileageMax", "sort", "page"] as const;
+const CHIP: Partial<Record<(typeof KEYS)[number], string>> = { q: "Search", country: "Ship to", color: "Colour", yearMin: "Year from", yearMax: "Year to", priceMin: "Min price", priceMax: "Max price", mileageMax: "Max mileage" };
 
 export default function Shop() {
   const fte = useFte();
@@ -35,14 +45,25 @@ export default function Shop() {
     setSp(n); // each change is a history entry: Back removes exactly one filter
   };
   const active = KEYS.filter((k) => k !== "page" && k !== "sort" && params[k]);
-  const models = facets.data?.brands.find((b) => b.slug === params.brand)?.models ?? [];
+  const brand = facets.data?.brands.find((b) => b.slug === params.brand);
+  const models = brand?.models ?? [];
+  const countries = useQuery({ queryKey: ["countries"], queryFn: () => api.get<Country[]>("/api/public/countries"), staleTime: 3600_000 });
+  const shipTo = countries.data?.find((c) => c.code === params.country);
+  const chipLabel = (k: (typeof KEYS)[number]) => CHIP[k] ?? k.charAt(0).toUpperCase() + k.slice(1);
+  const chipValue = (k: (typeof KEYS)[number]) => {
+    const v = params[k];
+    if (k === "brand") return brand?.name ?? v;
+    if (k === "model") return models.find((m) => m.slug === v)?.name ?? v;
+    if (k === "country") return shipTo?.name ?? v;
+    if (k === "steering") return `${v}-hand drive`;
+    if (k === "mileageMax") return `${Number(v).toLocaleString("en-US")} km`;
+    if (k === "priceMax" || k === "priceMin") return `$${Number(v).toLocaleString("en-US")}`;
+    return v;
+  };
 
   const filters = (
     <div className="space-y-4">
-      <label className="relative block">
-        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
-        <Input defaultValue={params.q} key={params.q} placeholder="Model, chassis code, stock no." className="pl-9" onKeyDown={(e) => e.key === "Enter" && set("q", (e.target as HTMLInputElement).value)} onBlur={(e) => e.target.value !== params.q && set("q", e.target.value)} />
-      </label>
+      <SearchBox value={params.q} placeholder="Model, chassis, stock no." searchOnBlur onSearch={(q) => set("q", q)} />
       <Select value={params.brand} onChange={(e) => set("brand", e.target.value)} aria-label="Brand">
         <option value="">All brands</option>
         {facets.data?.brands.map((b) => (
@@ -59,6 +80,14 @@ export default function Shop() {
           </option>
         ))}
       </Select>
+      <Select value={params.country} onChange={(e) => set("country", e.target.value)} aria-label="Ship to country">
+        <option value="">Ship to any country</option>
+        {countries.data?.map((c) => (
+          <option key={c.code} value={c.code}>
+            {c.name}
+          </option>
+        ))}
+      </Select>
       <div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Body type</p>
         <div className="flex flex-wrap gap-2">
@@ -69,7 +98,7 @@ export default function Shop() {
           ))}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
         <Select value={params.fuel} onChange={(e) => set("fuel", e.target.value)} aria-label="Fuel">
           <option value="">Any fuel</option>
           {["Petrol", "Diesel", "Hybrid", "Electric"].map((x) => (
@@ -90,8 +119,8 @@ export default function Shop() {
         </Select>
         <Select value={params.steering} onChange={(e) => set("steering", e.target.value)} aria-label="Steering">
           <option value="">Any steering</option>
-          <option value="Right">Right-hand drive</option>
-          <option value="Left">Left-hand drive</option>
+          <option value="Right">Right-hand</option>
+          <option value="Left">Left-hand</option>
         </Select>
         <Select value={params.color} onChange={(e) => set("color", e.target.value)} aria-label="Colour">
           <option value="">Any colour</option>
@@ -154,16 +183,22 @@ export default function Shop() {
         <div className="mb-4 flex flex-wrap gap-2">
           {active.map((k) => (
             <button key={k} onClick={() => set(k, "")} className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 ring-1 ring-brand-100">
-              {k}: {params[k]} <X className="size-3" />
+              {chipLabel(k)}: {chipValue(k)} <X className="size-3" />
             </button>
           ))}
         </div>
       )}
       <div className="grid gap-6 lg:grid-cols-[17rem_1fr]">
         <aside className="hidden lg:block">
-          <div className="sticky top-20 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">{filters}</div>
+          <div className="scrollbar-thin sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">{filters}</div>
         </aside>
         <div>
+          {shipTo && (
+            <p className="mb-4 rounded-xl bg-brand-50 p-3 text-sm text-brand-900 ring-1 ring-brand-100">
+              <strong>Shipping to {shipTo.name}:</strong> {shipTo.rhdAllowed ? "right-hand drive is accepted." : "right-hand drive is not accepted, so those cars are hidden."}{" "}
+              {shipTo.inspectionRequired ? `A pre-shipment inspection is needed ($${shipTo.inspectionFeeUsd.toLocaleString("en-US")}).` : "No pre-shipment inspection is needed."} {shipTo.note ?? ""} <span className="text-brand-700">Demo rules: {fte} confirms them before you buy.</span>
+            </p>
+          )}
           {list.isLoading ? (
             <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (

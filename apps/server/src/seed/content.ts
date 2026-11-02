@@ -6,7 +6,7 @@ export const HOME_SECTIONS = [
     title: "Hero slides",
     data: {
       slides: [
-        { title: "Japanese quality, delivered to your port", subtitle: "120+ inspected cars in stock and 3,000 auction lots every week — quoted in USD to your port, any hour, by Sora, our AI sales executive.", cta: "Browse stock", link: "/shop", body: "SUV", color: "Pearl White" },
+        { title: "Japanese quality, delivered to your port", subtitle: "80+ inspected cars in stock and 1,700+ auction lots every week — quoted in USD to your port, any hour, by Sora, our AI sales executive.", cta: "Browse stock", link: "/shop", body: "SUV", color: "Pearl White" },
         { title: "Buy straight from Japan's auctions", subtitle: "We read every auction sheet for you, bid inside your budget and ship RoRo or container.", cta: "See auction lots", link: "/auction", body: "Pickup", color: "Silver" },
         { title: "Track every step to your port", subtitle: "Invoices, payments, documents and shipping progress — all in your account.", cta: "Create account", link: "/register", body: "Minivan", color: "Dark Blue" },
       ],
@@ -81,7 +81,7 @@ export const HOME_SECTIONS = [
 ];
 
 export const SERVICES = [
-  { title: "Auction buying service", icon: "Gavel", body: "Access to 3,000+ lots a week across Japan's auction halls. We read the auction sheet, check the photos and bid only within the budget you set." },
+  { title: "Auction buying service", icon: "Gavel", body: "Access to 1,700+ lots a week across Japan's auction halls. We read the auction sheet, check the photos and bid only within the budget you set." },
   { title: "Ready stock", icon: "Car", body: "Inspected cars in our Yokohama yard, ready to ship this week. Prices shown in USD with C&F quotes to your port." },
   { title: "Pre-shipment inspection", icon: "ClipboardCheck", body: "We arrange the inspection your country requires before the car leaves Japan, and upload the certificate to your account." },
   { title: "Shipping & logistics", icon: "Ship", body: "RoRo and container shipping to 150+ ports, with progress updates from yard to vessel to your port." },

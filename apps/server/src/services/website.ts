@@ -17,6 +17,7 @@ export interface VehicleFilters {
   priceMin?: number;
   priceMax?: number;
   mileageMax?: number;
+  country?: string;
   status?: "available" | "all";
   homeSection?: string;
   featured?: boolean;
@@ -48,6 +49,8 @@ export function vehicleWhere(f: VehicleFilters): SQL | undefined {
   if (f.priceMin) w.push(gte(effectivePrice, f.priceMin));
   if (f.priceMax) w.push(lte(effectivePrice, f.priceMax));
   if (f.mileageMax) w.push(lte(vehicles.mileageKm, f.mileageMax));
+  // cars that can be imported there: a country that refuses right-hand drive hides those (a code we do not know hides nothing)
+  if (f.country) w.push(sql`(${vehicles.steering} <> 'Right' or coalesce((select rhd_allowed from countries where code = ${f.country.toUpperCase()}), true))`);
   if (f.homeSection) w.push(sql`${f.homeSection} = any(${vehicles.homeSections})`);
   if (f.featured) w.push(eq(vehicles.featured, true));
   if (f.ids?.length) w.push(inArray(vehicles.id, f.ids));

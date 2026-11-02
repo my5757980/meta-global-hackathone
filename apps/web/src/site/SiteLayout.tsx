@@ -9,6 +9,7 @@ import { clsx } from "../ui";
 import { ChatWidget } from "../chat/ChatWidget";
 import { CallLayer } from "../chat/calls";
 import { MustChangePassword } from "../account/Security";
+import { SearchBox } from "./SearchBox";
 
 const NAV = [
   { to: "/", label: "Home" },
@@ -43,7 +44,6 @@ export function SiteLayout() {
   const site = useSite();
   const { me, logout } = useAuth();
   const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
   const nav = useNavigate();
   const loc = useLocation();
   const counts = useShopCounts();
@@ -84,18 +84,9 @@ export function SiteLayout() {
               </NavLink>
             ))}
           </nav>
-          <form
-            className="ml-auto hidden max-w-xs flex-1 md:block"
-            onSubmit={(e) => {
-              e.preventDefault();
-              nav(`/shop?q=${encodeURIComponent(q)}`);
-            }}
-          >
-            <label className="relative block">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search model, chassis code, stock no." className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pr-3 pl-9 text-sm focus:border-brand-500 focus:bg-white focus:outline-none" />
-            </label>
-          </form>
+          <div className="ml-auto hidden max-w-xs flex-1 md:block">
+            <SearchBox placeholder="Search cars" inputClassName="bg-slate-50 focus:bg-white" listClassName="right-0 w-[26rem] max-w-[calc(100vw-2rem)]" onSearch={(q) => nav(`/shop?q=${encodeURIComponent(q)}`)} />
+          </div>
           <div className="ml-auto flex items-center gap-1 md:ml-2">
             <Link to="/shop" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden" aria-label="Search">
               <Search className="size-5" />

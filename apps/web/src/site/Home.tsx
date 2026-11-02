@@ -255,8 +255,10 @@ function Hero({ data, brands, fte }: { fte: string; data?: { slides: { title: st
 
 function QuickSearch({ brands }: { brands: { name: string; slug: string }[] }) {
   const nav = useNavigate();
-  const [f, setF] = useState({ brand: "", body: "", priceMax: "", yearMin: "", transmission: "" });
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+  const [f, setF] = useState({ brand: "", model: "", body: "", priceMax: "", yearMin: "", mileageMax: "", transmission: "" });
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLSelectElement>) => setF({ ...f, [k]: e.target.value, ...(k === "brand" ? { model: "" } : {}) });
+  const facets = useQuery({ queryKey: ["facets"], queryFn: () => api.get<{ brands: { slug: string; models: { name: string; slug: string }[] }[] }>("/api/public/vehicles/facets"), staleTime: 300_000 });
+  const models = facets.data?.brands.find((b) => b.slug === f.brand)?.models ?? [];
   return (
     <form
       onSubmit={(e) => {
@@ -264,13 +266,21 @@ function QuickSearch({ brands }: { brands: { name: string; slug: string }[] }) {
         const p = new URLSearchParams(Object.entries(f).filter(([, v]) => v) as [string, string][]);
         nav(`/shop?${p.toString()}`);
       }}
-      className="grid gap-3 rounded-2xl bg-white p-4 text-slate-800 shadow-xl sm:grid-cols-3 lg:grid-cols-6"
+      className="grid gap-3 rounded-2xl bg-white p-4 text-slate-800 shadow-xl sm:grid-cols-2 lg:grid-cols-4"
     >
       <Select value={f.brand} onChange={set("brand")} aria-label="Brand">
         <option value="">Any brand</option>
         {brands.map((b) => (
           <option key={b.slug} value={b.slug}>
             {b.name}
+          </option>
+        ))}
+      </Select>
+      <Select value={f.model} onChange={set("model")} disabled={!f.brand} aria-label="Model">
+        <option value="">{f.brand ? "Any model" : "Choose a brand first"}</option>
+        {models.map((m) => (
+          <option key={m.slug} value={m.slug}>
+            {m.name}
           </option>
         ))}
       </Select>
@@ -293,6 +303,14 @@ function QuickSearch({ brands }: { brands: { name: string; slug: string }[] }) {
         {[2022, 2020, 2018, 2016, 2014].map((y) => (
           <option key={y} value={y}>
             From {y}
+          </option>
+        ))}
+      </Select>
+      <Select value={f.mileageMax} onChange={set("mileageMax")} aria-label="Max mileage">
+        <option value="">Any mileage</option>
+        {[30000, 50000, 80000, 100000, 150000].map((x) => (
+          <option key={x} value={x}>
+            Up to {x.toLocaleString("en-US")} km
           </option>
         ))}
       </Select>
