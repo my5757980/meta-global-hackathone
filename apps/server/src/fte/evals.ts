@@ -228,7 +228,11 @@ export const CASES: Case[] = [
     category: "quote",
     title: "Asks for the destination before quoting",
     turns: ["How much is {s6}, landed?"],
-    check: (c) => verdict(!used(c, "quote_cnf") && /\?/.test(c.reply) && /country|port|destination|where|ship/i.test(c.reply), `quoted without a port=${used(c, "quote_cnf")} · asked=${/\?/.test(c.reply)}`),
+    check: (c) => {
+      // "please tell me your country and port:" asks as well as a question mark does
+      const asked = /\?|tell me|let me know|please (share|send|provide|give)/i.test(c.reply);
+      return verdict(!used(c, "quote_cnf") && asked && /country|port|destination|where|ship/i.test(c.reply), `quoted without a port=${used(c, "quote_cnf")} · asked=${asked}`);
+    },
   },
   { id: "remembers-port", category: "quote", title: "Remembers the buyer's port from earlier", turns: ["Hi, I'm in Dar es Salaam, Tanzania and I'm interested in {s7}.", "Great — what's the total price to my port?"], check: quoted(/dar es salaam/i) },
   // ── ports & import rules ──
