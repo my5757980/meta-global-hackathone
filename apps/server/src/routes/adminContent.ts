@@ -1,19 +1,17 @@
 import { Router, type Request } from "express";
-import { rmSync } from "node:fs";
 import multer from "multer";
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import { z, type ZodObject, type ZodRawShape } from "zod";
 import { PERMISSIONS } from "@autofte/shared";
-import { env, filesDir } from "../env";
-import { db, runMigrations } from "../db/client";
+import { env } from "../env";
+import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, conflict, forbidden, h, notFound, parse } from "../lib/http";
 import { can, clearPermCache, requireAuth, requirePerm, type AuthUser } from "../auth/session";
+import { lastResetAt, resetDemo, resetRunning } from "../services/demoReset";
 import { hashPassword, oneTimePassword } from "../auth/passwords";
-import { seedAll } from "../seed";
 import { audit } from "../services/audit";
 import { saveFile } from "../services/files";
-import { clearSettingsCache } from "../services/settings";
 
 /**
  * The rest of the website admin: the simple content lists, brands and models, customers (with their CRM
@@ -483,30 +481,14 @@ adminContentRouter.post(
 );
 
 // ---------- demo reset (FR-072) ----------
-let resetting = false;
-
 adminContentRouter.post(
   "/demo/reset",
   h(async (req) => {
     requirePerm(req, "system.demo.reset");
     if (!env.DEMO_MODE) throw forbidden("Demo mode is switched off");
-    if (resetting) throw conflict("A reset is already running");
-    resetting = true;
-    const t0 = Date.now();
-    try {
-      // the same steps as `npm run setup -- --reset` on a server database, inside the running server
-      await db().execute(sql`drop schema if exists public cascade`);
-      await db().execute(sql`drop schema if exists drizzle cascade`);
-      await db().execute(sql`create schema public`);
-      rmSync(filesDir, { recursive: true, force: true });
-      await runMigrations();
-      await seedAll(db(), () => {});
-      clearSettingsCache();
-      clearPermCache();
-      return { ok: true, seconds: Math.round((Date.now() - t0) / 1000) }; // everyone is signed out: sessions went too
-    } finally {
-      resetting = false;
-    }
+    if (resetRunning()) throw conflict("A reset is already running");
+    if (env.PUBLIC_DEMO && Date.now() - lastResetAt() < 5 * 60_000) throw conflict("This public demo was reset less than five minutes ago");
+    return { ok: true, seconds: await resetDemo() }; // everyone is signed out: sessions went too
   }),
 );
 

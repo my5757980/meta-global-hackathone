@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { env } from "../env";
+import { countTokens } from "../services/publicDemo";
 
 /**
  * Meta's Muse Spark Open — the only model AutoFTE calls at runtime.
@@ -59,6 +60,7 @@ export async function chat(opts: { messages: ChatCompletionMessageParam[]; tools
           ...({ reasoning_effort: opts.effort ?? "low" } as Record<string, unknown>),
         });
         const choice = r.choices[0]!;
+        countTokens((r.usage?.prompt_tokens ?? 0) + (r.usage?.completion_tokens ?? 0));
         return {
           message: choice.message as ChatResult["message"],
           finishReason: choice.finish_reason,

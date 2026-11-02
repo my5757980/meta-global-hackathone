@@ -6,6 +6,7 @@ import type { AuthUser } from "../auth/session";
 import { isOnline, onPresence, publish, onlineUserIds } from "./sse";
 import { permsForRole } from "../auth/session";
 import { fteName } from "./settings";
+import { pushConfigured, pushToUsers } from "./push";
 
 // green dots: tell every open tab when someone comes online or leaves; remember when they were last here
 onPresence((userId, online) => {
@@ -85,6 +86,12 @@ export async function postMessage(m: PostMessage, tx: DBorTx = db()) {
   const [cv] = await tx.select({ kind: s.chatConversations.kind }).from(s.chatConversations).where(eq(s.chatConversations.id, m.conversationId)).limit(1);
   const to = new Set([...(await conversationMembers(m.conversationId)), ...(cv?.kind === "customer" ? await onlineViewAll() : [])]);
   publish(to, "message", out);
+  // whoever is away gets a push (not awaited: a message is never held up by Firebase, and it may be inside a transaction)
+  if (m.senderUserId && (m.kind ?? "text") !== "system" && pushConfigured()) {
+    const away = [...(await conversationMembers(m.conversationId))].filter((id) => id !== m.senderUserId && !isOnline(id));
+    const what = (m.body ?? "").trim() || (m.kind === "voice" ? "Voice note" : m.kind === "image" ? "Picture" : "New message");
+    if (away.length) void pushToUsers(away, { kind: "message", title: sender?.name ?? "New message", body: what, data: { conversationId: m.conversationId } });
+  }
   return out;
 }
 

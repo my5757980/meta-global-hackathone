@@ -292,7 +292,7 @@ export function AuctionList() {
 interface LotDetail {
   lot: Lot;
   photos: string[];
-  sheet: string;
+  sheet: string | null;
   history: { count: number; soldCount: number; avgSoldJpy: number; minSoldJpy: number; maxSoldJpy: number; window: { from: string; to: string }; recent: { id: string; saleDate: string; hall: string; year: number; grade: string; mileageKm: number; finalPriceJpy: number; sold: number }[] };
   myBids: { id: string; amountJpy: number; status: string; createdAt: string }[];
   soraReading: { verdict?: string; grade?: string; reasons?: string[]; damage?: { code: string; panel: string; meaning: string }[] } | null;
@@ -314,7 +314,8 @@ export function AuctionLotPage() {
   if (q.isLoading) return <AuctionGate><div className="container-page py-8"><Skeleton className="h-96" /></div></AuctionGate>;
   if (!q.data) return <AuctionGate><div className="container-page py-16"><Empty title="This lot is not available" text="Concluded lots are kept for staff only." /></div></AuctionGate>;
   const { lot: l, history: h } = q.data;
-  const images = [...q.data.photos, q.data.sheet];
+  const sheetAt = q.data.sheet ? q.data.photos.length : -1;
+  const images = q.data.sheet ? [...q.data.photos, q.data.sheet] : q.data.photos;
   return (
     <AuctionGate>
       <AuctionNav />
@@ -326,7 +327,7 @@ export function AuctionLotPage() {
           <div>
             <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white">
               <button onClick={() => setZoom(true)} className="block w-full" aria-label="Open full size">
-                <img src={images[img]} alt="" className={clsx("w-full bg-slate-50", img === images.length - 1 ? "aspect-[5/7] object-contain" : "aspect-[16/10] object-cover")} />
+                <img src={images[img]} alt="" className={clsx("w-full bg-slate-50", img === sheetAt ? "aspect-[5/7] object-contain" : "aspect-[16/10] object-cover")} />
               </button>
               <span className="absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-lg bg-slate-900/70 px-2 py-1 text-xs text-white">
                 <ZoomIn className="size-3.5" /> Full size
@@ -336,7 +337,7 @@ export function AuctionLotPage() {
               {images.map((src, i) => (
                 <button key={src} onClick={() => setImg(i)} className={clsx("shrink-0 overflow-hidden rounded-xl ring-2", i === img ? "ring-brand-500" : "ring-transparent")}>
                   <img src={src} alt="" className="h-16 w-24 bg-white object-cover" />
-                  {i === images.length - 1 && <span className="block bg-amber-100 text-center text-[11px] font-semibold text-amber-800">Auction sheet</span>}
+                  {i === sheetAt && <span className="block bg-amber-100 text-center text-[11px] font-semibold text-amber-800">Auction sheet</span>}
                 </button>
               ))}
             </div>
@@ -393,9 +394,13 @@ export function AuctionLotPage() {
                 ))}
               </dl>
               <p className="mt-2 text-xs text-slate-500">Equipment: {l.equipment}</p>
-              <Button className="mt-4 w-full" variant="secondary" onClick={() => openChatWith(`${fte}, please check the auction sheet of lot ${l.lotNo} (${l.hall}, ${l.saleDate}) and tell me if it is a good car.`)}>
-                <Bot className="size-4 text-violet-600" /> Ask <FteName /> to read the sheet
-              </Button>
+              {q.data.sheet ? (
+                <Button className="mt-4 w-full" variant="secondary" onClick={() => openChatWith(`${fte}, please check the auction sheet of lot ${l.lotNo} (${l.hall}, ${l.saleDate}) and tell me if it is a good car.`)}>
+                  <Bot className="size-4 text-violet-600" /> Ask <FteName /> to read the sheet
+                </Button>
+              ) : (
+                <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">No auction sheet was supplied for this lot yet.</p>
+              )}
               {q.data.soraReading && (
                 <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50 p-3 text-sm">
                   <p className="font-semibold text-violet-900">

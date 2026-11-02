@@ -22,6 +22,7 @@ import { transcribeMessage } from "./voice";
 import { skillIndex } from "./skills";
 import { SUMMARY_PROMPT, systemPrompt } from "./prompts";
 import { promisesPerson, promisesWork } from "./guards";
+import { overBudget } from "../services/publicDemo";
 
 const MAX_STEPS = 8;
 const PROMISE_ONLY_CHARS = 300;
@@ -166,9 +167,10 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
   const t0 = Date.now();
   publish(members, "typing", { conversationId, userId: sora.id, on: true });
 
-  if (!modelConfigured()) {
-    await postMessage({ conversationId, senderUserId: sora.id, body: "Thanks for your message! Our AI assistant is offline in this demo (no model key configured), so a team member will reply shortly." });
-    await db().update(s.fteRuns).set({ status: "error", error: "no model key", finishedAt: new Date(), latencyMs: Date.now() - t0 }).where(eq(s.fteRuns.id, run!.id));
+  if (!modelConfigured() || overBudget()) {
+    const over = modelConfigured();
+    await postMessage({ conversationId, senderUserId: sora.id, body: over ? "This public demo has used up today's AI allowance, so I can't answer until tomorrow. To try me now, run your own copy from the repository: it takes five commands." : "Thanks for your message! Our AI assistant is offline in this demo (no model key configured), so a team member will reply shortly." });
+    await db().update(s.fteRuns).set({ status: "error", error: over ? "daily allowance used" : "no model key", finishedAt: new Date(), latencyMs: Date.now() - t0 }).where(eq(s.fteRuns.id, run!.id));
     publish(members, "typing", { conversationId, userId: sora.id, on: false });
     return;
   }

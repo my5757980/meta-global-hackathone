@@ -21,6 +21,7 @@ interface AuthCtx {
   me: Me | null;
   loading: boolean;
   demoMode: boolean;
+  publicDemoHours: number | null;
   can: (perm: string) => boolean;
   isStaff: boolean;
   refresh: () => Promise<void>;
@@ -31,13 +32,14 @@ const Ctx = createContext<AuthCtx | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["me"], queryFn: () => api.get<{ user: Me | null; demoMode: boolean }>("/api/auth/me"), staleTime: 60_000 });
+  const q = useQuery({ queryKey: ["me"], queryFn: () => api.get<{ user: Me | null; demoMode: boolean; publicDemoHours?: number | null }>("/api/auth/me"), staleTime: 60_000 });
   const me = q.data?.user ?? null;
   const value = useMemo<AuthCtx>(
     () => ({
       me,
       loading: q.isLoading,
       demoMode: q.data?.demoMode ?? false,
+      publicDemoHours: q.data?.publicDemoHours ?? null,
       can: (perm) => !!me?.perms.includes(perm),
       isStaff: me?.kind === "staff",
       refresh: async () => {
@@ -49,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         window.location.href = "/";
       },
     }),
-    [me, q.isLoading, q.data?.demoMode, qc],
+    [me, q.isLoading, q.data?.demoMode, q.data?.publicDemoHours, qc],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

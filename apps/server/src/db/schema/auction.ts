@@ -41,6 +41,8 @@ export const auctionLots = pgTable(
     resultPriceJpy: integer(),
     highBidJpy: integer(),
     photoCount: integer().notNull().default(6),
+    photoUrls: jsonb().notNull().default([]), // a lot imported with its own photos; empty = drawn pictures
+    sheetUrl: text(), // null = the demo sheet drawn from this row; "" = imported with no sheet; else the real sheet's address
     damage: jsonb().notNull().default([]), // [{code:"A1", part:"front bumper"}]
     sheetNotes: text(),
     createdAt: createdAt(),

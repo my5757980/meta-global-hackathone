@@ -53,7 +53,15 @@
       ],
       "expo-secure-store",
       "./plugins/withAppBuild.js",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-notifications",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera for video calls.",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to use the microphone for calls and voice notes."
+        }
+      ]
     ]
   }
 }

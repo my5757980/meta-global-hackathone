@@ -59,6 +59,7 @@ export const PERMISSIONS = {
   "auction.bids.manage": "Change bid status, notes, delete",
   "auction.bids.export": "Export bids to Excel",
   "auction.clients.view": "See auction clients",
+  "auction.lots.import": "Import auction lots from Excel",
   "auction.orders.manage": "Manage auction orders",
   "auction.enquiries.reply": "Reply to enquiries",
   "auction.staff.manage": "Manage staff",

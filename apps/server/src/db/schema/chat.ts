@@ -22,6 +22,16 @@ export const chatConversations = pgTable(
   (t) => [index("conv_customer_idx").on(t.customerUserId), index("conv_last_idx").on(t.lastMessageAt)],
 );
 
+/** One row per phone with the app. A new sign-in on the same phone takes the token over. */
+export const pushTokens = pgTable("push_tokens", {
+  token: text().primaryKey(),
+  userId: text()
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  platform: text().notNull().default("android"),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
 export const chatMembers = pgTable(
   "chat_members",
   {

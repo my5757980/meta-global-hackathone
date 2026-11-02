@@ -8,6 +8,7 @@ import * as s from "../db/schema";
 import { bad, forbidden, h, notFound, page, parse } from "../lib/http";
 import { can, requireAuth, requirePerm } from "../auth/session";
 import { getLot, listLots, lotFacets, lotVisible, placeBid, priceHistory, toSheetLot, today, type LotFilters } from "../services/auction";
+import { fetchImage } from "../services/lotImages";
 import { sheetPng } from "../services/sheets";
 import { carImageUrl, carSvg } from "../services/carArt";
 import { renderPdf } from "../services/pdf";
@@ -45,7 +46,8 @@ function toFilters(q: z.infer<typeof filterSchema>, archive: boolean): LotFilter
   return { ...q, lotNos, status: archive ? q.status ?? "upcoming" : "upcoming" };
 }
 
-const photosFor = (l: { bodyType: string; color: string; photoCount: number }) => (["side", "front", "rear", "interior"] as const).map((v) => carImageUrl(l.bodyType, colorHex(l.color), v));
+const ownPhotos = (l: { photoUrls?: unknown }) => (Array.isArray(l.photoUrls) ? (l.photoUrls as string[]) : []);
+const photosFor = (l: { bodyType: string; color: string; photoCount: number; photoUrls?: unknown }) => (ownPhotos(l).length ? ownPhotos(l) : (["side", "front", "rear", "interior"] as const).map((v) => carImageUrl(l.bodyType, colorHex(l.color), v)));
 
 auctionRouter.get(
   "/facets",
@@ -77,7 +79,7 @@ auctionRouter.get(
     const myBids = await db().select().from(s.auctionBids).where(and(eq(s.auctionBids.lotId, l.id), eq(s.auctionBids.userId, u.id))).orderBy(desc(s.auctionBids.createdAt));
     const [reading] = await db().select().from(s.sheetReadings).where(eq(s.sheetReadings.lotId, l.id)).limit(1);
     const { damage: _d, sheetNotes: _n, ...pub } = l;
-    return { lot: pub, photos: photosFor(l), sheet: `/api/auction/lots/${l.id}/sheet.png`, history, myBids, soraReading: reading?.result ?? null, biddingOpen: l.status === "upcoming" && l.saleDate >= (await today()) };
+    return { lot: pub, photos: photosFor(l), sheet: l.sheetUrl === "" ? null : `/api/auction/lots/${l.id}/sheet.png`, history, myBids, soraReading: reading?.result ?? null, biddingOpen: l.status === "upcoming" && l.saleDate >= (await today()) };
   }),
 );
 
@@ -88,9 +90,12 @@ auctionRouter.get(
     const l = await getLot(String(req.params.id));
     if (!l) throw notFound();
     if (!(await lotVisible(l, can(u, "auction.lots.view_sold"))) && !can(u, "crm.access")) throw notFound();
-    res.setHeader("Content-Type", "image/png");
+    if (l.sheetUrl === "") throw notFound("No auction sheet was supplied for this lot");
+    const own = l.sheetUrl ? await fetchImage(l.sheetUrl).catch(() => null) : null;
+    if (l.sheetUrl && !own) throw notFound("The auction sheet could not be opened");
+    res.setHeader("Content-Type", own?.mime ?? "image/png");
     res.setHeader("Cache-Control", "private, max-age=86400");
-    res.send(sheetPng(toSheetLot(l)));
+    res.send(own?.buf ?? sheetPng(toSheetLot(l)));
     return undefined;
   }),
 );
@@ -141,8 +146,19 @@ auctionRouter.get(
     res.setHeader("Content-Disposition", `attachment; filename="lot-${l.lotNo}-${l.saleDate}.zip"`);
     const zip = archiver("zip", { zlib: { level: 6 } });
     zip.pipe(res);
-    (["side", "front", "rear", "interior"] as const).forEach((v, i) => zip.append(carSvg({ body: l.bodyType, color: colorHex(l.color), view: v }), { name: `photos/${i + 1}-${v}.svg` }));
-    zip.append(sheetPng(toSheetLot(l)), { name: "auction-sheet.png" });
+    if (ownPhotos(l).length) {
+      for (const [i, url] of ownPhotos(l).entries()) {
+        const img = await fetchImage(url).catch(() => null);
+        if (img) zip.append(img.buf, { name: `photos/${i + 1}.${img.ext}` });
+      }
+    } else {
+      (["side", "front", "rear", "interior"] as const).forEach((v, i) => zip.append(carSvg({ body: l.bodyType, color: colorHex(l.color), view: v }), { name: `photos/${i + 1}-${v}.svg` }));
+    }
+    if (l.sheetUrl === null) zip.append(sheetPng(toSheetLot(l)), { name: "auction-sheet.png" });
+    else if (l.sheetUrl) {
+      const sheet = await fetchImage(l.sheetUrl).catch(() => null);
+      if (sheet) zip.append(sheet.buf, { name: `auction-sheet.${sheet.ext}` });
+    }
     zip.append(await specPdf(l), { name: "spec-sheet.pdf" });
     await zip.finalize();
     return undefined;

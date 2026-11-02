@@ -4,7 +4,7 @@ import { EnvelopeSchema } from "@autofte/shared";
 import { z } from "zod";
 import { db } from "../db/client";
 import * as s from "../db/schema";
-import { conflict, h, notFound, parse } from "../lib/http";
+import { conflict, h, notFound, parse, forbidden } from "../lib/http";
 import { requirePerm } from "../auth/session";
 import { envelope, fteName, getSetting, now, putSetting } from "../services/settings";
 import { audit } from "../services/audit";
@@ -14,6 +14,7 @@ import { loadSkills } from "../fte/skills";
 import { TOOLS } from "../fte/tools";
 import { primaryModelName, modelConfigured } from "../fte/model";
 import { CASES, CATEGORIES, evalProgress, startEvals } from "../fte/evals";
+import { env } from "../env";
 
 export const fteRouter = Router();
 
@@ -206,6 +207,7 @@ fteRouter.post(
   h(async (req) => {
     const u = requirePerm(req, "fte.evals.run");
     const b = parse(z.object({ ids: z.array(z.string().max(60)).max(100).optional(), concurrency: z.number().int().min(1).max(4).optional() }), req.body ?? {});
+    if (env.PUBLIC_DEMO) throw forbidden("On this public demo the suite does not run: the result below is the last real run. Run your own copy from the repository to run it.");
     if (evalProgress()) throw conflict("An eval run is already in progress");
     const r = await startEvals(b);
     await audit(db(), { actorUserId: u.id, actorKind: "human", action: "fte.evals", summary: `${u.name} ran ${await fteName()}'s eval suite (${r.total} cases)` });

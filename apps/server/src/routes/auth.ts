@@ -35,7 +35,7 @@ function samePhone(a: string | null | undefined, b: string | null | undefined): 
   return x.length === 7 && x === y;
 }
 
-authRouter.get("/me", h((req) => ({ user: publicMe(req.user ?? null), demoMode: env.DEMO_MODE })));
+authRouter.get("/me", h((req) => ({ user: publicMe(req.user ?? null), demoMode: env.DEMO_MODE, publicDemoHours: env.PUBLIC_DEMO ? env.PUBLIC_DEMO_RESET_HOURS : null })));
 
 authRouter.get("/demo-roles", h(() => (env.DEMO_MODE ? Object.keys(DEMO_USERS) : [])));
 

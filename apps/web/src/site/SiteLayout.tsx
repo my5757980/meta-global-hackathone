@@ -40,6 +40,13 @@ function CountDot({ n }: { n?: number }) {
   return <span className="absolute top-0.5 right-0.5 flex min-w-4 items-center justify-center rounded-full bg-accent-500 px-1 text-[11px] font-bold text-slate-900">{n}</span>;
 }
 
+/** On a demo open to everyone: what they are looking at, on every page. */
+export function PublicDemoLine() {
+  const { publicDemoHours } = useAuth();
+  if (!publicDemoHours) return null;
+  return <p className="bg-amber-100 px-4 py-1 text-center text-xs font-medium text-amber-900">Public demo with fictional data. Try anything, even Admin: it puts itself back every {publicDemoHours} hours.</p>;
+}
+
 export function SiteLayout() {
   const site = useSite();
   const { me, logout } = useAuth();
@@ -57,6 +64,7 @@ export function SiteLayout() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      <PublicDemoLine />
       <div className="hidden bg-brand-800 text-xs text-brand-100 md:block">
         <div className="container-page flex h-9 items-center justify-between gap-4">
           <div className="flex items-center gap-5">

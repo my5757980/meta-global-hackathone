@@ -38,6 +38,13 @@ const schema = z.object({
     .string()
     .default("true")
     .transform((v) => v !== "false"),
+  FIREBASE_SERVICE_ACCOUNT: z.string().optional(),
+  PUBLIC_DEMO: z
+    .string()
+    .default("false")
+    .transform((v) => v === "true"),
+  PUBLIC_DEMO_RESET_HOURS: z.coerce.number().positive().default(3),
+  PUBLIC_DEMO_TOKENS_PER_DAY: z.coerce.number().int().positive().default(2_000_000),
   TURN_URL: z.string().optional(),
   TURN_USERNAME: z.string().optional(),
   TURN_PASSWORD: z.string().optional(),

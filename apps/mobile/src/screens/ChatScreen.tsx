@@ -7,6 +7,8 @@ import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, 
 import { Ionicons } from "@expo/vector-icons";
 import { api, errText } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { useCalls } from "../lib/calls";
+import { onLive } from "../lib/live";
 import { absUrl, getServer, protectedSource } from "../lib/config";
 import { secs, time, usd } from "../lib/format";
 import { C, useColors, useSite } from "../lib/site";
@@ -77,7 +79,9 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
   const { site } = useSite();
   const col = useColors();
   const lift = useKeyboardLift();
+  const { startCall } = useCalls();
   const [conv, setConv] = useState<{ id: string; holder: string } | null>(null);
+  const [agent, setAgent] = useState<{ id: string; name: string; title?: string | null; online: boolean } | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -95,7 +99,8 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
   const lastSeen = useRef("");
   const poll = useCallback(async () => {
     try {
-      const r = await api.get<{ conversation: { id: string; holder: string }; messages: ChatMsg[] }>("/api/chat/mine?channel=app");
+      const r = await api.get<{ conversation: { id: string; holder: string }; messages: ChatMsg[]; agent: { id: string; name: string; title?: string | null; online: boolean } | null }>("/api/chat/mine?channel=app");
+      setAgent((a) => (a?.id === r.agent?.id && a?.online === r.agent?.online ? a : r.agent));
       misses.current = 0;
       setError(null);
       setConv((c) => (c && c.id === r.conversation.id && c.holder === r.conversation.holder ? c : r.conversation));
@@ -120,6 +125,20 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
       return () => clearInterval(t);
     }, [poll]),
   );
+
+  // what the live stream says arrives at once; the three-second check above is what covers a lost connection
+  useEffect(() => onLive("message", () => void poll()), [poll]);
+  useEffect(() => onLive("holder", () => void poll()), [poll]);
+
+  const call = async (media: "audio" | "video") => {
+    if (!conv || !agent) return;
+    setError(null);
+    try {
+      await startCall(conv.id, media, agent.name);
+    } catch (e) {
+      setError(e instanceof Error && !(e as { status?: number }).status ? e.message : errText(e));
+    }
+  };
 
   // "typing…" until someone answers after my message (by position, not clocks: phone and server clocks differ)
   useEffect(() => {
@@ -216,6 +235,22 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, paddingBottom: lift }}>
+      {conv?.holder === "human" && agent ? (
+        <View style={st.agentBar}>
+          <View style={{ flex: 1 }}>
+            <T lines={1} style={{ fontWeight: "700", color: C.ink }}>
+              {agent.name}
+            </T>
+            <T style={{ fontSize: 12, color: agent.online ? C.green : C.muted }}>{agent.online ? "Online" : "Away: they will see a missed call"}</T>
+          </View>
+          <Pressable accessibilityLabel={`Voice call ${agent.name}`} onPress={() => void call("audio")} style={st.iconBtn}>
+            <Ionicons name="call-outline" size={22} color={col.brand} />
+          </Pressable>
+          <Pressable accessibilityLabel={`Video call ${agent.name}`} onPress={() => void call("video")} style={st.iconBtn}>
+            <Ionicons name="videocam-outline" size={22} color={col.brand} />
+          </Pressable>
+        </View>
+      ) : null}
       {error ? (
         <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
           <ErrorBox text={error} onRetry={() => void poll()} />
@@ -473,6 +508,7 @@ function Cards({ cards }: { cards: ChatCard[] }) {
 }
 
 const st = StyleSheet.create({
+  agentBar: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 14, paddingVertical: 6, backgroundColor: "#fff", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
   row: { flexDirection: "row" },
   bubble: { borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
   theirs: { backgroundColor: "#fff", borderBottomLeftRadius: 4, borderWidth: StyleSheet.hairlineWidth, borderColor: C.line },

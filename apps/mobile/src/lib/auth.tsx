@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api } from "./api";
 import { getToken, needsServer, setToken } from "./config";
 import type { Me } from "./types";
+import { forgetPush } from "./push";
 
 interface AuthCtx {
   ready: boolean;
@@ -61,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       demo: async () => adopt(await api.post<SessionResponse>("/api/auth/demo/customer")),
       visitor: async (f) => adopt(await api.post<SessionResponse>("/api/auth/visitor", { ...f, channel: "app" })),
       signOut: async () => {
+        await forgetPush();
         try {
           await api.post("/api/auth/logout");
         } catch {

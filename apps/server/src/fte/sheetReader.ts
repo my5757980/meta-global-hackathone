@@ -9,6 +9,7 @@ import * as s from "../db/schema";
 import { getLot, toSheetLot } from "../services/auction";
 import { sheetPng } from "../services/sheets";
 import { chat } from "./model";
+import { fetchImage } from "../services/lotImages";
 
 export interface SheetReading {
   lot_no?: string | number;
@@ -45,10 +46,16 @@ export async function readSheet(lotId: string, opts: { fresh?: boolean } = {}): 
   }
   const lot = await getLot(lotId);
   if (!lot) throw new Error("Lot not found");
-  const png = sheetPng(toSheetLot(lot));
+  // no verdict on a sheet nobody saw: an imported lot with no sheet, or a picture that will not open, says so instead
+  const noSheet = (why: string) => ({ reading: { unreadable: [why], verdict: "caution", reasons: [why] } as SheetReading, cached: false, ms: 0 });
+  if (lot.sheetUrl === "") return noSheet("No auction sheet was supplied for this lot, so it cannot be read. Ask a colleague before relying on the grade alone.");
+  const own = lot.sheetUrl ? await fetchImage(lot.sheetUrl).catch(() => null) : null;
+  if (lot.sheetUrl && !own) return noSheet("The auction sheet picture could not be opened right now. Try again later or ask a colleague.");
+  const png = own?.buf ?? sheetPng(toSheetLot(lot));
+  const mime = own?.mime ?? "image/png";
   const t0 = Date.now();
   const r = await chat({
-    messages: [{ role: "user", content: [{ type: "text", text: PROMPT }, { type: "image_url", image_url: { url: `data:image/png;base64,${png.toString("base64")}` } }] as never }],
+    messages: [{ role: "user", content: [{ type: "text", text: PROMPT }, { type: "image_url", image_url: { url: `data:${mime};base64,${png.toString("base64")}` } }] as never }],
     effort: "medium",
     maxTokens: 3500,
   });

@@ -27,6 +27,9 @@ import { Rng, slugify } from "./rng";
 import { seedAuction } from "./auction";
 import { seedDocuments } from "./documents";
 import { addDays, chunkInsert, isoDate } from "./util";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { ROOT } from "../env";
 export { addDays, chunkInsert, isoDate };
 
 const ROLE_PERMS: Record<RoleSlug, PermissionKey[] | "all"> = {
@@ -34,7 +37,7 @@ const ROLE_PERMS: Record<RoleSlug, PermissionKey[] | "all"> = {
   manager: [
     "website.admin", "website.vehicles.manage", "website.content.manage", "website.orders.manage", "website.customers.view", "website.customers.view_all", "website.customers.manage",
     "crm.access", "crm.leads.view_all", "crm.leads.status", "crm.leads.delete", "crm.leads.transfer", "crm.invoices.view_all", "crm.invoices.delete", "crm.payments.record", "crm.units.manage", "crm.progress.update", "crm.reports.view", "crm.backup.download", "crm.users.manage",
-    "auction.access", "auction.admin", "auction.lots.view_sold", "auction.bids.view", "auction.bids.view_all", "auction.bids.manage", "auction.bids.export", "auction.clients.view", "auction.orders.manage", "auction.enquiries.reply", "auction.staff.manage",
+    "auction.access", "auction.admin", "auction.lots.import", "auction.lots.view_sold", "auction.bids.view", "auction.bids.view_all", "auction.bids.manage", "auction.bids.export", "auction.clients.view", "auction.orders.manage", "auction.enquiries.reply", "auction.staff.manage",
     "chat.desk", "chat.view_all", "chat.groups", "fte.console", "fte.approvals.decide", "fte.evals.run",
   ],
   supervisor: [
@@ -565,5 +568,11 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
   ]);
 
   log("seed done");
+  // the last real eval run, so the console shows a result before anyone has spent tokens on one
+  const lastRun = resolve(ROOT, "evals/last-run.json");
+  if (existsSync(lastRun)) {
+    const run = JSON.parse(readFileSync(lastRun, "utf8")) as { startedAt: string; finishedAt: string; total: number; passed: number; provider: string; model: string; results: unknown[] };
+    await db.insert(s.evalRuns).values({ startedAt: new Date(run.startedAt), finishedAt: new Date(run.finishedAt), total: run.total, passed: run.passed, provider: run.provider, model: run.model, results: run.results });
+  }
   return sum;
 }

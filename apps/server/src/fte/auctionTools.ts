@@ -99,7 +99,7 @@ export const AUCTION_TOOLS: ToolDef[] = [
           avg_price_jpy: yen(l.avgPriceJpy),
           est_fob_usd: l.avgPriceJpy ? fobFromLot(l.avgPriceJpy, policy) : null,
           link: `/auction/lots/${l.id}`,
-          image: carImageUrl(l.bodyType, colorHex(l.color), "side"),
+          image: (l.photoUrls as string[] | null)?.[0] ?? carImageUrl(l.bodyType, colorHex(l.color), "side"),
         })),
       };
     },
@@ -143,7 +143,7 @@ export const AUCTION_TOOLS: ToolDef[] = [
       const l = await resolveLot(a.lot_id);
       const r = await readSheet(l.id);
       await db().insert(s.auditLog).values({ actorUserId: ctx.principalUserId, actorKind: ctx.principalKind, action: "sheet.read", entity: "lot", entityId: l.id, summary: `Read the auction sheet of lot ${l.lotNo} (${l.hall}) — verdict ${r.reading.verdict ?? "?"}${r.cached ? " (cached)" : ""}`, conversationId: ctx.conversationId ?? null, fteRunId: ctx.runId ?? null });
-      return { lot_id: l.id, lot_no: l.lotNo, source: "vision reading of the sheet image", ...r.reading, sheet_image: `/api/auction/lots/${l.id}/sheet.png` };
+      return { lot_id: l.id, lot_no: l.lotNo, source: "vision reading of the sheet image", ...r.reading, sheet_image: l.sheetUrl === "" ? null : `/api/auction/lots/${l.id}/sheet.png` };
     },
   },
   {

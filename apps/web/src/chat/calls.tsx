@@ -22,7 +22,7 @@ interface Call {
 }
 type SignalEvent = { type: string; callId: string; data?: unknown; media?: Media; from?: { id: string; name: string }; status?: string; seconds?: number };
 
-const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+let iceServers: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
 let starter: ((conversationId: string, media: Media, peerName: string) => Promise<void>) | null = null;
 
 export function startCall(conversationId: string, media: Media, peerName: string): Promise<void> {
@@ -105,7 +105,7 @@ export function CallLayer() {
   };
 
   const makePc = (id: string) => {
-    const p = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const p = new RTCPeerConnection({ iceServers });
     p.onicecandidate = (e) => {
       if (e.candidate) void signal(id, "ice", e.candidate.toJSON());
     };
@@ -130,6 +130,11 @@ export function CallLayer() {
     if (!p?.remoteDescription) return;
     for (const c of pendingIce.current.splice(0)) await p.addIceCandidate(c).catch(() => {});
   };
+
+  // a relay configured on the server (TURN) reaches every call
+  useEffect(() => {
+    void api.get<{ iceServers: RTCIceServer[] }>("/api/chat/ice").then((r) => (iceServers = r.iceServers)).catch(() => {});
+  }, []);
 
   // start a call from a button anywhere in the app
   useEffect(() => {

@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Bot, Download, Gavel, Inbox, ShoppingBag, Users } from "lucide-react";
+import { Activity, Bot, Download, FileSpreadsheet, Gavel, Inbox, ShoppingBag, Users } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { ago, date, jpy } from "../lib/format";
 import { Badge, Button, Card, Empty, PageHeader, Select, Skeleton, Stat, Table, Tabs, Textarea } from "../ui";
 import { FteName } from "../lib/site";
+import { LotImportModal } from "./LotImport";
 
 export function AuctionAdmin() {
   const { can } = useAuth();
   const [tab, setTab] = useState<"overview" | "bids" | "orders" | "enquiries" | "clients">("overview");
+  const [importing, setImporting] = useState(false);
   return (
     <div>
       <PageHeader
@@ -21,9 +23,16 @@ export function AuctionAdmin() {
         }
         subtitle={<span className="inline-flex items-center gap-1.5 text-emerald-700"><span className="size-2 rounded-full bg-emerald-500" /> Auction is working</span>}
         actions={
+          <>
+          {can("auction.lots.import") && (
+            <Button variant="secondary" onClick={() => setImporting(true)}>
+              <FileSpreadsheet className="size-4" /> Import lots
+            </Button>
+          )}
           <Link to="/auction/list" className="inline-flex h-10 items-center rounded-xl bg-white px-4 text-sm font-semibold shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
             Open the lot list →
           </Link>
+          </>
         }
       />
       <div className="mb-4">
@@ -44,6 +53,7 @@ export function AuctionAdmin() {
       {tab === "orders" && <Orders />}
       {tab === "enquiries" && <Enquiries />}
       {tab === "clients" && <Clients />}
+      <LotImportModal open={importing} onClose={() => setImporting(false)} />
     </div>
   );
 }

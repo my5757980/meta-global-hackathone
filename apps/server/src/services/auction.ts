@@ -76,6 +76,8 @@ const lotCols = {
   resultPriceJpy: s.auctionLots.resultPriceJpy,
   highBidJpy: s.auctionLots.highBidJpy,
   photoCount: s.auctionLots.photoCount,
+  photoUrls: s.auctionLots.photoUrls,
+  sheetUrl: s.auctionLots.sheetUrl,
 };
 
 export async function listLots(f: LotFilters) {

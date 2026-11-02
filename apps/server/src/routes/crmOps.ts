@@ -21,6 +21,7 @@ import { getFile, saveFile } from "../services/files";
 import { invoicePdf, invoiceXlsx } from "../services/invoiceDocs";
 import { hashPassword, oneTimePassword, randomPassword } from "../auth/passwords";
 import { reportData, reportXlsx, backupXlsx } from "../services/reports";
+import { cellText } from "../lib/excel";
 
 export const crmOps = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 20 } });
@@ -443,18 +444,6 @@ void and;
 
 // ── Leads from Excel ──────────────────────────────────────────────────────────────────────────────────────
 const LEAD_COLUMNS = ["Customer / company name", "Contact person", "Phone / WhatsApp", "E-mail", "Country", "Port", "Address"];
-const cellText = (v: unknown): string => {
-  if (v == null) return "";
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  if (typeof v === "object") {
-    const o = v as { richText?: { text: string }[]; text?: unknown; result?: unknown };
-    if (o.richText) return o.richText.map((t) => t.text).join("");
-    if (o.text != null) return String(o.text);
-    if (o.result != null) return String(o.result);
-    return "";
-  }
-  return String(v);
-};
 
 crmOps.get(
   "/leads/template.xlsx",

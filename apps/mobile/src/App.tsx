@@ -2,14 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
-import { DefaultTheme, NavigationContainer } from "@react-navigation/native";
+import { createNavigationContainerRef, DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator, type NativeStackNavigationOptions } from "@react-navigation/native-stack";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { loadConfig, needsServer } from "./lib/config";
 import { C, SiteProvider, useColors } from "./lib/site";
-import { AuthProvider } from "./lib/auth";
+import { AuthProvider, useAuth } from "./lib/auth";
 import { ShopProvider, useShop } from "./lib/shop";
 import { RestartCtx } from "./lib/restart";
 import type { IconName } from "./ui";
@@ -19,6 +19,8 @@ import VehicleScreen from "./screens/VehicleScreen";
 import ChatScreen from "./screens/ChatScreen";
 import { CartScreen, CheckoutScreen, OrdersScreen, WishlistScreen } from "./screens/CartScreens";
 import { AuthScreen, BankScreen, BlogPostScreen, BlogScreen, ContactScreen, FaqScreen, InvoiceScreen, InvoicesScreen, MenuScreen, PageScreen, ProfileScreen, ServerScreen, ServicesScreen } from "./screens/MenuScreens";
+import { CallProvider } from "./lib/calls";
+import { onPushOpened, registerPush } from "./lib/push";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -87,6 +89,24 @@ const ICONS: Record<string, [IconName, IconName]> = {
   MenuTab: ["menu", "menu-outline"],
 };
 
+const navRef = createNavigationContainerRef<any>();
+
+/** Signed in: this phone can be reached. A tapped notification opens the chat. */
+function PushBridge() {
+  const { me } = useAuth();
+  useEffect(() => {
+    if (me) void registerPush();
+  }, [me?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(
+    () =>
+      onPushOpened(() => {
+        if (navRef.isReady()) navRef.navigate("ChatTab", { screen: "Chat", pop: true });
+      }),
+    [],
+  );
+  return null;
+}
+
 function Tabs() {
   const col = useColors();
   const { cart } = useShop();
@@ -140,9 +160,12 @@ function Boot() {
         <SiteProvider key={`site${epoch}`}>
           <AuthProvider key={`auth${epoch}`}>
             <ShopProvider>
-              <NavigationContainer theme={navTheme}>
-                <Tabs />
-              </NavigationContainer>
+              <CallProvider>
+                <NavigationContainer ref={navRef} theme={navTheme}>
+                  <Tabs />
+                  <PushBridge />
+                </NavigationContainer>
+              </CallProvider>
             </ShopProvider>
           </AuthProvider>
         </SiteProvider>

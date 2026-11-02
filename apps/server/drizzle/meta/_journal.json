@@ -15,6 +15,13 @@
       "when": 1793368001522,
       "tag": "0001_staff_recovery_one_time_passwords",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793604162510,
+      "tag": "0002_lots_pictures_push_tokens",
+      "breakpoints": true
     }
   ]
 }

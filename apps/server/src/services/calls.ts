@@ -6,6 +6,8 @@ import { isStaff, type AuthUser } from "../auth/session";
 import { canSeeConversation, conversationMembers, postMessage, setHolder } from "./chat";
 import { isOnline, onPresence, publish } from "./sse";
 import { fteName } from "./settings";
+import { pushToUsers } from "./push";
+import { env } from "../env";
 
 /**
  * One-to-one voice and video calls. The browsers talk peer-to-peer (WebRTC); the server only rings, relays
@@ -25,11 +27,27 @@ const live = new Map<string, Live>();
 
 const busy = (userId: string) => [...live.values()].some((c) => c.callerId === userId || c.calleeId === userId);
 
-// closing the last tab drops the call (the page holding the connection is gone)
+// closing the last tab drops the call (the page holding the connection is gone). A moment's grace first:
+// a phone changing network loses its stream and is back in seconds, and the sound never stopped.
+const GRACE_MS = 8_000;
 onPresence((userId, online) => {
   if (online) return;
-  for (const c of [...live.values()]) if (c.callerId === userId || c.calleeId === userId) void finish(c, c.answeredAt ? "ended" : "missed").catch(() => {});
+  setTimeout(() => {
+    if (isOnline(userId)) return;
+    for (const c of [...live.values()]) if (c.callerId === userId || c.calleeId === userId) void finish(c, c.answeredAt ? "ended" : "missed").catch(() => {});
+  }, GRACE_MS);
 });
+
+/** What the browsers and the app connect through. A relay (TURN) is what gets a call across mobile networks and strict routers. */
+export const iceServers = () => [{ urls: "stun:stun.l.google.com:19302" }, ...(env.TURN_URL ? [{ urls: env.TURN_URL, username: env.TURN_USERNAME, credential: env.TURN_PASSWORD }] : [])];
+
+/** A call ringing for this person right now: an app that a push has just woken asks for it as soon as it is connected. */
+export async function pendingCallFor(userId: string) {
+  const c = [...live.values()].find((x) => x.calleeId === userId && !x.answeredAt);
+  if (!c) return null;
+  const [from] = await db().select({ id: s.users.id, name: s.users.name }).from(s.users).where(eq(s.users.id, c.callerId)).limit(1);
+  return { callId: c.id, conversationId: c.conversationId, media: c.media, from: from ?? { id: c.callerId, name: "" } };
+}
 
 export async function startCall(u: AuthUser, conversationId: string, media: "audio" | "video") {
   const conv = await canSeeConversation(u, conversationId);
@@ -50,8 +68,12 @@ export async function startCall(u: AuthUser, conversationId: string, media: "aud
   const c: Live = { id: row!.id, conversationId: conv.id, callerId: u.id, calleeId: callee, media, answeredAt: null, timer: null };
   live.set(c.id, c);
   if (!isOnline(callee)) {
-    await finish(c, "missed");
-    throw conflict(`${them?.name ?? "They"} ${them ? "is" : "are"} offline — they will see a missed call in the chat`);
+    // away, but a phone with the app can be rung
+    const rung = await pushToUsers([callee], { kind: "call", title: `${u.name} is calling`, body: media === "video" ? "Video call: tap to answer" : "Voice call: tap to answer", data: { callId: c.id, conversationId: conv.id } });
+    if (!rung) {
+      await finish(c, "missed");
+      throw conflict(`${them?.name ?? "They"} ${them ? "is" : "are"} offline — they will see a missed call in the chat`);
+    }
   }
   // a colleague calling a buyer takes the thread from Sora, as writing to them would
   if (conv.kind === "customer" && isStaff(u) && u.kind === "staff" && conv.holder === "fte") await setHolder(conv.id, "human", { id: u.id, name: u.name });

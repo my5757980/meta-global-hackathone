@@ -12,6 +12,7 @@ import { CallLayer } from "../chat/calls";
 import { MustChangePassword, SecurityModal } from "../account/Security";
 import type { ChatMsg } from "../chat/ChatThread";
 import { Avatar, Spinner, clsx } from "../ui";
+import { PublicDemoLine } from "../site/SiteLayout";
 
 /** OS pop-ups for new chat messages and notifications while the tab is in the background. */
 function useDesktopAlerts(meId: string | undefined) {
@@ -153,6 +154,7 @@ export function StaffLayout() {
         </div>
       )}
       <div className="lg:pl-60">
+        <PublicDemoLine />
         <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-slate-200 bg-white/90 px-3 backdrop-blur sm:px-5">
           <button className="rounded-lg p-2 hover:bg-slate-100 lg:hidden" onClick={() => setMenu(true)} aria-label="Menu">
             <Menu className="size-5" />

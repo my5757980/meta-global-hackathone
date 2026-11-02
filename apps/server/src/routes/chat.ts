@@ -1,19 +1,21 @@
 import { Router } from "express";
 import multer from "multer";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
 import * as s from "../db/schema";
-import { bad, forbidden, h, notFound, parse } from "../lib/http";
+import { bad, forbidden, h, notFound, parse, HttpError } from "../lib/http";
 import { isStaff, requireAuth, requirePerm } from "../auth/session";
 import { addToGroup, canSeeConversation, createGroup, deskConversations, ensureCustomerConversation, ensureStaffDm, listMessages, markRead, postMessage, removeFromGroup, renameGroup, setHolder, teamDirectory } from "../services/chat";
-import { signalCall, startCall } from "../services/calls";
+import { iceServers, pendingCallFor, signalCall, startCall } from "../services/calls";
 import { isOnline } from "../services/sse";
 import { saveFile } from "../services/files";
 import { triggerSora } from "../fte/agent";
 import { transcribeMessage } from "../fte/voice";
 import { audit } from "../services/audit";
 import { fteName } from "../services/settings";
+import { env } from "../env";
+import { tooMany } from "../services/publicDemo";
 
 export const chatRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024, files: 10 } });
@@ -123,6 +125,40 @@ chatRouter.post(
   }),
 );
 
+chatRouter.get(
+  "/calls/pending",
+  h(async (req) => ({ call: await pendingCallFor(requireAuth(req).id) })),
+);
+
+chatRouter.get(
+  "/ice",
+  h((req) => {
+    requireAuth(req);
+    return { iceServers: iceServers() };
+  }),
+);
+
+/** The app's Firebase token. A new sign-in on the same phone takes it over, so a push never reaches the last person who used it. */
+chatRouter.post(
+  "/push-token",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const b = parse(z.object({ token: z.string().min(20).max(4096), platform: z.string().max(20).default("android") }), req.body);
+    await db().insert(s.pushTokens).values({ token: b.token, userId: u.id, platform: b.platform }).onConflictDoUpdate({ target: s.pushTokens.token, set: { userId: u.id, platform: b.platform, updatedAt: new Date() } });
+    return { ok: true };
+  }),
+);
+
+chatRouter.post(
+  "/push-token/forget",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const b = parse(z.object({ token: z.string().min(20).max(4096) }), req.body);
+    await db().delete(s.pushTokens).where(and(eq(s.pushTokens.token, b.token), eq(s.pushTokens.userId, u.id)));
+    return { ok: true };
+  }),
+);
+
 chatRouter.post(
   "/calls/:id/signal",
   h(async (req) => {
@@ -154,6 +190,7 @@ chatRouter.post(
     const conv = await canSeeConversation(u, String(req.params.id));
     const body = parse(sendSchema, req.body);
     if (!body.body.trim() && !body.fileIds.length) throw bad("Empty message");
+    if (env.PUBLIC_DEMO && !isStaff(u) && tooMany(`msg:${u.id}`, 30, 10 * 60_000)) throw new HttpError(429, "This is a shared public demo: please wait a few minutes before sending more.");
     if (body.fileIds.length) {
       const owned = await db().select({ id: s.files.id, owner: s.files.ownerUserId }).from(s.files).where(inArray(s.files.id, body.fileIds));
       if (owned.length !== body.fileIds.length || owned.some((f) => f.owner !== u.id)) throw forbidden("Attach only your own uploads");

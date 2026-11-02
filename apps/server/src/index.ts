@@ -20,12 +20,14 @@ import { adminRouter } from "./routes/admin";
 import { shopRouter } from "./routes/shop";
 import { adminContentRouter } from "./routes/adminContent";
 import { auctionRouter } from "./routes/auction";
+import { auctionImportRouter } from "./routes/auctionImport";
 import { mountMcp } from "./fte/mcp";
 import { registerSoraHandlers } from "./fte/handlers";
 import { loadSkills } from "./fte/skills";
 import { modelConfigured, primaryModelName } from "./fte/model";
 import { users } from "./db/schema";
 import { eq } from "drizzle-orm";
+import { noteChange, startPublicDemoResets } from "./services/demoReset";
 
 async function main() {
   await openDb();
@@ -46,6 +48,13 @@ async function main() {
   mountMcp(app); // /mcp — bearer-token protected, before session handling
 
   app.use("/api", loadUser);
+  if (env.PUBLIC_DEMO) {
+    app.use("/api", (req, _res, next) => {
+      if (req.method !== "GET") noteChange();
+      next();
+    });
+    startPublicDemoResets();
+  }
   app.use("/api/public", publicRouter);
   app.use("/api/media", mediaRouter);
   app.use("/api/auth", authRouter);
@@ -55,6 +64,7 @@ async function main() {
   app.use("/api/admin", adminRouter);
   app.use("/api/admin", adminContentRouter);
   app.use("/api/shop", shopRouter);
+  app.use("/api/auction/admin", auctionImportRouter);
   app.use("/api/auction", auctionRouter);
   app.use("/api/fte", fteRouter);
   app.use("/api/account", accountRouter);
