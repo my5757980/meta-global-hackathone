@@ -178,7 +178,7 @@ specs/001-autofte-platform/
 ### Source Code (repository root)
 ```
 package.json                 # npm workspaces: apps/*, packages/*
-.env.example  docker-compose.yml (optional Postgres)  README.md  LICENSE (MIT)
+.env.example  README.md  LICENSE (MIT)
 apps/
   server/
     src/index.ts             # boot: env, db+migrate, seed-if-empty, express, mcp, scheduler
