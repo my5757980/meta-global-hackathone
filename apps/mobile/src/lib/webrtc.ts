@@ -1,5 +1,5 @@
 import { createElement, useEffect, useRef } from "react";
-import type { StyleProp, ViewStyle } from "react-native";
+import { StyleSheet, type StyleProp, type ViewStyle } from "react-native";
 
 /**
  * The browser's side of a call, for the app's web preview: same names as webrtc.native.ts, which is what a phone loads.
@@ -35,6 +35,6 @@ export function RTCView({ stream, style, mirror }: { stream?: unknown; style?: S
   useEffect(() => {
     if (ref.current) ref.current.srcObject = (stream as MediaStream) ?? null;
   }, [stream]);
-  const flat = Object.assign({}, ...(Array.isArray(style) ? style : [style]));
+  const flat = StyleSheet.flatten(style) as object;
   return createElement("video", { ref, autoPlay: true, playsInline: true, muted: true, style: { ...flat, objectFit: "cover", transform: mirror ? "scaleX(-1)" : undefined } });
 }

@@ -10,6 +10,7 @@ import { absUrl, authHeaders } from "./config";
 type Listener = (data: never) => void;
 const listeners = new Map<string, Set<Listener>>();
 let holdInBackground = false;
+const inBackground = () => AppState.currentState === "background";
 
 export function onLive<T>(event: string, fn: (data: T) => void): () => void {
   if (!listeners.has(event)) listeners.set(event, new Set());
@@ -30,7 +31,7 @@ export function startLive(): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const connect = async () => {
-    if (stopped || ctrl || AppState.currentState === "background") return;
+    if (stopped || ctrl || inBackground()) return;
     const mine = new AbortController();
     ctrl = mine;
     try {
@@ -65,7 +66,7 @@ export function startLive(): () => void {
       /* lost, or aborted on purpose: the lines below decide */
     }
     if (ctrl === mine) ctrl = null;
-    if (!stopped && AppState.currentState !== "background") {
+    if (!stopped && !inBackground()) {
       timer = setTimeout(() => void connect(), wait);
       wait = Math.min(wait * 2, 15_000);
     }

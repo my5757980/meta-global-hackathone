@@ -49,6 +49,11 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
     res.status(400).json({ error: code === "LIMIT_FILE_SIZE" ? "That file is too large" : code === "LIMIT_FILE_COUNT" || code === "LIMIT_UNEXPECTED_FILE" ? "Too many files at once" : "That upload could not be read" });
     return;
   }
+  // a cut-off or broken upload is the sender's connection, not a fault here
+  if (/^(Unexpected end of form|Multipart: Boundary not found|Malformed part header)/.test(String((err as Error)?.message))) {
+    res.status(400).json({ error: "The upload did not arrive whole. Please try again." });
+    return;
+  }
   console.error("[error]", err);
   res.status(500).json({ error: "Something went wrong on our side. Please try again." });
 }

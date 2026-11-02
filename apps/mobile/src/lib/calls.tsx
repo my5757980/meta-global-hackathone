@@ -267,7 +267,7 @@ function CallScreen(p: { call: Call; now: number; remote: any; mine: any; muted:
       <View style={st.screen} accessibilityLabel="Call">
         {showVideo && p.remote ? <RTCView {...(streamProp(p.remote) as object)} style={StyleSheet.absoluteFill} objectFit="cover" /> : null}
         {showVideo && p.mine ? <RTCView {...(streamProp(p.mine) as object)} style={[st.pip, { top: insets.top + 16 }]} objectFit="cover" mirror zOrder={1} /> : null}
-        <View style={[st.who, { paddingTop: insets.top + (showVideo ? 24 : 96) }]}>
+        <View style={showVideo ? [st.who, st.whoOverVideo, { bottom: insets.bottom + 120 }] : [st.who, { paddingTop: insets.top + 96 }]}>
           {!showVideo ? (
             <View style={st.avatar}>
               <T style={{ color: "#fff", fontSize: 34, fontWeight: "800" }}>{call.peerName.slice(0, 1).toUpperCase()}</T>
@@ -276,9 +276,9 @@ function CallScreen(p: { call: Call; now: number; remote: any; mine: any; muted:
           <T lines={1} style={st.name}>
             {call.peerName}
           </T>
-          <T style={st.status} accessibilityLiveRegion="polite">
-            {status}
-          </T>
+          <View accessibilityLiveRegion="polite">
+            <T style={st.status}>{status}</T>
+          </View>
         </View>
         {call.phase !== "ended" ? (
           <View style={[st.buttons, { paddingBottom: insets.bottom + 40 }]}>
@@ -313,6 +313,7 @@ function Round({ label, icon, color, tilt, onPress }: { label: string; icon: Rea
 const st = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#0f172a" },
   who: { alignItems: "center", paddingHorizontal: 24 },
+  whoOverVideo: { position: "absolute", left: 0, right: 0 },
   avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: "#334155", alignItems: "center", justifyContent: "center", marginBottom: 18 },
   name: { color: "#fff", fontSize: 24, fontWeight: "800", textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },
   status: { color: "rgba(255,255,255,0.85)", fontSize: 15, marginTop: 6, textAlign: "center", textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },
