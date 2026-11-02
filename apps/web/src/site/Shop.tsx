@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { SlidersHorizontal, X, Search } from "lucide-react";
 import { api, qs } from "../lib/api";
-import type { VehicleCard as V } from "../lib/site";
+import { useFte, type VehicleCard as V } from "../lib/site";
 import { Button, Empty, Input, Pagination, Select, Skeleton, clsx } from "../ui";
 import { VehicleGrid } from "./VehicleCard";
 
@@ -12,9 +12,10 @@ interface Facets {
   bodyTypes: { name: string; count: number }[];
 }
 
-const KEYS = ["q", "brand", "model", "body", "fuel", "transmission", "drive", "yearMin", "yearMax", "priceMin", "priceMax", "mileageMax", "sort", "page"] as const;
+const KEYS = ["q", "brand", "model", "body", "fuel", "transmission", "drive", "steering", "color", "yearMin", "yearMax", "priceMin", "priceMax", "mileageMax", "sort", "page"] as const;
 
 export default function Shop() {
+  const fte = useFte();
   const [sp, setSp] = useSearchParams();
   const [open, setOpen] = useState(false);
   const params = useMemo(() => Object.fromEntries(KEYS.map((k) => [k, sp.get(k) ?? ""])) as Record<(typeof KEYS)[number], string>, [sp]);
@@ -84,6 +85,17 @@ export default function Shop() {
         <Select value={params.drive} onChange={(e) => set("drive", e.target.value)} aria-label="Drive">
           <option value="">Any drive</option>
           {["2WD", "4WD", "AWD"].map((x) => (
+            <option key={x}>{x}</option>
+          ))}
+        </Select>
+        <Select value={params.steering} onChange={(e) => set("steering", e.target.value)} aria-label="Steering">
+          <option value="">Any steering</option>
+          <option value="Right">Right-hand drive</option>
+          <option value="Left">Left-hand drive</option>
+        </Select>
+        <Select value={params.color} onChange={(e) => set("color", e.target.value)} aria-label="Colour">
+          <option value="">Any colour</option>
+          {["White", "Black", "Silver", "Gray", "Blue", "Red", "Green", "Brown", "Beige"].map((x) => (
             <option key={x}>{x}</option>
           ))}
         </Select>
@@ -166,7 +178,7 @@ export default function Shop() {
               <Pagination page={list.data.page} pageSize={list.data.pageSize} total={list.data.total} onPage={(p) => set("page", String(p))} />
             </>
           ) : (
-            <Empty title="No cars match these filters" text="Try removing a filter — or ask Sora, who also searches this week's auction lots." />
+            <Empty title="No cars match these filters" text={`Try removing a filter — or ask ${fte}, who also searches this week's auction lots.`} />
           )}
         </div>
       </div>

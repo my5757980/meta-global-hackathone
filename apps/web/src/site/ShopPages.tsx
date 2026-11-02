@@ -6,6 +6,7 @@ import { api, ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { usd } from "../lib/format";
 import { effectivePrice, isBuyer, useCart, useShopActions, useWishlist } from "../lib/shop";
+import { useFte } from "../lib/site";
 import { Badge, Button, Card, Empty, LinkButton, Skeleton, Textarea } from "../ui";
 import { VehicleCard } from "./VehicleCard";
 import { openChatWith } from "../chat/ChatWidget";
@@ -84,6 +85,7 @@ export function CartView() {
 }
 
 function CartInner() {
+  const fte = useFte();
   const q = useCart();
   const act = useShopActions();
   const [busy, setBusy] = useState<string | null>(null);
@@ -130,7 +132,7 @@ function CartInner() {
             <p className="mt-1 text-3xl font-extrabold text-brand-700">{usd(q.data!.totalUsd)}</p>
             <p className="text-xs text-slate-500">FOB Japan. Freight to your port is quoted on the invoice.</p>
             <LinkButton to="/checkout" size="lg" className={q.data!.readyCount ? "mt-4 w-full" : "pointer-events-none mt-4 w-full opacity-50"}>Checkout</LinkButton>
-            <Button variant="ghost" className="mt-2 w-full" onClick={() => openChatWith("Hi Sora, can you give me the C&F price of the cars in my cart to my port?")}><Bot className="size-4" /> Ask Sora the C&F price</Button>
+            <Button variant="ghost" className="mt-2 w-full" onClick={() => openChatWith(`Hi ${fte}, can you give me the C&F price of the cars in my cart to my port?`)}><Bot className="size-4" /> Ask {fte} the C&F price</Button>
           </Card>
         </div>
       )}
@@ -148,6 +150,7 @@ export function CheckoutView() {
 }
 
 function CheckoutInner() {
+  const fte = useFte();
   const q = useCart();
   const qc = useQueryClient();
   const [notes, setNotes] = useState("");
@@ -167,7 +170,7 @@ function CheckoutInner() {
           <p className="mt-3 text-sm text-slate-500">Nothing to pay yet. A colleague confirms the cars are still yours and sends the invoice with our bank details. You will see every step in your account and in the chat.</p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <LinkButton to="/account/orders">View my orders</LinkButton>
-            <LinkButton to="/chat" variant="secondary"><Bot className="size-4" /> Chat with Sora</LinkButton>
+            <LinkButton to="/chat" variant="secondary"><Bot className="size-4" /> Chat with {fte}</LinkButton>
           </div>
         </Card>
       </div>

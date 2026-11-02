@@ -7,6 +7,7 @@ import { useAuth } from "../lib/auth";
 import { date, jpy, km } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Input, Modal, Pagination, Select, Skeleton, Table, Tabs, Textarea, clsx } from "../ui";
 import { openChatWith } from "../chat/ChatWidget";
+import { FteName, useFte } from "../lib/site";
 
 interface Lot {
   id: string;
@@ -94,7 +95,7 @@ export function AuctionWelcome() {
       <AuctionNav />
       <div className="container-page py-8">
         <h1 className="text-2xl font-bold text-slate-900">This week's auctions</h1>
-        <p className="text-sm text-slate-500">Choose a manufacturer, then a model. Every lot has its inspection sheet — or ask Sora to read it for you.</p>
+        <p className="text-sm text-slate-500">Choose a manufacturer, then a model. Every lot has its inspection sheet — or ask <FteName /> to read it for you.</p>
         <form
           className="mt-4 flex max-w-xl gap-2"
           onSubmit={(e) => {
@@ -143,6 +144,7 @@ export function AuctionWelcome() {
 }
 
 export function AuctionList() {
+  const fte = useFte();
   const { can } = useAuth();
   const [sp, setSp] = useSearchParams();
   const params = useMemo(() => Object.fromEntries(KEYS.map((k) => [k, sp.get(k) ?? ""])) as Record<(typeof KEYS)[number], string>, [sp]);
@@ -245,7 +247,7 @@ export function AuctionList() {
             {list.isLoading ? (
               <Skeleton className="h-96" />
             ) : !list.data?.items.length ? (
-              <Empty title="No lots match" text="Remove a filter, or ask Sora to watch the auctions for you." />
+              <Empty title="No lots match" text={`Remove a filter, or ask ${fte} to watch the auctions for you.`} />
             ) : (
               <>
                 <div className={clsx("overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm", list.isFetching && "opacity-60")}>
@@ -298,6 +300,7 @@ interface LotDetail {
 }
 
 export function AuctionLotPage() {
+  const fte = useFte();
   const { id } = useParams();
   const qc = useQueryClient();
   const { can } = useAuth();
@@ -390,13 +393,13 @@ export function AuctionLotPage() {
                 ))}
               </dl>
               <p className="mt-2 text-xs text-slate-500">Equipment: {l.equipment}</p>
-              <Button className="mt-4 w-full" variant="secondary" onClick={() => openChatWith(`Sora, please check the auction sheet of lot ${l.lotNo} (${l.hall}, ${l.saleDate}) and tell me if it is a good car.`)}>
-                <Bot className="size-4 text-violet-600" /> Ask Sora to read the sheet
+              <Button className="mt-4 w-full" variant="secondary" onClick={() => openChatWith(`${fte}, please check the auction sheet of lot ${l.lotNo} (${l.hall}, ${l.saleDate}) and tell me if it is a good car.`)}>
+                <Bot className="size-4 text-violet-600" /> Ask <FteName /> to read the sheet
               </Button>
               {q.data.soraReading && (
                 <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50 p-3 text-sm">
                   <p className="font-semibold text-violet-900">
-                    Sora's reading: <span className="uppercase">{q.data.soraReading.verdict}</span> · grade {q.data.soraReading.grade}
+                    <FteName />'s reading: <span className="uppercase">{q.data.soraReading.verdict}</span> · grade {q.data.soraReading.grade}
                   </p>
                   <p className="text-violet-900/80">{q.data.soraReading.reasons?.slice(0, 3).join(" · ")}</p>
                 </div>

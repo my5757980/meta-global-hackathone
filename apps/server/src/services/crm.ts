@@ -1,6 +1,7 @@
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db, type DBorTx } from "../db/client";
 import * as s from "../db/schema";
+import { hashPassword, randomPassword } from "../auth/passwords";
 import { bad, conflict, notFound } from "../lib/http";
 import { audit } from "./audit";
 import { emit } from "./events";
@@ -42,12 +43,15 @@ export interface LeadInput {
 /** Match an existing lead by e-mail or phone (never duplicate a buyer), else create one. */
 export async function findOrCreateLead(input: LeadInput, actor: Actor) {
   const existing = await findLeadByContact(input.phone, input.email);
+  // Whoever is chatting may have typed someone else's number. A record with invoices (amounts, chassis, balance)
+  // is therefore never joined to them automatically; staff link it from Customers.
+  const [invoiced] = existing && !existing.customerUserId && input.customerUserId ? await db().select({ id: s.invoices.id }).from(s.invoices).where(eq(s.invoices.leadId, existing.id)).limit(1) : [];
   return db().transaction(async (tx) => {
     if (existing) {
       const patch: Partial<typeof s.leads.$inferInsert> = { updatedAt: new Date() };
       if (!existing.email && input.email) patch.email = input.email;
       if (!existing.portId && input.portId) patch.portId = input.portId;
-      if (!existing.customerUserId && input.customerUserId) patch.customerUserId = input.customerUserId;
+      if (!existing.customerUserId && input.customerUserId && !invoiced) patch.customerUserId = input.customerUserId;
       if (existing.status === "new") patch.status = "in_progress";
       await tx.update(s.leads).set(patch).where(eq(s.leads.id, existing.id));
       await audit(tx, { actorUserId: actor.userId, actorKind: actor.kind, action: "lead.matched", entity: "lead", entityId: existing.id, summary: `Matched existing lead ${existing.customerName}`, conversationId: actor.conversationId, fteRunId: actor.fteRunId });
@@ -72,6 +76,27 @@ export async function findOrCreateLead(input: LeadInput, actor: Actor) {
       .returning();
     await audit(tx, { actorUserId: actor.userId, actorKind: actor.kind, action: "lead.created", entity: "lead", entityId: lead!.id, summary: `Created lead ${lead!.customerName} (${input.countryCode})`, conversationId: actor.conversationId, fteRunId: actor.fteRunId });
     return { lead: lead!, created: true };
+  });
+}
+
+/**
+ * FR-022: a CRM customer with an invoice gets a website account on its own. The password is random and nobody
+ * knows it: staff issue a one-time password on demand (Customers, or the lead's page). An account that already
+ * uses this e-mail is left alone: it signed itself up, and only staff may link it to these invoices.
+ */
+export async function ensureWebsiteAccount(leadId: string) {
+  const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, leadId)).limit(1);
+  const email = lead?.email?.trim().toLowerCase();
+  if (!lead || lead.customerUserId || !email) return null;
+  const [taken] = await db().select({ id: s.users.id }).from(s.users).where(sql`lower(${s.users.email}) = ${email}`).limit(1);
+  if (taken) return null;
+  const [role] = await db().select({ id: s.roles.id }).from(s.roles).where(eq(s.roles.slug, "customer")).limit(1);
+  const passwordHash = await hashPassword(randomPassword());
+  return db().transaction(async (tx) => {
+    const [user] = await tx.insert(s.users).values({ kind: "customer", name: lead.contactPerson || lead.customerName, email, phone: lead.phone, company: lead.customerName, countryCode: lead.countryCode, roleId: role!.id, passwordHash, mustChangePassword: true }).returning({ id: s.users.id });
+    await tx.update(s.leads).set({ customerUserId: user!.id, updatedAt: new Date() }).where(and(eq(s.leads.id, lead.id), isNull(s.leads.customerUserId)));
+    await audit(tx, { actorKind: "system", action: "customer.account_created", entity: "lead", entityId: lead.id, summary: `Website account created for ${lead.customerName} when their invoice was approved` });
+    return user!.id;
   });
 }
 

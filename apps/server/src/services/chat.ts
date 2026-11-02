@@ -5,6 +5,7 @@ import { bad, forbidden, notFound } from "../lib/http";
 import type { AuthUser } from "../auth/session";
 import { isOnline, onPresence, publish, onlineUserIds } from "./sse";
 import { permsForRole } from "../auth/session";
+import { fteName } from "./settings";
 
 // green dots: tell every open tab when someone comes online or leaves; remember when they were last here
 onPresence((userId, online) => {
@@ -14,7 +15,7 @@ onPresence((userId, online) => {
 
 export async function soraUserId(): Promise<string> {
   const [u] = await db().select({ id: s.users.id }).from(s.users).where(eq(s.users.kind, "fte")).limit(1);
-  if (!u) throw new Error("Sora's account is missing — run npm run setup");
+  if (!u) throw new Error("The AI employee's account is missing — run npm run setup");
   return u.id;
 }
 
@@ -116,7 +117,7 @@ export async function setHolder(conversationId: string, holder: "fte" | "human",
   if (byUser) {
     await db().insert(s.chatMembers).values({ conversationId, userId: byUser.id }).onConflictDoNothing();
   }
-  const text = holder === "human" ? `${byUser?.name ?? "A team member"} joined the conversation${note ? ` — ${note}` : ""}` : `Sora is back in the conversation${byUser ? ` (handed back by ${byUser.name})` : ""}`;
+  const text = holder === "human" ? `${byUser?.name ?? "A team member"} joined the conversation${note ? ` — ${note}` : ""}` : `${await fteName()} is back in the conversation${byUser ? ` (handed back by ${byUser.name})` : ""}`;
   await postMessage({ conversationId, senderUserId: null, kind: "system", body: text, meta: { holder } });
   publish(await conversationMembers(conversationId), "holder", { conversationId, holder });
 }

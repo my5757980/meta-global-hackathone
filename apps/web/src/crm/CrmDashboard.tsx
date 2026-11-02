@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { ago, usd } from "../lib/format";
 import { Card, PageHeader, Skeleton, Stat, StatusBadge } from "../ui";
+import { FteName, useFte } from "../lib/site";
 
 interface Summary {
   leads: { status: keyof typeof LEAD_STATUS_LABELS; n: number }[];
@@ -14,6 +15,7 @@ interface Summary {
 }
 
 export default function CrmDashboard() {
+  const fte = useFte();
   const { me } = useAuth();
   const q = useQuery({ queryKey: ["crm-summary"], queryFn: () => api.get<Summary>("/api/crm/summary") });
   const d = q.data;
@@ -21,7 +23,7 @@ export default function CrmDashboard() {
   const inv = (s: string) => d?.invoices.find((i) => i.status === s);
   return (
     <div>
-      <PageHeader title={`Good day, ${me?.name.split(" ")[0]}`} subtitle="Your sales pipeline at a glance — Sora's work included." />
+      <PageHeader title={`Good day, ${me?.name.split(" ")[0]}`} subtitle={<>Your sales pipeline at a glance — <FteName />'s work included.</>} />
       {q.isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -34,7 +36,7 @@ export default function CrmDashboard() {
             <Stat label="Leads" value={leadTotal.toLocaleString("en-US")} icon={<Users className="size-5" />} />
             <Stat label="Waiting for approval" value={inv("pending")?.n ?? 0} hint={usd(inv("pending")?.total ?? 0) + " C&F"} icon={<Hourglass className="size-5" />} />
             <Stat label="Approved / sent" value={(inv("approved")?.n ?? 0) + (inv("sent")?.n ?? 0)} hint={usd((inv("approved")?.total ?? 0) + (inv("sent")?.total ?? 0)) + " C&F"} icon={<FileText className="size-5" />} />
-            <Stat label="Sora's invoice requests" value={d?.recent.filter((r) => r.requestedKind === "fte").length ?? 0} hint="in the latest 8" icon={<Bot className="size-5" />} />
+            <Stat label={`${fte}'s invoice requests`} value={d?.recent.filter((r) => r.requestedKind === "fte").length ?? 0} hint="in the latest 8" icon={<Bot className="size-5" />} />
           </div>
           <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_1.4fr]">
             <Card>
@@ -67,7 +69,7 @@ export default function CrmDashboard() {
                           {r.number} · {r.consignee}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {r.requestedKind === "fte" ? "🤖 Sora" : r.requestedBy} · {ago(r.createdAt)}
+                          {r.requestedKind === "fte" ? `🤖 ${fte}` : r.requestedBy} · {ago(r.createdAt)}
                         </p>
                       </div>
                       <span className="text-sm font-semibold">{usd(r.total)}</span>

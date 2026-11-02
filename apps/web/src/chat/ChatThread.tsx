@@ -5,6 +5,7 @@ import { resizeImage, WavRecorder } from "./media";
 import type { ChatCard } from "@autofte/shared";
 import { api } from "../lib/api";
 import { miniMarkdown, time, usd2 } from "../lib/format";
+import { FteName } from "../lib/site";
 import { useLiveEvent } from "../lib/sse";
 import { Avatar, Badge, clsx } from "../ui";
 
@@ -197,8 +198,8 @@ export function MessageList({ messages, meId, typing, perspective = "buyer" }: {
           <div key={m.id} className={clsx("flex gap-2", mine ? "flex-row-reverse" : "flex-row")}>
             {!mine && <Avatar name={m.sender?.name} kind={m.sender?.kind} size={30} />}
             <div className={clsx("max-w-[85%]", mine && "items-end")}>
-              {!mine && perspective === "buyer" && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{isSora ? "Sora · AI sales executive" : m.sender?.name}</p>}
-              {perspective === "staff" && <p className={clsx("mb-0.5 text-[11px] font-semibold", isSora ? "text-violet-600" : "text-slate-500", mine && "text-right")}>{isSora ? "Sora (AI)" : m.sender?.name}</p>}
+              {!mine && perspective === "buyer" && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{isSora ? <><FteName /> · AI sales executive</> : m.sender?.name}</p>}
+              {perspective === "staff" && <p className={clsx("mb-0.5 text-[11px] font-semibold", isSora ? "text-violet-600" : "text-slate-500", mine && "text-right")}>{isSora ? <><FteName /> (AI)</> : m.sender?.name}</p>}
               {perspective === "team" && !mine && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{m.sender?.name}</p>}
               {m.body && (
                 <div
@@ -236,7 +237,7 @@ export function MessageList({ messages, meId, typing, perspective = "buyer" }: {
             <span className="typing-dot size-1.5 rounded-full bg-slate-500" />
             <span className="typing-dot size-1.5 rounded-full bg-slate-500" />
             <span className="typing-dot size-1.5 rounded-full bg-slate-500" />
-            <span className="ml-2 text-[11px] text-slate-500">Sora is working…</span>
+            <span className="ml-2 text-[11px] text-slate-500"><FteName /> is working…</span>
           </div>
         </div>
       )}
@@ -371,7 +372,7 @@ export function Composer({ conversationId, onSent, initial, placeholder, soraHin
       )}
       {soraHint && (
         <p className="mt-1 flex items-center gap-1 px-1 text-[10px] text-slate-400">
-          <Bot className="size-3" /> Sora is an AI built with Muse Spark Open · voice notes in Urdu or English · a person approves every invoice
+          <Bot className="size-3" /> <FteName /> is an AI built with Muse Spark Open · voice notes in Urdu or English · a person approves every invoice
         </p>
       )}
     </div>

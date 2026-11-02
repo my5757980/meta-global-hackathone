@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { ago, date, jpy } from "../lib/format";
 import { Badge, Button, Card, Empty, PageHeader, Select, Skeleton, Stat, Table, Tabs, Textarea } from "../ui";
+import { FteName } from "../lib/site";
 
 export function AuctionAdmin() {
   const { can } = useAuth();
@@ -125,7 +126,7 @@ function Bids() {
           {q.data.map((b) => (
             <tr key={b.id}>
               <td className="px-4 py-2 text-xs whitespace-nowrap">{ago(b.createdAt)}</td>
-              <td className="px-4 py-2 whitespace-nowrap">{b.whoKind === "fte" ? <span className="inline-flex items-center gap-1 font-semibold text-violet-700"><Bot className="size-4" /> Sora</span> : b.who}</td>
+              <td className="px-4 py-2 whitespace-nowrap">{b.whoKind === "fte" ? <span className="inline-flex items-center gap-1 font-semibold text-violet-700"><Bot className="size-4" /> <FteName /></span> : b.who}</td>
               <td className="px-4 py-2">
                 {b.lot.lotNo}
                 <p className="text-xs text-slate-500">{b.lot.hall} · {date(b.lot.saleDate)}</p>

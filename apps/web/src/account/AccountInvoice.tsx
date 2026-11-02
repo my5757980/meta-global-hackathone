@@ -36,6 +36,11 @@ export default function AccountInvoice() {
               </div>
               <div className="flex items-center gap-2">
                 <Badge tone={STATUS[inv.status]?.tone ?? "gray"}>{STATUS[inv.status]?.label ?? inv.status}</Badge>
+                {inv.status === "approved" || inv.status === "sent" ? (
+                  <a href={`/api/account/invoices/${inv.id}/pdf`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
+                    <Download className="size-4" /> Invoice PDF
+                  </a>
+                ) : null}
                 <Button variant="secondary" size="sm" onClick={() => window.print()}>
                   <Printer className="size-4" /> Print
                 </Button>

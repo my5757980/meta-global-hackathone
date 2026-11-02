@@ -9,6 +9,7 @@ import { ago } from "../lib/format";
 import { Avatar, Badge, Button, Card, Empty, Field, Input, Modal, Spinner, Tabs, clsx } from "../ui";
 import { Composer, MessageList, useConversation, type ChatMsg } from "./ChatThread";
 import { CallButtons } from "./calls";
+import { FteName, useFte } from "../lib/site";
 
 interface ConvRow {
   id: string;
@@ -152,7 +153,7 @@ export default function Desk() {
                     {c.kind === "customer" &&
                       (c.holder === "fte" ? (
                         <Badge tone="violet">
-                          <Bot className="size-3" /> Sora
+                          <Bot className="size-3" /> <FteName />
                         </Badge>
                       ) : (
                         <Badge tone="amber">Human</Badge>
@@ -238,6 +239,7 @@ function PeoplePicker({ people, picked, setPicked }: { people: Colleague[]; pick
 }
 
 function DeskThread({ id, meId, onBack, onLeft }: { id: string; meId: string; onBack: () => void; onLeft: () => void }) {
+  const fte = useFte();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["conv", id], queryFn: () => api.get<ConvDetail>(`/api/chat/conversations/${id}`) });
   const { messages, setMessages, typing } = useConversation(id, q.data?.messages ?? []);
@@ -309,11 +311,11 @@ function DeskThread({ id, meId, onBack, onLeft }: { id: string; meId: string; on
           <Button variant={c.holder === "fte" ? "secondary" : "accent"} size="sm" loading={busy} onClick={() => void toggle()}>
             {c.holder === "fte" ? (
               <>
-                <Hand className="size-4" /> Take over from Sora
+                <Hand className="size-4" /> Take over from <FteName />
               </>
             ) : (
               <>
-                <Undo2 className="size-4" /> Hand back to Sora
+                <Undo2 className="size-4" /> Hand back to <FteName />
               </>
             )}
           </Button>
@@ -321,7 +323,7 @@ function DeskThread({ id, meId, onBack, onLeft }: { id: string; meId: string; on
       </div>
       {c.kind === "customer" && c.fteSummary && (
         <div className="border-b border-violet-100 bg-violet-50/60 px-4 py-2 text-xs text-violet-900">
-          <span className="font-semibold">Sora's summary: </span>
+          <span className="font-semibold"><FteName />'s summary: </span>
           {c.fteSummary}
         </div>
       )}
@@ -331,7 +333,7 @@ function DeskThread({ id, meId, onBack, onLeft }: { id: string; meId: string; on
       <Composer
         conversationId={id}
         soraHint={c.kind === "customer"}
-        placeholder={c.kind !== "customer" ? `Message ${name}…` : c.holder === "fte" ? "Writing here takes the conversation over from Sora…" : "Write to the buyer…"}
+        placeholder={c.kind !== "customer" ? `Message ${name}…` : c.holder === "fte" ? `Writing here takes the conversation over from ${fte}…` : "Write to the buyer…"}
         onSent={(m) => setMessages((p) => (p.some((x) => x.id === m.id) ? p : [...p, m]))}
       />
       {c.kind === "group" && <GroupMembers open={manage} onClose={() => setManage(false)} group={c} members={q.data.members} meId={meId} onLeft={onLeft} />}

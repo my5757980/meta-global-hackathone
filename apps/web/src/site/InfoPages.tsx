@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Building2, ChevronRight, ClipboardCheck, Car, FileText, Gavel, Headphones, Landmark, Mail, MapPin, Phone, Ship } from "lucide-react";
 import { api } from "../lib/api";
 import { date, miniMarkdown } from "../lib/format";
-import { useSite } from "../lib/site";
+import { useFte, useSite } from "../lib/site";
 import { Button, Card, Empty, Field, Input, Skeleton, Textarea } from "../ui";
 
 export function PageShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
@@ -33,9 +33,10 @@ export function ContentPageView({ slug }: { slug: string }) {
 const SERVICE_ICONS: Record<string, ReactNode> = { Gavel: <Gavel />, Car: <Car />, ClipboardCheck: <ClipboardCheck />, Ship: <Ship />, FileText: <FileText />, Headphones: <Headphones /> };
 
 export function ServicesView() {
+  const fte = useFte();
   const q = useQuery({ queryKey: ["services"], queryFn: () => api.get<{ title: string; body: string; icon: string }[]>("/api/public/services") });
   return (
-    <PageShell title="Our services" subtitle="From the auction hall in Japan to your port — one team, one record, and Sora answering 24/7.">
+    <PageShell title="Our services" subtitle={`From the auction hall in Japan to your port — one team, one record, and ${fte} answering 24/7.`}>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {q.data?.map((s) => (
           <Card key={s.title}>
@@ -105,13 +106,13 @@ export function LocationsView() {
 }
 
 export function PartnersView() {
-  const q = useQuery({ queryKey: ["partners"], queryFn: () => api.get<{ name: string }[]>("/api/public/partners") });
+  const q = useQuery({ queryKey: ["partners"], queryFn: () => api.get<{ name: string; logoUrl: string | null; url: string | null }[]>("/api/public/partners") });
   return (
     <PageShell title="Official partners" subtitle="Shipping lines, inspection and courier partners we work with (demo names).">
       <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 sm:grid-cols-3">
         {q.data?.map((p) => (
           <Card key={p.name} className="flex items-center gap-3 break-words">
-            <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-sm font-extrabold text-slate-600">{p.name.slice(0, 2).toUpperCase()}</span>
+            {p.logoUrl ? <img src={p.logoUrl} alt="" className="size-12 shrink-0 rounded-xl object-contain" /> : <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-sm font-extrabold text-slate-600">{p.name.slice(0, 2).toUpperCase()}</span>}
             <span className="text-sm font-semibold text-slate-800">{p.name}</span>
           </Card>
         ))}
@@ -156,7 +157,7 @@ export function BlogView() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {q.data?.map((b) => (
           <Link key={b.slug} to={`/blog/${b.slug}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md">
-            <img src={b.coverUrl} alt="" className="aspect-video w-full object-cover" loading="lazy" />
+            {b.coverUrl ? <img src={b.coverUrl} alt="" className="aspect-video w-full object-cover" loading="lazy" /> : null}
             <div className="p-4">
               <p className="text-xs text-slate-500">{date(b.publishedAt)}</p>
               <p className="mt-1 font-semibold text-slate-900">{b.title}</p>
@@ -184,12 +185,13 @@ export function BlogPostView() {
 }
 
 export function ContactView() {
+  const fte = useFte();
   const site = useSite();
   const [f, setF] = useState({ name: "", email: "", phone: "", subject: "", message: "" });
   const [state, setState] = useState<"idle" | "busy" | "done" | string>("idle");
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
   return (
-    <PageShell title="Contact us" subtitle="Write to us — or open the chat for an instant answer from Sora.">
+    <PageShell title="Contact us" subtitle={`Write to us — or open the chat for an instant answer from ${fte}.`}>
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <Card>
           {state === "done" ? (

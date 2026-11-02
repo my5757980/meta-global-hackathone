@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Maximize2, MessageCircle, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { CompanyName, FteName } from "../lib/site";
 import { useLiveEvent, useLiveStream } from "../lib/sse";
 import { Avatar, Button, Field, Input, Spinner } from "../ui";
 import { Composer, MessageList, useConversation, type ChatMsg } from "./ChatThread";
@@ -45,7 +46,7 @@ export function ChatWidget() {
       <button
         onClick={() => setOpen((o) => !o)}
         className="fixed right-4 bottom-4 z-40 flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-brand-600 text-white shadow-xl ring-4 ring-white hover:scale-105 sm:right-5 sm:bottom-5"
-        aria-label={open ? "Close chat" : "Chat with Sora"}
+        aria-label={open ? "Close chat" : "Open chat"}
       >
         {open ? <X className="size-6" /> : <MessageCircle className="size-6" />}
         {!open && <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-accent-500 text-[10px] font-bold text-slate-900">AI</span>}
@@ -79,7 +80,7 @@ export function ChatPanel({ draft, onClose, full }: { draft?: string; onClose?: 
       <div className="flex items-center gap-3 border-b border-slate-200 bg-gradient-to-r from-brand-700 to-violet-700 px-4 py-3 text-white sm:rounded-t-2xl">
         <Avatar kind="fte" size={38} />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold">Sora · AI sales executive</p>
+          <p className="truncate font-semibold"><FteName /> · AI sales executive</p>
           <p className="flex items-center gap-1 text-[11px] text-white/80">
             <span className="size-1.5 rounded-full bg-emerald-400" /> Online 24/7 · Built with Muse Spark Open
           </p>
@@ -119,7 +120,7 @@ export function ChatPanel({ draft, onClose, full }: { draft?: string; onClose?: 
             {messages.length === 0 && (
               <div className="mx-auto mb-4 max-w-xs rounded-2xl bg-white p-4 text-center text-sm text-slate-600 ring-1 ring-slate-200">
                 <Bot className="mx-auto mb-2 size-6 text-violet-600" />
-                Hi {me.name.split(" ")[0]}! I'm Sora. Tell me what car you need and your port — I'll find real cars and the exact price delivered.
+                Hi {me.name.split(" ")[0]}! I'm <FteName />. Tell me what car you need and your port — I'll find real cars and the exact price delivered.
               </div>
             )}
             <MessageList messages={messages} meId={me.id} typing={typing} />
@@ -162,7 +163,7 @@ function VisitorDoor({ onDone }: { onDone: () => Promise<void> }) {
     >
       <div className="rounded-2xl bg-white p-4 text-sm text-slate-600 ring-1 ring-slate-200">
         <p className="font-semibold text-slate-900">Hello! 👋</p>
-        <p className="mt-1">I'm Sora, the AI sales executive of Hikari Motors. Tell me who you are once, and I'll remember you next time.</p>
+        <p className="mt-1">I'm <FteName />, the AI sales executive of <CompanyName />. Tell me who you are once, and I'll remember you next time.</p>
       </div>
       <Field label="Your name">
         <Input required minLength={2} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} autoComplete="name" />

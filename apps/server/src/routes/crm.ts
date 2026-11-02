@@ -68,7 +68,7 @@ crmRouter.get(
       .offset(offset);
     const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(s.leads).where(where)) as [{ n: number }];
     const agents = can(u, "crm.leads.view_all")
-      ? await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind, n: sql<number>`(select count(*)::int from leads l where l.owner_user_id = ${s.users.id})` }).from(s.users).where(inArray(s.users.kind, ["staff", "fte"])).orderBy(s.users.name)
+      ? await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind, n: sql<number>`(select count(*)::int from leads l where l.owner_user_id = "users"."id")` }).from(s.users).where(inArray(s.users.kind, ["staff", "fte"])).orderBy(s.users.name)
       : [];
     return { items: rows.map((r) => ({ ...r.lead, owner: r.owner, ownerKind: r.ownerKind, country: r.country, port: r.port })), total: n, page: pageNo, pageSize, agents: agents.filter((a) => a.n > 0) };
   }),

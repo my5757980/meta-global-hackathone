@@ -4,7 +4,6 @@
  * Every write is permission-checked on the server and audited; customer-facing changes emit events
  * so Sora can tell the buyer.
  */
-import { randomBytes } from "node:crypto";
 import { Router } from "express";
 import multer from "multer";
 import archiver from "archiver";
@@ -20,7 +19,7 @@ import { audit } from "../services/audit";
 import { emit } from "../services/events";
 import { getFile, saveFile } from "../services/files";
 import { invoicePdf, invoiceXlsx } from "../services/invoiceDocs";
-import { hashPassword, randomPassword } from "../auth/passwords";
+import { hashPassword, oneTimePassword, randomPassword } from "../auth/passwords";
 import { reportData, reportXlsx, backupXlsx } from "../services/reports";
 
 export const crmOps = Router();
@@ -584,11 +583,6 @@ crmOps.post(
 );
 
 // ── Website account for a CRM customer (create or link) + one-time password ────────────────────────────────
-function oneTimePassword(): string {
-  const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  return [...randomBytes(12)].map((x) => A[x % A.length]).join("").match(/.{4}/g)!.join("-");
-}
-
 crmOps.post(
   "/leads/:id/website-account",
   h(async (req) => {

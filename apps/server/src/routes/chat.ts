@@ -13,6 +13,7 @@ import { saveFile } from "../services/files";
 import { triggerSora } from "../fte/agent";
 import { transcribeMessage } from "../fte/voice";
 import { audit } from "../services/audit";
+import { fteName } from "../services/settings";
 
 export const chatRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024, files: 10 } });
@@ -206,7 +207,7 @@ chatRouter.post(
     const conv = await canSeeConversation(u, String(req.params.id));
     if (conv.kind !== "customer") throw bad("Only customer conversations");
     await setHolder(conv.id, "human", { id: u.id, name: u.name });
-    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "chat.takeover", entity: "conversation", entityId: conv.id, summary: `${u.name} took over from Sora`, conversationId: conv.id });
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "chat.takeover", entity: "conversation", entityId: conv.id, summary: `${u.name} took over from ${await fteName()}`, conversationId: conv.id });
     return { ok: true };
   }),
 );
@@ -218,7 +219,7 @@ chatRouter.post(
     const conv = await canSeeConversation(u, String(req.params.id));
     if (conv.kind !== "customer") throw bad("Only customer conversations");
     await setHolder(conv.id, "fte", { id: u.id, name: u.name });
-    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "chat.handback", entity: "conversation", entityId: conv.id, summary: `${u.name} handed the conversation back to Sora`, conversationId: conv.id });
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "chat.handback", entity: "conversation", entityId: conv.id, summary: `${u.name} handed the conversation back to ${await fteName()}`, conversationId: conv.id });
     return { ok: true };
   }),
 );

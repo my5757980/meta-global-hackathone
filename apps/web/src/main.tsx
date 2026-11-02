@@ -65,6 +65,12 @@ const AdminPagesList = lazy(() => adminPages().then((m) => ({ default: m.AdminPa
 const AdminSettings = lazy(() => adminPages().then((m) => ({ default: m.AdminSettings })));
 const AdminMessages = lazy(() => adminPages().then((m) => ({ default: m.AdminMessages })));
 const AdminOrders = lazy(() => adminPages().then((m) => ({ default: m.AdminOrders })));
+const adminMore = () => import("./admin/AdminMore");
+const AdminContent = lazy(() => adminMore().then((m) => ({ default: m.AdminContent })));
+const AdminBrands = lazy(() => adminMore().then((m) => ({ default: m.AdminBrands })));
+const AdminCustomers = lazy(() => adminMore().then((m) => ({ default: m.AdminCustomers })));
+const AdminCustomerDetail = lazy(() => adminMore().then((m) => ({ default: m.AdminCustomerDetail })));
+const AdminRoles = lazy(() => adminMore().then((m) => ({ default: m.AdminRoles })));
 
 const page = (el: React.ReactNode) => (
   <Suspense
@@ -137,6 +143,11 @@ const router = createBrowserRouter([
       { path: "/admin/settings", element: page(<AdminSettings />) },
       { path: "/admin/messages", element: page(<AdminMessages />) },
       { path: "/admin/orders", element: page(<AdminOrders />) },
+      { path: "/admin/content", element: page(<AdminContent />) },
+      { path: "/admin/brands", element: page(<AdminBrands />) },
+      { path: "/admin/customers", element: page(<AdminCustomers />) },
+      { path: "/admin/customers/:id", element: page(<AdminCustomerDetail />) },
+      { path: "/admin/roles", element: page(<AdminRoles />) },
     ],
   },
 ]);

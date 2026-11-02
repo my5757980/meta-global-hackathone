@@ -9,17 +9,13 @@ import { on, emit } from "../services/events";
 import { postMessage } from "../services/chat";
 import { envelope, now, siteSettings } from "../services/settings";
 import { notify } from "../services/notify";
-import { getInvoiceFull } from "../services/crm";
+import { ensureWebsiteAccount, getInvoiceFull } from "../services/crm";
 import { triggerSora } from "./agent";
 
 async function conversationForLead(leadId: string) {
   const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, leadId)).limit(1);
   if (!lead) return null;
-  let userId = lead.customerUserId;
-  if (!userId && lead.email) {
-    const [u] = await db().select({ id: s.users.id }).from(s.users).where(sql`lower(${s.users.email}) = lower(${lead.email})`).limit(1);
-    userId = u?.id ?? null;
-  }
+  const userId = lead.customerUserId; // linked only: invoice news must not reach whoever typed the same e-mail
   if (!userId) return null;
   const [conv] = await db().select().from(s.chatConversations).where(and(eq(s.chatConversations.kind, "customer"), eq(s.chatConversations.customerUserId, userId))).limit(1);
   return conv ?? null;
@@ -47,6 +43,7 @@ export function registerSoraHandlers() {
   on("invoice.approved", async ({ invoiceId }) => {
     const full = await getInvoiceFull(String(invoiceId));
     if (!full?.lead) return;
+    await ensureWebsiteAccount(full.lead.id); // a CRM customer with an invoice gets an account without anyone asking
     const conv = await conversationForLead(full.lead.id);
     if (!conv) return;
     const site = await siteSettings();

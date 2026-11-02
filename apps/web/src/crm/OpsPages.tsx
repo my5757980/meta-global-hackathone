@@ -6,6 +6,7 @@ import { api, qs } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { ago, date, usd } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Select, Skeleton, Stat, Table, Tabs } from "../ui";
+import { FteName } from "../lib/site";
 
 export function UnitsPage() {
   const q = useQuery({ queryKey: ["units"], queryFn: () => api.get<{ id: string; make: string; model: string; year: number; chassis: string; color: string; location: string; invoice: string; invoiceId: string; consignee: string; docs: number; stage: string | null }[]>("/api/crm/units") });
@@ -130,7 +131,7 @@ export function ReportsPage() {
                 <td className="px-4 py-3">{i.consignee}</td>
                 <td className="px-4 py-3">{i.vehicle}</td>
                 <td className="px-4 py-3">{usd(i.total)}</td>
-                <td className="px-4 py-3">{i.agentKind === "fte" ? "Sora" : i.agent}</td>
+                <td className="px-4 py-3">{i.agentKind === "fte" ? <FteName /> : i.agent}</td>
                 <td className="px-4 py-3">{i.status}</td>
                 <td className="px-4 py-3 whitespace-nowrap">{date(i.createdAt)}</td>
               </tr>

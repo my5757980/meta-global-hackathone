@@ -1,21 +1,23 @@
 import { Router } from "express";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { forbidden, h, notFound, parse } from "../lib/http";
 import { requireAuth, type AuthUser } from "../auth/session";
+import { getInvoiceFull } from "../services/crm";
 import { getFile } from "../services/files";
+import { invoicePdf } from "../services/invoiceDocs";
 
 export const accountRouter = Router();
 
-/** Leads that belong to this signed-in customer (linked account, or the same e-mail). */
+/**
+ * Leads linked to this signed-in customer. Linked only: anyone can type someone's e-mail when signing up
+ * (nothing verifies it), so a matching address alone must never open a buyer's invoices. Staff link it.
+ */
 async function myLeadIds(u: AuthUser): Promise<string[]> {
   if (u.kind !== "customer") return [];
-  const rows = await db()
-    .select({ id: s.leads.id })
-    .from(s.leads)
-    .where(or(eq(s.leads.customerUserId, u.id), u.email ? sql`lower(${s.leads.email}) = lower(${u.email})` : sql`false`));
+  const rows = await db().select({ id: s.leads.id }).from(s.leads).where(eq(s.leads.customerUserId, u.id));
   return rows.map((r) => r.id);
 }
 
@@ -51,6 +53,22 @@ async function invoiceForCustomer(invId: string) {
     vehicles: vs,
   };
 }
+
+accountRouter.get(
+  "/invoices/:id/pdf",
+  h(async (req, res) => {
+    const u = requireAuth(req);
+    const leadIds = await myLeadIds(u);
+    const [inv] = leadIds.length ? await db().select({ id: s.invoices.id, status: s.invoices.status }).from(s.invoices).where(and(eq(s.invoices.id, String(req.params.id)), inArray(s.invoices.leadId, leadIds))).limit(1) : [];
+    if (!inv || !["approved", "sent"].includes(inv.status)) throw notFound("Invoice not found");
+    const full = await getInvoiceFull(inv.id);
+    if (!full) throw notFound("Invoice not found");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${full.invoice.number}.pdf"`);
+    res.send(await invoicePdf(full));
+    return undefined;
+  }),
+);
 
 accountRouter.get(
   "/invoices",

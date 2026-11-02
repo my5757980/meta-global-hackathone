@@ -9,6 +9,7 @@ import { bad, conflict, forbidden, h, HttpError, parse } from "../lib/http";
 import { destroySession, loadAuthUser, requireAuth, sessionFor } from "../auth/session";
 import { hashPassword, verifyPassword } from "../auth/passwords";
 import { ensureCustomerConversation } from "../services/chat";
+import { notify, usersWithPerm } from "../services/notify";
 import { audit } from "../services/audit";
 
 export const authRouter = Router();
@@ -25,6 +26,13 @@ const DEMO_USERS: Record<string, string> = {
 function publicMe(u: Awaited<ReturnType<typeof loadAuthUser>>) {
   if (!u) return null;
   return { id: u.id, kind: u.kind, name: u.name, email: u.email, phone: u.phone, role: u.roleSlug, roleName: u.roleName, title: u.title, countryCode: u.countryCode, mustChangePassword: u.mustChangePassword, hasRecoveryKey: u.hasRecoveryKey, perms: [...u.perms] };
+}
+
+/** The same phone, ignoring formatting and country prefix: all a returning chat guest has to prove who they are. */
+function samePhone(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = (a ?? "").replace(/\D+/g, "").slice(-7);
+  const y = (b ?? "").replace(/\D+/g, "").slice(-7);
+  return x.length === 7 && x === y;
 }
 
 authRouter.get("/me", h((req) => ({ user: publicMe(req.user ?? null), demoMode: env.DEMO_MODE })));
@@ -75,8 +83,9 @@ authRouter.post(
       }),
       req.body,
     );
-    const [exists] = await db().select({ id: s.users.id, kind: s.users.kind }).from(s.users).where(sql`lower(${s.users.email}) = ${body.email}`).limit(1);
+    const [exists] = await db().select({ id: s.users.id, kind: s.users.kind, phone: s.users.phone }).from(s.users).where(sql`lower(${s.users.email}) = ${body.email}`).limit(1);
     if (exists && exists.kind !== "visitor") throw conflict("An account with this e-mail already exists — please sign in");
+    if (exists && !samePhone(exists.phone, body.phone)) throw conflict("This e-mail already has a conversation with us. Use the phone number you chatted with, or contact us.");
     const [role] = await db().select().from(s.roles).where(eq(s.roles.slug, "customer")).limit(1);
     const hash = await hashPassword(body.password);
     let userId: string;
@@ -88,8 +97,14 @@ authRouter.post(
       const [u] = await db().insert(s.users).values({ kind: "customer", name: body.name, email: body.email, phone: body.phone, passwordHash: hash, roleId: role!.id, countryCode: body.countryCode ?? null, company: body.company ?? null }).returning();
       userId = u!.id;
     }
-    // CRM records with this e-mail now belong to the account (the buyer sees their invoices)
-    await db().update(s.leads).set({ customerUserId: userId }).where(and(sql`lower(${s.leads.email}) = ${body.email}`, isNull(s.leads.customerUserId)));
+    // A CRM record with this e-mail is NOT handed over on a typed address: nobody has proved it is theirs.
+    // Whoever owns the record is told, and links it from Customers once they know it is the same person.
+    const matches = await db().select({ name: s.leads.customerName, owner: s.leads.ownerUserId }).from(s.leads).where(and(sql`lower(${s.leads.email}) = ${body.email}`, isNull(s.leads.customerUserId)));
+    if (matches.length) {
+      const owners = matches.map((m) => m.owner).filter((o): o is string => !!o);
+      const to = [...new Set([...owners, ...(await usersWithPerm("crm.invoices.approve"))])];
+      await notify(to, { type: "account_match", title: `${body.name} signed up with the e-mail of ${matches[0]!.name}`, body: "If it is really them, link the CRM record so they can see their invoices.", link: `/admin/customers/${userId}` });
+    }
     const sess = await sessionFor(req, res, userId);
     return { user: publicMe(await loadAuthUser(userId)), ...sess };
   }),
@@ -117,6 +132,8 @@ authRouter.post(
     }
     const [u] = await db().select().from(s.users).where(sql`lower(${s.users.email}) = ${body.email}`).limit(1);
     if (u && u.kind !== "visitor") throw conflict("This e-mail has an account — please sign in to continue your conversation");
+    // the same e-mail continues the same thread, so it must also come with the same phone: a typed address alone would open someone's chat
+    if (u && !samePhone(u.phone, body.phone)) throw conflict("This e-mail is already in a conversation with another phone number. Use the same phone, or contact us.");
     let userId = u?.id;
     if (!userId) {
       const [created] = await db().insert(s.users).values({ kind: "visitor", name: body.name, email: body.email, phone: body.phone }).returning();

@@ -4,6 +4,7 @@ import { Calculator, Download, FileText, Image as ImageIcon, Plus, Ship, Upload,
 import { api } from "../lib/api";
 import { date, jpy, usd2 } from "../lib/format";
 import { Badge, Button, Card, Field, Input, Modal, Select, Textarea, clsx } from "../ui";
+import { FteName } from "../lib/site";
 
 interface Vehicle {
   id: string;
@@ -262,7 +263,7 @@ function PaymentModal({ open, onClose, invoiceId, balance, onDone }: { open: boo
           <Input type="file" accept="image/*,application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="py-2" />
         </Field>
       </div>
-      <p className="mt-3 text-xs text-slate-500">The buyer sees the payment in their account, and Sora thanks them with the new balance.</p>
+      <p className="mt-3 text-xs text-slate-500">The buyer sees the payment in their account, and <FteName /> thanks them with the new balance.</p>
       {err && <p className="mt-2 text-sm text-rose-600">{err}</p>}
     </Modal>
   );
@@ -374,7 +375,7 @@ function ProgressModal({ v, stages, onClose, onDone }: { v: Vehicle; stages: str
         <Field label="Note for the buyer (optional)">
           <Textarea rows={2} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="e.g. Vessel Pacific Star, ETA 24 Nov" />
         </Field>
-        <p className="text-xs text-slate-500">History is append-only. Sora tells the buyer about the new stage.</p>
+        <p className="text-xs text-slate-500">History is append-only. <FteName /> tells the buyer about the new stage.</p>
         {err && <p className="text-sm text-rose-600">{err}</p>}
       </div>
     </Modal>

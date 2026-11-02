@@ -8,6 +8,7 @@ import { useAuth } from "../lib/auth";
 import { useLiveEvent } from "../lib/sse";
 import { ago, dateTime, usd } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Select, Skeleton, Stat, StatusBadge, Tabs } from "../ui";
+import { FteName, useFte } from "../lib/site";
 
 interface Overview {
   model: { name: string; configured: boolean; family: string };
@@ -87,7 +88,7 @@ export default function FteConsole() {
             <span className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-brand-600 text-white">
               <Bot className="size-5" />
             </span>
-            Sora — Digital FTE console
+            <FteName /> — Digital FTE console
           </span>
         }
         subtitle={d ? `${d.model.family} · ${d.model.name} · ${d.model.configured ? "online" : "model key missing"}` : "…"}
@@ -123,7 +124,7 @@ export default function FteConsole() {
           {runs.isLoading ? (
             <Skeleton className="m-4 h-40" />
           ) : !runs.data?.length ? (
-            <p className="p-6 text-center text-sm text-slate-500">No runs yet — open the website chat and ask Sora for a car.</p>
+            <p className="p-6 text-center text-sm text-slate-500">No runs yet — open the website chat and ask <FteName /> for a car.</p>
           ) : (
             <ul className="divide-y divide-slate-100">
               {runs.data.map((r) => (
@@ -236,7 +237,7 @@ function Approvals({ d, canDecide }: { d: Overview; canDecide: boolean }) {
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <p className="flex items-center gap-2 font-semibold text-slate-900">
-          <FileText className="size-4 text-brand-600" /> Invoice requests from Sora
+          <FileText className="size-4 text-brand-600" /> Invoice requests from <FteName />
         </p>
         {d.pendingInvoices.length ? (
           <ul className="mt-3 divide-y divide-slate-100">
@@ -291,6 +292,7 @@ function Approvals({ d, canDecide }: { d: Overview; canDecide: boolean }) {
 }
 
 function EnvelopeEditor({ env, canEdit }: { env: Envelope; canEdit: boolean }) {
+  const fte = useFte();
   const qc = useQueryClient();
   const [f, setF] = useState(env);
   const [msg, setMsg] = useState<string | null>(null);
@@ -298,9 +300,9 @@ function EnvelopeEditor({ env, canEdit }: { env: Envelope; canEdit: boolean }) {
   return (
     <Card className="max-w-3xl">
       <p className="flex items-center gap-2 font-semibold text-slate-900">
-        <ShieldCheck className="size-4 text-emerald-600" /> What Sora may do without asking
+        <ShieldCheck className="size-4 text-emerald-600" /> What <FteName /> may do without asking
       </p>
-      <p className="mt-1 text-sm text-slate-500">Enforced on the server inside every tool — a prompt cannot talk Sora past these limits.</p>
+      <p className="mt-1 text-sm text-slate-500">Enforced on the server inside every tool — a prompt cannot talk <FteName /> past these limits.</p>
       <form
         className="mt-4 grid gap-4 sm:grid-cols-2"
         onSubmit={async (e) => {
@@ -309,7 +311,7 @@ function EnvelopeEditor({ env, canEdit }: { env: Envelope; canEdit: boolean }) {
           try {
             await api.put("/api/fte/envelope", f);
             await qc.invalidateQueries({ queryKey: ["fte-overview"] });
-            setMsg("Saved — Sora uses the new limits from its next action.");
+            setMsg(`Saved — ${fte} uses the new limits from its next action.`);
           } catch (ex) {
             setMsg((ex as Error).message);
           }
@@ -356,6 +358,7 @@ interface ClockState {
 
 /** The demo clock: jump forward to watch tomorrow's work happen now (follow-ups, auction results). */
 function Schedule({ canMove }: { canMove: boolean }) {
+  const fte = useFte();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["fte-clock"], queryFn: () => api.get<ClockState>("/api/fte/clock"), refetchInterval: 15000 });
   const [busy, setBusy] = useState(false);
@@ -367,7 +370,7 @@ function Schedule({ canMove }: { canMove: boolean }) {
       const r = await api.post<ClockState>("/api/fte/clock", body);
       qc.setQueryData(["fte-clock"], r);
       void qc.invalidateQueries({ queryKey: ["fte-runs"] });
-      setMsg(body.reset ? "Clock back to real time." : `Moved ${body.advanceHours} h forward · ${r.settledLots ?? 0} auction lots settled · ${r.eventsRun ?? 0} scheduled tasks ran — Sora is messaging the buyers now (see Live activity).`);
+      setMsg(body.reset ? "Clock back to real time." : `Moved ${body.advanceHours} h forward · ${r.settledLots ?? 0} auction lots settled · ${r.eventsRun ?? 0} scheduled tasks ran — ${fte} is messaging the buyers now (see Live activity).`);
     } catch (e) {
       setMsg((e as Error).message);
     } finally {
@@ -405,11 +408,11 @@ function Schedule({ canMove }: { canMove: boolean }) {
           <p className="mt-3 text-sm text-slate-500">Only the Supervisor moves the demo clock.</p>
         )}
         {msg && <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">{msg}</p>}
-        <p className="mt-4 text-xs text-slate-500">Moving the clock runs everything that falls due: quote follow-ups, follow-ups Sora scheduled itself, and auction days ending — lots are settled and Sora tells each buyer whether the bid won.</p>
+        <p className="mt-4 text-xs text-slate-500">Moving the clock runs everything that falls due: quote follow-ups, follow-ups <FteName /> scheduled itself, and auction days ending — lots are settled and <FteName /> tells each buyer whether the bid won.</p>
       </Card>
       <Card>
         <p className="flex items-center gap-2 font-semibold text-slate-900">
-          <Activity className="size-4 text-violet-600" /> Sora's upcoming follow-ups
+          <Activity className="size-4 text-violet-600" /> <FteName />'s upcoming follow-ups
         </p>
         {d.pending.length ? (
           <ul className="mt-3 divide-y divide-slate-100">
@@ -421,7 +424,7 @@ function Schedule({ canMove }: { canMove: boolean }) {
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-sm text-slate-500">Nothing scheduled. Quotes and Sora's own promises appear here.</p>
+          <p className="mt-2 text-sm text-slate-500">Nothing scheduled. Quotes and <FteName />'s own promises appear here.</p>
         )}
       </Card>
     </div>
@@ -430,6 +433,7 @@ function Schedule({ canMove }: { canMove: boolean }) {
 
 /** Sora's eval suite: run it on the live model, watch it fill in, and read every case's evidence. */
 function Evals({ canRun }: { canRun: boolean }) {
+  const fte = useFte();
   const qc = useQueryClient();
   const idx = useQuery({ queryKey: ["fte-evals"], queryFn: () => api.get<EvalIndex>("/api/fte/evals"), refetchInterval: (q) => (q.state.data?.running ? 3000 : false) });
   const running = idx.data?.running ?? null;
@@ -489,7 +493,7 @@ function Evals({ canRun }: { canRun: boolean }) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="flex items-center gap-2 font-semibold text-slate-900">
-              <FlaskConical className="size-4 text-violet-600" /> Sora's eval suite
+              <FlaskConical className="size-4 text-violet-600" /> <FteName />'s eval suite
             </p>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
               {d.cases.length} cases in {Object.keys(d.categories).length} categories, run on the live Meta model through the real tools. Every case talks to a fresh test buyer and is checked against the database; everything it creates is removed afterwards. Safety cases block a release.
@@ -518,7 +522,7 @@ function Evals({ canRun }: { canRun: boolean }) {
       </Card>
 
       {!d.runs.length && !running ? (
-        <Empty icon={<FlaskConical className="size-8" />} title="No eval runs yet" text={canRun ? "Run the suite to score Sora on the live model." : "The Supervisor can run the suite (or run npm run eval)."} />
+        <Empty icon={<FlaskConical className="size-8" />} title="No eval runs yet" text={canRun ? `Run the suite to score ${fte} on the live model.` : "The Supervisor can run the suite (or run npm run eval)."} />
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-3">
@@ -610,7 +614,7 @@ function Evals({ canRun }: { canRun: boolean }) {
             </div>
             {!!open.tools?.length && (
               <div>
-                <p className="mb-1 font-semibold text-slate-900">Tools Sora called</p>
+                <p className="mb-1 font-semibold text-slate-900">Tools <FteName /> called</p>
                 <div className="flex flex-wrap gap-1">
                   {open.tools.map((t, i) => (
                     <span key={i} className="rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-700">
@@ -620,10 +624,10 @@ function Evals({ canRun }: { canRun: boolean }) {
                 </div>
               </div>
             )}
-            {!!open.guards?.length && <p className="rounded-xl bg-amber-50 p-3 text-amber-800">Code guard: {open.guards.join(", ")} — Sora's reply promised it but the model skipped the call, so the server kept the promise.</p>}
+            {!!open.guards?.length && <p className="rounded-xl bg-amber-50 p-3 text-amber-800">Code guard: {open.guards.join(", ")} — <FteName />'s reply promised it but the model skipped the call, so the server kept the promise.</p>}
             {open.reply && (
               <div>
-                <p className="mb-1 font-semibold text-slate-900">Sora's reply</p>
+                <p className="mb-1 font-semibold text-slate-900"><FteName />'s reply</p>
                 <pre className="max-h-72 overflow-auto rounded-xl bg-violet-50 p-3 text-xs whitespace-pre-wrap text-violet-900">{open.reply}</pre>
               </div>
             )}

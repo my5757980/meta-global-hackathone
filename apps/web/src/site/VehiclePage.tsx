@@ -6,7 +6,7 @@ import { api, ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { km, usd } from "../lib/format";
 import { isBuyer, useCart, useShopActions, useWishlist } from "../lib/shop";
-import type { VehicleCard as V } from "../lib/site";
+import { useFte, type VehicleCard as V } from "../lib/site";
 import { Badge, Button, Card, Empty, LinkButton, Skeleton } from "../ui";
 import { VehicleGrid } from "./VehicleCard";
 import { openChatWith } from "../chat/ChatWidget";
@@ -32,6 +32,7 @@ interface Vehicle extends V {
 }
 
 export default function VehiclePage() {
+  const fte = useFte();
   const { slug } = useParams();
   const q = useQuery({ queryKey: ["vehicle", slug], queryFn: () => api.get<{ vehicle: Vehicle; related: V[] }>(`/api/public/vehicles/${slug}`) });
   const [img, setImg] = useState(0);
@@ -89,7 +90,8 @@ export default function VehiclePage() {
               </>
             )}
             <span className="absolute bottom-2 left-2 rounded-lg bg-slate-900/70 px-2 py-0.5 text-xs text-white">
-              {img + 1} / {v.images.length} · illustration
+              {img + 1} / {v.images.length}
+              {v.images[img]?.startsWith("/api/media/car") ? " · illustration" : ""}
             </span>
           </div>
           <div className="scrollbar-thin mt-3 flex gap-2 overflow-x-auto">
@@ -99,6 +101,7 @@ export default function VehiclePage() {
               </button>
             ))}
           </div>
+          {v.videoUrl ? <VehicleVideo url={v.videoUrl} /> : null}
           <Card className="mt-6">
             <h2 className="text-lg font-semibold text-slate-900">Specifications</h2>
             <dl className="mt-3 grid gap-x-6 sm:grid-cols-2">
@@ -145,12 +148,12 @@ export default function VehiclePage() {
               <p className="text-3xl font-extrabold text-brand-700">{usd(discounted ? v.discountPriceUsd : v.priceUsd)}</p>
               <p className="text-xs text-slate-500">FOB Japan · <MapPin className="inline size-3" /> {v.location}</p>
             </div>
-            <Button size="lg" className="mt-4 w-full" onClick={() => openChatWith(`Hi Sora, what is the C&F price of ${v.stockNo} (${v.title}) to my port?`)}>
-              <Bot className="size-5" /> Ask Sora the price to my port
+            <Button size="lg" className="mt-4 w-full" onClick={() => openChatWith(`Hi ${fte}, what is the C&F price of ${v.stockNo} (${v.title}) to my port?`)}>
+              <Bot className="size-5" /> Ask {fte} the price to my port
             </Button>
             <ShopButtons v={v} />
             <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-1 text-sm font-semibold text-brand-700">
-              <button onClick={() => openChatWith(`I'd like to reserve ${v.stockNo}.`)} className="hover:underline">Reserve with Sora</button>
+              <button onClick={() => openChatWith(`I'd like to reserve ${v.stockNo}.`)} className="hover:underline">Reserve with {fte}</button>
               <button onClick={() => openChatWith(`Please tell me about the condition of ${v.stockNo}.`)} className="hover:underline">Ask about its condition</button>
             </div>
             <p className="mt-4 text-xs text-slate-500">C&F quotes include inspection (where required) and freight to your port. Import duty and port charges at destination are paid locally.</p>
@@ -172,6 +175,23 @@ export default function VehiclePage() {
         </div>
       )}
     </div>
+  );
+}
+
+/** The car's video: a YouTube link plays in place, a video file in the browser's player, anything else opens as a link. */
+function VehicleVideo({ url }: { url: string }) {
+  const youtube = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{6,})/.exec(url)?.[1];
+  return (
+    <Card className="mt-6">
+      <h2 className="mb-3 text-lg font-semibold text-slate-900">Video</h2>
+      {youtube ? (
+        <iframe className="aspect-video w-full rounded-xl" src={`https://www.youtube-nocookie.com/embed/${youtube}`} title="Vehicle video" loading="lazy" allowFullScreen />
+      ) : /\.(mp4|webm)(\?|$)/i.test(url) ? (
+        <video className="aspect-video w-full rounded-xl bg-black" src={url} controls preload="metadata" />
+      ) : (
+        <a href={url} target="_blank" rel="noreferrer" className="font-semibold text-brand-700 hover:underline">Watch the video</a>
+      )}
+    </Card>
   );
 }
 

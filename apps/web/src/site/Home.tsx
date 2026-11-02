@@ -36,7 +36,7 @@ export default function Home() {
   const sec = (k: string) => d?.sections.find((s) => s.key === k);
   return (
     <div>
-      <Hero data={sec("hero")?.data} brands={d?.brands ?? []} />
+      <Hero data={sec("hero")?.data} brands={d?.brands ?? []} fte={d?.site.ftEName ?? "Sora"} />
       {sec("stats") && (
         <section className="container-page -mt-8 relative z-10">
           <div className="grid grid-cols-2 gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-lg sm:grid-cols-4 sm:p-6">
@@ -202,7 +202,7 @@ export default function Home() {
   );
 }
 
-function Hero({ data, brands }: { data?: { slides: { title: string; subtitle: string; cta: string; link: string; body: string; color: string }[] }; brands: { name: string; slug: string }[] }) {
+function Hero({ data, brands, fte }: { fte: string; data?: { slides: { title: string; subtitle: string; cta: string; link: string; body: string; color: string }[] }; brands: { name: string; slug: string }[] }) {
   const [i, setI] = useState(0);
   const slides = data?.slides ?? [];
   useEffect(() => {
@@ -216,7 +216,7 @@ function Hero({ data, brands }: { data?: { slides: { title: string; subtitle: st
       <div className="container-page grid items-center gap-8 pt-10 lg:grid-cols-2 lg:pt-16">
         <div>
           <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold ring-1 ring-white/20">
-            <Bot className="size-3.5" /> Sora, AI sales executive · online now
+            <Bot className="size-3.5" /> {fte}, AI sales executive · online now
           </span>
           <h1 className="mt-4 text-3xl font-extrabold leading-tight sm:text-5xl">{s?.title ?? "Japanese quality, delivered to your port"}</h1>
           <p className="mt-4 max-w-xl text-base text-brand-100 sm:text-lg">{s?.subtitle}</p>
@@ -224,8 +224,8 @@ function Hero({ data, brands }: { data?: { slides: { title: string; subtitle: st
             <Link to={s?.link ?? "/shop"} className="inline-flex items-center gap-2 rounded-xl bg-accent-500 px-5 py-3 font-semibold text-slate-900 hover:bg-accent-400">
               {s?.cta ?? "Browse stock"} <ArrowRight className="size-4" />
             </Link>
-            <button onClick={() => openChatWith("Hi Sora, I'm looking for a car.")} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 font-semibold ring-1 ring-white/25 hover:bg-white/20">
-              <Bot className="size-4" /> Ask Sora
+            <button onClick={() => openChatWith(`Hi ${fte}, I'm looking for a car.`)} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 font-semibold ring-1 ring-white/25 hover:bg-white/20">
+              <Bot className="size-4" /> Ask {fte}
             </button>
           </div>
           {slides.length > 1 && (

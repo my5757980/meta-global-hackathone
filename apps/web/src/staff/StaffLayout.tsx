@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Bell, BellRing, Bot, Car, FileText, Gavel, Globe, LayoutDashboard, LogOut, Mail, Menu, MessagesSquare, Package, Palette, PanelsTopLeft, ShieldCheck, Users, X } from "lucide-react";
+import { BarChart3, Bell, BellRing, Bot, Car, Contact, FileText, Gavel, Globe, KeyRound, LayoutDashboard, LayoutList, LogOut, Mail, Menu, MessagesSquare, Package, Palette, PanelsTopLeft, ShieldCheck, Tags, Users, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth, usePresencePing } from "../lib/auth";
+import { CompanyName, useBrandTheme, useFte, useSite } from "../lib/site";
 import { useLiveEvent, useLiveStream } from "../lib/sse";
 import { ago } from "../lib/format";
 import { askDesktopNotify, desktopNotifyState, notifyDesktop } from "../lib/desktopNotify";
@@ -43,6 +44,9 @@ export function StaffLayout() {
   const [menu, setMenu] = useState(false);
   const [security, setSecurity] = useState(false);
   const loc = useLocation();
+  const site = useSite();
+  const fte = useFte();
+  useBrandTheme();
   useLiveStream(!!me);
   usePresencePing(!!me);
   useDesktopAlerts(me?.id);
@@ -84,20 +88,24 @@ export function StaffLayout() {
         { to: "/admin", label: "Overview", icon: <PanelsTopLeft className="size-4" />, show: can("website.admin"), end: true },
         { to: "/admin/vehicles", label: "Vehicles", icon: <Car className="size-4" />, show: can("website.vehicles.manage") },
         { to: "/admin/orders", label: "Orders", icon: <Package className="size-4" />, show: can("website.orders.manage") },
+        { to: "/admin/customers", label: "Customers", icon: <Contact className="size-4" />, show: can("website.customers.view") },
+        { to: "/admin/brands", label: "Brands & models", icon: <Tags className="size-4" />, show: can("website.vehicles.manage") },
         { to: "/admin/home", label: "Home page", icon: <Globe className="size-4" />, show: can("website.content.manage") },
         { to: "/admin/pages", label: "Pages", icon: <FileText className="size-4" />, show: can("website.content.manage") },
+        { to: "/admin/content", label: "Site content", icon: <LayoutList className="size-4" />, show: can("website.content.manage") },
         { to: "/admin/messages", label: "Messages", icon: <Mail className="size-4" />, show: can("website.content.manage") },
         { to: "/admin/settings", label: "Branding", icon: <Palette className="size-4" />, show: can("website.settings.manage") },
+        { to: "/admin/roles", label: "Roles", icon: <KeyRound className="size-4" />, show: can("auction.roles.manage") },
       ],
     },
     {
       title: "Digital FTE",
-      items: [{ to: "/fte", label: "Sora console", icon: <Bot className="size-4" />, show: can("fte.console") }],
+      items: [{ to: "/fte", label: `${fte} console`, icon: <Bot className="size-4" />, show: can("fte.console") }],
     },
   ];
 
   const nav = (
-    <nav className="space-y-5">
+    <nav className="mb-5 space-y-5">
       {groups.map((g) =>
         g.items.some((i) => i.show) ? (
           <div key={g.title}>
@@ -117,25 +125,25 @@ export function StaffLayout() {
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col bg-slate-900 p-4 lg:flex">
+      <aside className="scrollbar-thin fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto bg-slate-900 p-4 lg:flex">
         <Link to="/" className="mb-6 flex items-center gap-2 px-2">
-          <img src="/favicon.svg" alt="" className="size-8 rounded-lg" />
+          <img src={site?.logoUrl || "/favicon.svg"} alt="" className="size-8 rounded-lg object-contain" />
           <span className="leading-tight">
-            <span className="block text-sm font-bold text-white">Hikari Motors</span>
+            <span className="block text-sm font-bold text-white"><CompanyName /></span>
             <span className="block text-[11px] text-slate-400">AutoFTE workspace</span>
           </span>
         </Link>
         {nav}
-        <div className="mt-auto rounded-xl bg-white/5 p-3 text-[11px] text-slate-400 ring-1 ring-white/10">
+        <div className="mt-auto shrink-0 rounded-xl bg-white/5 p-3 text-[11px] text-slate-400 ring-1 ring-white/10">
           <Bot className="mb-1 size-4 text-violet-300" />
-          Sora works 24/7 on Muse Spark Open. Every invoice still needs a Supervisor.
+          {fte} works 24/7 on Muse Spark Open. Every invoice still needs a Supervisor.
         </div>
       </aside>
       {menu && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 lg:hidden" onClick={() => setMenu(false)}>
-          <div className="h-full w-64 bg-slate-900 p-4" onClick={(e) => e.stopPropagation()}>
+          <div className="scrollbar-thin h-full w-64 overflow-y-auto bg-slate-900 p-4" onClick={(e) => e.stopPropagation()}>
             <div className="mb-6 flex items-center justify-between">
-              <span className="font-bold text-white">Hikari Motors</span>
+              <span className="font-bold text-white"><CompanyName /></span>
               <button onClick={() => setMenu(false)} className="rounded-lg p-1 text-slate-300" aria-label="Close menu">
                 <X className="size-5" />
               </button>
@@ -152,7 +160,7 @@ export function StaffLayout() {
           <div className="hidden items-center gap-1 sm:flex">
             <TopLink to="/crm" icon={<LayoutDashboard className="size-4" />} label="CRM" show={can("crm.access")} />
             <TopLink to="/desk" icon={<MessagesSquare className="size-4" />} label="Chat" show={can("chat.desk")} />
-            <TopLink to="/fte" icon={<Bot className="size-4" />} label="Sora" show={can("fte.console")} />
+            <TopLink to="/fte" icon={<Bot className="size-4" />} label={fte} show={can("fte.console")} />
             <TopLink to="/admin" icon={<PanelsTopLeft className="size-4" />} label="Site admin" show={can("website.admin")} />
             <TopLink to="/" icon={<Globe className="size-4" />} label="Website" show />
             <TopLink to="/auction/admin" icon={<Gavel className="size-4" />} label="Auction" show={can("auction.admin")} />

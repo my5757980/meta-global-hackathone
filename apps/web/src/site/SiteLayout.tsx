@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { Bot, ChevronDown, Heart, LayoutDashboard, LogOut, Mail, Menu, Phone, Search, ShoppingCart, User, X } from "lucide-react";
 import { useAuth, usePresencePing } from "../lib/auth";
 import { useLiveStream } from "../lib/sse";
-import { useSite } from "../lib/site";
+import { useBrandTheme, useSite } from "../lib/site";
 import { useShopCounts } from "../lib/shop";
 import { clsx } from "../ui";
 import { ChatWidget } from "../chat/ChatWidget";
@@ -22,11 +22,12 @@ const NAV = [
 ];
 
 export function Logo({ name, light }: { name?: string; light?: boolean }) {
+  const site = useSite();
   return (
     <span className="flex items-center gap-2">
-      <img src="/favicon.svg" alt="" className="size-9 rounded-xl" />
+      <img src={site?.logoUrl || "/favicon.svg"} alt="" className="size-9 rounded-xl object-contain" />
       <span className="leading-tight">
-        <span className={clsx("block text-base font-extrabold tracking-tight", light ? "text-white" : "text-slate-900")}>{name ?? "Hikari Motors"}</span>
+        <span className={clsx("block text-base font-extrabold tracking-tight", light ? "text-white" : "text-slate-900")}>{name ?? ""}</span>
         <span className={clsx("block text-[11px] font-medium", light ? "text-brand-200" : "text-slate-500")}>Japanese cars · to your port</span>
       </span>
     </span>
@@ -46,6 +47,7 @@ export function SiteLayout() {
   const nav = useNavigate();
   const loc = useLocation();
   const counts = useShopCounts();
+  useBrandTheme();
   useLiveStream(!!me);
   usePresencePing(!!me && me.kind === "staff");
   useEffect(() => {

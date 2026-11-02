@@ -5,6 +5,7 @@ import { bad, conflict, forbidden } from "../lib/http";
 import { isStaff, type AuthUser } from "../auth/session";
 import { canSeeConversation, conversationMembers, postMessage, setHolder } from "./chat";
 import { isOnline, onPresence, publish } from "./sse";
+import { fteName } from "./settings";
 
 /**
  * One-to-one voice and video calls. The browsers talk peer-to-peer (WebRTC); the server only rings, relays
@@ -38,7 +39,7 @@ export async function startCall(u: AuthUser, conversationId: string, media: "aud
   else if (isStaff(u)) callee = conv.customerUserId;
   else {
     // a buyer can call the colleague holding their chat; Sora answers in writing
-    if (conv.holder !== "human" || !conv.assignedUserId) throw bad("Sora answers in writing — a team member can call you once they join the chat");
+    if (conv.holder !== "human" || !conv.assignedUserId) throw bad(`${await fteName()} answers in writing — a team member can call you once they join the chat`);
     callee = conv.assignedUserId;
   }
   if (!callee) throw bad("Nobody to call in this conversation");

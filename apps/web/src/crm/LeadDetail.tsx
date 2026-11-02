@@ -8,6 +8,7 @@ import { RequestInvoiceModal } from "./LeadForms";
 import { api } from "../lib/api";
 import { ago, dateTime, usd2 } from "../lib/format";
 import { Avatar, Button, Card, Empty, Select, Skeleton, StatusBadge, Textarea } from "../ui";
+import { FteName, useFte } from "../lib/site";
 
 interface LeadFull {
   lead: { id: string; customerName: string; contactPerson: string; phone: string; email: string | null; address: string | null; status: string; source: string; createdAt: string; countryCode: string | null; portId: string | null; ownerUserId: string | null };
@@ -20,6 +21,7 @@ interface LeadFull {
 }
 
 export default function LeadDetail() {
+  const fte = useFte();
   const { id } = useParams();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["lead", id], queryFn: () => api.get<LeadFull>(`/api/crm/leads/${id}`) });
@@ -73,7 +75,7 @@ export default function LeadDetail() {
                 ["E-mail", lead.email ?? "—"],
                 ["Country", q.data.country?.name ?? "—"],
                 ["Port", q.data.port?.name ?? "—"],
-                ["Owner", q.data.owner ? (q.data.owner.kind === "fte" ? "Sora (Digital FTE)" : q.data.owner.name) : "—"],
+                ["Owner", q.data.owner ? (q.data.owner.kind === "fte" ? `${fte} (Digital FTE)` : q.data.owner.name) : "—"],
                 ["Source", lead.source.replace("_", " ")],
                 ["Created", dateTime(lead.createdAt)],
               ].map(([k, v]) => (
@@ -114,7 +116,7 @@ export default function LeadDetail() {
                   <p className="text-xs font-semibold text-slate-700">
                     {n.authorKind === "fte" ? (
                       <span className="inline-flex items-center gap-1 text-violet-700">
-                        <Bot className="size-3.5" /> Sora
+                        <Bot className="size-3.5" /> <FteName />
                       </span>
                     ) : (
                       n.author

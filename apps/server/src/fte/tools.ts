@@ -368,7 +368,7 @@ const BASE_TOOLS: ToolDef[] = [
         await audit(tx, { actorUserId: ctx.principalUserId, actorKind: ctx.principalKind, action: "approval.requested", entity: "approval", entityId: ap!.id, summary: `Asked approval (${a.kind}${a.discount_pct ? ` ${a.discount_pct}%` : ""}): ${String(a.reason).slice(0, 120)}`, conversationId: ctx.conversationId, fteRunId: ctx.runId });
         return ap!;
       });
-      await notify(await usersWithPerm("fte.approvals.decide"), { type: "approval", title: `Sora asks approval: ${a.kind}${a.discount_pct ? ` ${a.discount_pct}%` : ""}`, body: String(a.reason).slice(0, 140), link: `/fte/approvals`, data: { approvalId: row.id } });
+      await notify(await usersWithPerm("fte.approvals.decide"), { type: "approval", title: `${ctx.principalName} asks approval: ${a.kind}${a.discount_pct ? ` ${a.discount_pct}%` : ""}`, body: String(a.reason).slice(0, 140), link: `/fte/approvals`, data: { approvalId: row.id } });
       return { approval_id: row.id, status: "pending", message: "Tell the buyer a supervisor is reviewing the request." };
     },
   },
@@ -382,7 +382,7 @@ const BASE_TOOLS: ToolDef[] = [
         await tx.update(s.chatConversations).set({ fteSummary: String(a.summary) }).where(eq(s.chatConversations.id, ctx.conversationId!));
         await audit(tx, { actorUserId: ctx.principalUserId, actorKind: ctx.principalKind, action: "chat.handover", entity: "conversation", entityId: ctx.conversationId, summary: `Handed to a human: ${a.reason}`, conversationId: ctx.conversationId, fteRunId: ctx.runId });
       });
-      await setHolder(ctx.conversationId, "human", null, `Sora asked a team member to help (${a.reason})`);
+      await setHolder(ctx.conversationId, "human", null, `${ctx.principalName} asked a team member to help (${a.reason})`);
       const desk = (await usersWithPerm("chat.desk")).filter((x) => x !== ctx.principalUserId);
       await notify(desk, { type: "handover", title: "A buyer needs a person", body: `${a.reason} — ${String(a.summary).slice(0, 120)}`, link: `/desk?c=${ctx.conversationId}` });
       return { ok: true, message: "A team member has been asked to join. Tell the buyer politely in one short sentence." };
@@ -396,10 +396,8 @@ const BASE_TOOLS: ToolDef[] = [
       if (!ctx.buyerUserId) throw new ToolError("No buyer in this conversation");
       const [buyer] = await db().select().from(s.users).where(eq(s.users.id, ctx.buyerUserId)).limit(1);
       if (!buyer || buyer.kind !== "customer") return { signed_in: false, message: "The buyer is a visitor. Ask them to sign in to see their invoices." };
-      const leads = await db()
-        .select()
-        .from(s.leads)
-        .where(or(eq(s.leads.customerUserId, buyer.id), buyer.email ? sql`lower(${s.leads.email}) = lower(${buyer.email})` : sql`false`));
+      // linked records only: a typed e-mail proves nothing, so it must not let Sora read out someone's balance
+      const leads = await db().select().from(s.leads).where(eq(s.leads.customerUserId, buyer.id));
       const invs = leads.length ? await db().select().from(s.invoices).where(and(inArray(s.invoices.leadId, leads.map((l) => l.id)), inArray(s.invoices.status, ["approved", "sent", "pending"]))).orderBy(desc(s.invoices.createdAt)) : [];
       const out = [];
       for (const inv of invs) {

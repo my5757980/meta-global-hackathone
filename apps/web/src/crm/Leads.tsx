@@ -9,6 +9,7 @@ import { api, qs } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { date } from "../lib/format";
 import { Button, Empty, Input, PageHeader, Pagination, Select, Skeleton, StatusBadge, Table } from "../ui";
+import { FteName } from "../lib/site";
 
 interface LeadRow {
   id: string;
@@ -103,7 +104,7 @@ export default function Leads() {
                   {l.country ?? "—"}
                   <p className="text-xs text-slate-500">{l.port}</p>
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap">{l.ownerKind === "fte" ? <span className="inline-flex items-center gap-1 font-semibold text-violet-700"><Bot className="size-4" /> Sora</span> : l.owner}</td>
+                <td className="px-4 py-3 whitespace-nowrap">{l.ownerKind === "fte" ? <span className="inline-flex items-center gap-1 font-semibold text-violet-700"><Bot className="size-4" /> <FteName /></span> : l.owner}</td>
                 <td className="px-4 py-3 text-xs text-slate-600">{l.source.replace("_", " ")}</td>
                 <td className="px-4 py-3 whitespace-nowrap">{date(l.createdAt)}</td>
                 <td className="px-4 py-3">

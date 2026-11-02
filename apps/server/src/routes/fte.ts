@@ -6,7 +6,7 @@ import { db } from "../db/client";
 import * as s from "../db/schema";
 import { conflict, h, notFound, parse } from "../lib/http";
 import { requirePerm } from "../auth/session";
-import { envelope, getSetting, now, putSetting } from "../services/settings";
+import { envelope, fteName, getSetting, now, putSetting } from "../services/settings";
 import { audit } from "../services/audit";
 import { emit, processDue } from "../services/events";
 import { settleAuctions } from "../services/auction";
@@ -153,7 +153,7 @@ fteRouter.put(
     const u = requirePerm(req, "fte.envelope.manage");
     const next = parse(EnvelopeSchema, req.body);
     await putSetting("envelope", next);
-    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "fte.envelope", summary: `${u.name} changed Sora's envelope: max discount ${next.maxDiscountPct}%, max bid ¥${next.maxBidJpy.toLocaleString("en-US")}`, data: next });
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "fte.envelope", summary: `${u.name} changed ${await fteName()}'s envelope: max discount ${next.maxDiscountPct}%, max bid ¥${next.maxBidJpy.toLocaleString("en-US")}`, data: next });
     return next;
   }),
 );
@@ -164,12 +164,13 @@ fteRouter.post(
     const u = requirePerm(req, "fte.approvals.decide");
     const b = parse(z.object({ decision: z.enum(["approved", "rejected"]), note: z.string().max(600).optional() }), req.body);
     const id = String(req.params.id);
+    const fte = await fteName(); // not inside the transaction: one connection
     await db().transaction(async (tx) => {
       const [ap] = await tx.select().from(s.approvals).where(eq(s.approvals.id, id)).limit(1);
       if (!ap) throw notFound();
       if (ap.status !== "pending") throw conflict(`Already ${ap.status}`);
       await tx.update(s.approvals).set({ status: b.decision, decidedBy: u.id, decidedAt: new Date(), decisionNote: b.note ?? null }).where(eq(s.approvals.id, id));
-      await audit(tx, { actorUserId: u.id, actorKind: "human", action: `approval.${b.decision}`, entity: "approval", entityId: id, summary: `${u.name} ${b.decision} Sora's request (${ap.kind})`, conversationId: ap.conversationId });
+      await audit(tx, { actorUserId: u.id, actorKind: "human", action: `approval.${b.decision}`, entity: "approval", entityId: id, summary: `${u.name} ${b.decision} ${fte}'s request (${ap.kind})`, conversationId: ap.conversationId });
       await emit("approval.decided", { approvalId: id }, { tx });
     });
     return { ok: true };
@@ -207,7 +208,7 @@ fteRouter.post(
     const b = parse(z.object({ ids: z.array(z.string().max(60)).max(100).optional(), concurrency: z.number().int().min(1).max(4).optional() }), req.body ?? {});
     if (evalProgress()) throw conflict("An eval run is already in progress");
     const r = await startEvals(b);
-    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "fte.evals", summary: `${u.name} ran Sora's eval suite (${r.total} cases)` });
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "fte.evals", summary: `${u.name} ran ${await fteName()}'s eval suite (${r.total} cases)` });
     return r;
   }),
 );

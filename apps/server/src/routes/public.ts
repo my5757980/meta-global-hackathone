@@ -5,6 +5,7 @@ import { db } from "../db/client";
 import * as s from "../db/schema";
 import { h, notFound, parse } from "../lib/http";
 import { carSvg } from "../services/carArt";
+import { getFile } from "../services/files";
 import { siteSettings } from "../services/settings";
 import { catalogFacets, getVehicleBySlugOrId, listVehicles, relatedVehicles, suggest, type VehicleFilters } from "../services/website";
 import { notify, usersWithPerm } from "../services/notify";
@@ -91,7 +92,7 @@ publicRouter.get("/pages/:slug", h(async (req) => {
 publicRouter.get("/blog", h(() => db().select({ slug: s.blogPosts.slug, title: s.blogPosts.title, excerpt: s.blogPosts.excerpt, coverUrl: s.blogPosts.coverUrl, publishedAt: s.blogPosts.publishedAt }).from(s.blogPosts).where(isNotNull(s.blogPosts.publishedAt)).orderBy(desc(s.blogPosts.publishedAt))));
 publicRouter.get("/blog/:slug", h(async (req) => {
   const [p] = await db().select().from(s.blogPosts).where(eq(s.blogPosts.slug, String(req.params.slug))).limit(1);
-  if (!p) throw notFound();
+  if (!p || !p.publishedAt) throw notFound(); // a draft stays private, even by its direct link
   return p;
 }));
 publicRouter.get("/faqs", h(() => db().select().from(s.faqs).orderBy(asc(s.faqs.sort))));
@@ -131,6 +132,20 @@ publicRouter.post(
 );
 
 export const mediaRouter = Router();
+
+/** Pictures staff uploaded for the public site. Only that kind: chat media and documents stay behind their checks. */
+mediaRouter.get(
+  "/site/:id",
+  h(async (req, res) => {
+    const f = await getFile(String(req.params.id));
+    if (!f || f.kind !== "site-image") throw notFound();
+    res.setHeader("Content-Type", f.mime);
+    res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+    res.sendFile(f.abs, { dotfiles: "allow" }); // stored under .data/ — send() treats dot-folders as missing by default
+    return undefined;
+  }),
+);
+
 mediaRouter.get("/car", (req, res) => {
   const body = String(req.query.body ?? "Sedan").slice(0, 20);
   const color = String(req.query.color ?? "#9aa0a6").slice(0, 9);

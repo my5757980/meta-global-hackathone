@@ -259,7 +259,7 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
     if (!handedOver && finalText && promisesPerson(finalText)) {
       const last = [...messages].reverse().find((m) => m.role === "user");
       const said = typeof last?.content === "string" ? last.content : Array.isArray(last?.content) ? last.content.map((p) => ("text" in p ? p.text : "")).join(" ") : "";
-      const args = { reason: "promised a person", summary: `Sora told the buyer a colleague is joining but did not hand over, so the server did. Buyer's last message: "${said.slice(0, 600)}"` };
+      const args = { reason: "promised a person", summary: `${sora.name} told the buyer a colleague is joining but did not hand over, so the server did. Buyer's last message: "${said.slice(0, 600)}"` };
       const ct = Date.now();
       const res = await mcp.call("handover_to_human", args);
       toolCalls.push({ name: "handover_to_human", args, ok: res.ok, ms: Date.now() - ct, preview: `[guard] ${res.text.slice(0, 280)}`, guard: true });
@@ -284,8 +284,8 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
     error = String((e as Error)?.message ?? e).slice(0, 500);
     console.error("[sora run]", error);
     await postMessage({ conversationId, senderUserId: sora.id, body: "Sorry — I'm having trouble right now. A team member will reply to you shortly." });
-    await setHolder(conversationId, "human", null, "Sora could not reach its model");
-    await notify(await usersWithPerm("chat.desk"), { type: "handover", title: "Sora needs a person (model error)", body: error.slice(0, 120), link: `/desk?c=${conversationId}` });
+    await setHolder(conversationId, "human", null, `${sora.name} could not reach its model`);
+    await notify(await usersWithPerm("chat.desk"), { type: "handover", title: `${sora.name} needs a person (model error)`, body: error.slice(0, 120), link: `/desk?c=${conversationId}` });
   } finally {
     await mcp.close();
     publish(members, "typing", { conversationId, userId: sora.id, on: false });

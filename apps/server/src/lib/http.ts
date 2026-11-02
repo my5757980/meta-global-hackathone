@@ -44,6 +44,11 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
     res.status(err.status).json({ error: err.message, details: err.details });
     return;
   }
+  if ((err as { name?: string }).name === "MulterError") {
+    const code = (err as { code?: string }).code;
+    res.status(400).json({ error: code === "LIMIT_FILE_SIZE" ? "That file is too large" : code === "LIMIT_FILE_COUNT" || code === "LIMIT_UNEXPECTED_FILE" ? "Too many files at once" : "That upload could not be read" });
+    return;
+  }
   console.error("[error]", err);
   res.status(500).json({ error: "Something went wrong on our side. Please try again." });
 }

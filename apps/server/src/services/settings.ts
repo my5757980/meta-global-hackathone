@@ -26,6 +26,8 @@ export function clearSettingsCache() {
 }
 
 export const siteSettings = async (): Promise<SiteSettings> => SiteSettingsSchema.parse(await getSetting("site", {}));
+/** The AI employee's name, for words the server writes itself. It may read the database: never call it inside a transaction. */
+export const fteName = async () => (await siteSettings()).ftEName;
 export const pricingPolicy = async (): Promise<PricingPolicy> => PricingPolicySchema.parse(await getSetting("pricing", {}));
 export const envelope = async (): Promise<Envelope> => EnvelopeSchema.parse(await getSetting("envelope", {}));
 

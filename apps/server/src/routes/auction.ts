@@ -363,7 +363,7 @@ auctionRouter.get(
   h(async (req) => {
     requirePerm(req, "auction.clients.view");
     return db()
-      .select({ id: s.users.id, name: s.users.name, email: s.users.email, phone: s.users.phone, countryCode: s.users.countryCode, company: s.users.company, createdAt: s.users.createdAt, bids: sql<number>`(select count(*)::int from auction_bids b where b.user_id = ${s.users.id})`, orders: sql<number>`(select count(*)::int from auction_orders o where o.user_id = ${s.users.id})` })
+      .select({ id: s.users.id, name: s.users.name, email: s.users.email, phone: s.users.phone, countryCode: s.users.countryCode, company: s.users.company, createdAt: s.users.createdAt, bids: sql<number>`(select count(*)::int from auction_bids b where b.user_id = "users"."id")`, orders: sql<number>`(select count(*)::int from auction_orders o where o.user_id = "users"."id")` })
       .from(s.users)
       .where(eq(s.users.kind, "customer"))
       .orderBy(asc(s.users.name));

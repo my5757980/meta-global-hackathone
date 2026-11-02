@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { dateTime, date, usd2 } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Modal, Skeleton, StatusBadge, Textarea } from "../ui";
 import { InvoiceOps } from "./InvoiceOps";
+import { FteName, useFte } from "../lib/site";
 
 interface Full {
   invoice: { id: string; number: string; status: string; consigneeName: string; consigneePhone: string; consigneeEmail: string | null; consigneeAddress: string | null; totalCnfUsd: number; totalPushUsd: number; advancePercent: number; rejectionNote: string | null; createdAt: string; approvedAt: string | null; m3Rate: number | null; exchangeRate: number | null; salesperson: string | null };
@@ -25,6 +26,7 @@ interface Full {
 }
 
 export default function InvoiceDetail() {
+  const fte = useFte();
   const { id } = useParams();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["invoice", id], queryFn: () => api.get<Full>(`/api/crm/invoices/${id}`) });
@@ -64,7 +66,7 @@ export default function InvoiceDetail() {
             Requested {dateTime(inv.createdAt)} by{" "}
             {bySora ? (
               <span className="inline-flex items-center gap-1 font-semibold text-violet-700">
-                <Bot className="size-4" /> Sora (Digital FTE)
+                <Bot className="size-4" /> <FteName /> (Digital FTE)
               </span>
             ) : (
               <span className="font-semibold text-slate-700">{d.requestedBy?.name}</span>
@@ -97,9 +99,9 @@ export default function InvoiceDetail() {
       {inv.status === "pending" && bySora && (
         <Card className="mb-4 border-violet-200 bg-violet-50/60">
           <p className="flex items-center gap-2 font-semibold text-violet-900">
-            <ShieldCheck className="size-5" /> Sora is asking for your approval
+            <ShieldCheck className="size-5" /> <FteName /> is asking for your approval
           </p>
-          <p className="mt-1 text-sm text-violet-900/80">Sora negotiated and quoted inside its authority envelope. It cannot issue invoices itself — approve or reject, and Sora will tell the buyer instantly.</p>
+          <p className="mt-1 text-sm text-violet-900/80"><FteName /> negotiated and quoted inside its authority envelope. It cannot issue invoices itself — approve or reject, and <FteName /> will tell the buyer instantly.</p>
         </Card>
       )}
       <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
@@ -208,7 +210,7 @@ export default function InvoiceDetail() {
           {d.fteTrail.length > 0 && (
             <Card>
               <p className="flex items-center gap-2 font-semibold text-slate-900">
-                <Bot className="size-4 text-violet-600" /> Sora's audit trail
+                <Bot className="size-4 text-violet-600" /> <FteName />'s audit trail
               </p>
               <ol className="mt-3 space-y-2 border-l-2 border-violet-100 pl-4">
                 {d.fteTrail.map((a) => (
@@ -229,7 +231,7 @@ export default function InvoiceDetail() {
                 <li key={a.id} className="text-sm">
                   <p className="text-slate-800">{a.summary}</p>
                   <p className="text-[11px] text-slate-400">
-                    {a.actorKind === "fte" ? "Sora" : a.actor} · {dateTime(a.createdAt)}
+                    {a.actorKind === "fte" ? fte : a.actor} · {dateTime(a.createdAt)}
                   </p>
                 </li>
               ))}
@@ -265,7 +267,7 @@ export default function InvoiceDetail() {
           </>
         }
       >
-        <Field label="Internal note (the buyer will not see it)" hint="Sora will tell the buyer politely and propose a next step.">
+        <Field label="Internal note (the buyer will not see it)" hint={`${fte} will tell the buyer politely and propose a next step.`}>
           <Textarea rows={4} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Price too low for this grade — offer HK-10002 instead" />
         </Field>
       </Modal>

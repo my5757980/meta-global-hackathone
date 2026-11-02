@@ -1,18 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Car, Check, ExternalLink, FileText, Globe, Image as ImageIcon, Inbox, Mail, Package, Palette, Pencil, Plus, Save, Star, Trash2 } from "lucide-react";
+import { Car, Check, ExternalLink, FileText, Globe, Image as ImageIcon, Inbox, LayoutList, Mail, Package, Palette, Pencil, Plus, RotateCcw, Save, ShieldCheck, Star, Tags, Trash2, Upload, Users, X } from "lucide-react";
 import { formatUsd, WEB_ORDER_STATUSES } from "@autofte/shared";
 import { api, ApiError, qs } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { ago } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Pagination, Select, Skeleton, StatusBadge, Table, Tabs, Textarea, clsx } from "../ui";
+import { FteName, useFte } from "../lib/site";
 
 /* ------------------------------------------------------------------ *
  * US9 — website admin CMS. A non-developer runs the public site here. *
  * ------------------------------------------------------------------ */
 
-function useFlash() {
+export function useFlash() {
   const [flash, setFlash] = useState<{ tone: "green" | "red"; text: string } | null>(null);
   useEffect(() => {
     if (!flash) return;
@@ -29,20 +30,128 @@ function useFlash() {
   return { ok, err, node };
 }
 
-function Denied() {
+export function Denied() {
   return <Empty title="No access" text="Your role cannot open this part of the website admin." />;
+}
+
+/** Pick pictures from the computer; the server stores them and answers with their public addresses. */
+export function UploadButton({ onUploaded, multiple, label = "Upload" }: { onUploaded: (urls: string[]) => void; multiple?: boolean; label?: string }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <input
+        ref={ref}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        multiple={multiple}
+        className="hidden"
+        onChange={async (e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = ""; // the same file can be chosen again
+          if (!files.length) return;
+          setBusy(true);
+          setErr(null);
+          try {
+            const fd = new FormData();
+            files.forEach((f) => fd.append("files", f));
+            const r = await api.post<{ urls: string[] }>("/api/admin/uploads", fd);
+            onUploaded(r.urls);
+          } catch (ex) {
+            setErr(ex instanceof ApiError ? ex.message : "Upload failed");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+      <Button type="button" variant="secondary" size="sm" loading={busy} onClick={() => ref.current?.click()}>
+        <Upload className="size-4" /> {label}
+      </Button>
+      {err ? <span className="text-xs font-semibold text-rose-600">{err}</span> : null}
+    </span>
+  );
+}
+
+/** A car's photos: thumbnails, first one is the cover. Upload from the computer or paste an address. */
+function ImagesField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const list = value.split("\n").map((x) => x.trim()).filter(Boolean);
+  const [url, setUrl] = useState("");
+  const write = (next: string[]) => onChange(next.join("\n"));
+  return (
+    <div>
+      <p className="mb-1 text-sm font-medium text-slate-700">Photos</p>
+      {list.length ? (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {list.map((u, i) => (
+            <div key={u + i} className="group relative">
+              <img src={u} alt="" className="h-16 w-24 rounded-lg object-cover ring-1 ring-slate-200" />
+              <button type="button" aria-label="Remove photo" onClick={() => write(list.filter((_, k) => k !== i))} className="absolute -top-1.5 -right-1.5 rounded-full bg-rose-600 p-0.5 text-white shadow"><X className="size-3" /></button>
+              {i === 0 ? (
+                <span className="absolute bottom-0.5 left-0.5 rounded bg-slate-900/70 px-1 text-[10px] font-semibold text-white">Cover</span>
+              ) : (
+                <button type="button" onClick={() => write([u, ...list.filter((_, k) => k !== i)])} className="absolute bottom-0.5 left-0.5 rounded bg-white/90 px-1 text-[10px] font-semibold text-slate-700 hover:bg-white">Make cover</button>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <UploadButton multiple label="Upload photos" onUploaded={(urls) => write([...list, ...urls])} />
+        <Input className="h-8 max-w-xs" placeholder="or paste an image address" value={url} onChange={(e) => setUrl(e.target.value)} />
+        <Button type="button" size="sm" variant="ghost" disabled={!url.trim()} onClick={() => { write([...list, url.trim()]); setUrl(""); }}>Add</Button>
+      </div>
+      <p className="mt-1 text-xs text-slate-500">PNG, JPG or WebP, up to 8 MB each. With no photos the car gets four drawn views in its body type and colour.</p>
+    </div>
+  );
+}
+
+/** Demo mode only: put the demo company back to its first day. */
+function ResetDemo() {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <Card className="mt-6 border-rose-200">
+      <p className="font-semibold text-slate-900">Reset demo data</p>
+      <p className="mt-1 text-sm text-slate-500">Deletes every change, order, chat and upload, loads the demo company again and signs everyone out. Takes a few seconds.</p>
+      {err ? <p className="mt-2 text-sm font-semibold text-rose-600">{err}</p> : null}
+      <Button
+        variant="danger"
+        className="mt-3"
+        loading={busy}
+        onClick={async () => {
+          if (!confirm("Delete all demo changes and start again?")) return;
+          setBusy(true);
+          setErr(null);
+          try {
+            await api.post("/api/admin/demo/reset");
+            window.location.href = "/login";
+          } catch (e) {
+            setErr(e instanceof ApiError ? e.message : "The reset failed");
+            setBusy(false);
+          }
+        }}
+      >
+        <RotateCcw className="size-4" /> Reset demo data
+      </Button>
+    </Card>
+  );
 }
 
 /* ============================ Overview ============================ */
 export function AdminOverview() {
-  const { can } = useAuth();
+  const { can, demoMode } = useAuth();
   const cards = [
     { to: "/admin/vehicles", label: "Vehicles", desc: "Add, edit and publish stock", icon: <Car className="size-5" />, show: can("website.vehicles.manage") },
     { to: "/admin/orders", label: "Orders", desc: "Order requests from the website and app cart", icon: <Package className="size-5" />, show: can("website.orders.manage") },
+    { to: "/admin/customers", label: "Customers", desc: "Accounts, CRM records, vehicle progress", icon: <Users className="size-5" />, show: can("website.customers.view") },
+    { to: "/admin/brands", label: "Brands & models", desc: "The makes and models buyers filter by", icon: <Tags className="size-5" />, show: can("website.vehicles.manage") },
     { to: "/admin/home", label: "Home page", desc: "Section titles, order and visibility", icon: <Globe className="size-5" />, show: can("website.content.manage") },
     { to: "/admin/pages", label: "Pages", desc: "About, Terms, Privacy and more", icon: <FileText className="size-5" />, show: can("website.content.manage") },
+    { to: "/admin/content", label: "Site content", desc: "Guides, services, FAQ, testimonials, partners, locations", icon: <LayoutList className="size-5" />, show: can("website.content.manage") },
     { to: "/admin/messages", label: "Messages", desc: "Contact form enquiries", icon: <Mail className="size-5" />, show: can("website.content.manage") },
     { to: "/admin/settings", label: "Branding", desc: "Name, colours, bank & contact", icon: <Palette className="size-5" />, show: can("website.settings.manage") },
+    { to: "/admin/roles", label: "Roles & permissions", desc: "What each role may do", icon: <ShieldCheck className="size-5" />, show: can("auction.roles.manage") },
   ].filter((c) => c.show);
   return (
     <div>
@@ -62,6 +171,7 @@ export function AdminOverview() {
           ))}
         </div>
       )}
+      {can("system.demo.reset") && demoMode ? <ResetDemo /> : null}
     </div>
   );
 }
@@ -118,7 +228,7 @@ export function AdminVehicles() {
 
   return (
     <div>
-      <PageHeader title="Vehicles" subtitle="Stock shown on the website and offered by Sora in chat." actions={<Button onClick={() => setEditing("new")}><Plus className="size-4" /> Add vehicle</Button>} />
+      <PageHeader title="Vehicles" subtitle={<>Stock shown on the website and offered by <FteName /> in chat.</>} actions={<Button onClick={() => setEditing("new")}><Plus className="size-4" /> Add vehicle</Button>} />
       {flash.node}
       <div className="mb-4 flex flex-wrap gap-2">
         <Input placeholder="Search title, stock no, chassis…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} className="max-w-xs" />
@@ -188,6 +298,7 @@ type Form = Record<string, string | boolean | string[]>;
 const num = (v: unknown) => { const s = String(v ?? "").trim(); return s === "" ? undefined : Number(s); };
 
 function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: string | null; onClose: () => void; onSaved: (msg: string) => void; onError: (e: unknown) => void }) {
+  const fte = useFte();
   const firstBrand = meta.brands[0];
   const blank: Form = {
     title: "", brandId: firstBrand?.id ?? "", modelId: firstBrand?.models[0]?.id ?? "", modelCode: "", chassisNo: "",
@@ -254,10 +365,10 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
     try {
       if (id) {
         const r = await api.patch<{ matchedBuyerRequests: number }>(`/api/admin/vehicles/${id}`, payload);
-        onSaved(`Saved.${r.matchedBuyerRequests ? ` Sora notified for ${r.matchedBuyerRequests} waiting buyer(s).` : ""}`);
+        onSaved(`Saved.${r.matchedBuyerRequests ? ` ${fte} notified for ${r.matchedBuyerRequests} waiting buyer(s).` : ""}`);
       } else {
         const r = await api.post<{ stockNo: string; matchedBuyerRequests: number }>("/api/admin/vehicles", payload);
-        onSaved(`Added ${r.stockNo}.${r.matchedBuyerRequests ? ` Sora notified for ${r.matchedBuyerRequests} waiting buyer(s).` : ""}`);
+        onSaved(`Added ${r.stockNo}.${r.matchedBuyerRequests ? ` ${fte} notified for ${r.matchedBuyerRequests} waiting buyer(s).` : ""}`);
       }
     } catch (e) {
       onError(e);
@@ -324,7 +435,7 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
             <div className="space-y-3">
               <Field label="Short description"><Input value={String(f.shortDesc)} onChange={(e) => set("shortDesc", e.target.value)} /></Field>
               <Field label="Full description"><Textarea rows={3} value={String(f.description)} onChange={(e) => set("description", e.target.value)} /></Field>
-              <Field label="Image URLs" hint="one per line — leave blank for an auto illustration"><Textarea rows={2} value={String(f.images)} onChange={(e) => set("images", e.target.value)} placeholder="/api/media/car?body=SUV&color=%23ffffff" /></Field>
+              <ImagesField value={String(f.images)} onChange={(v) => set("images", v)} />
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Features" hint="comma separated"><Input value={String(f.features)} onChange={(e) => set("features", e.target.value)} placeholder="Sunroof, Leather, 360 camera" /></Field>
                 <Field label="Tags" hint="comma separated"><Input value={String(f.tags)} onChange={(e) => set("tags", e.target.value)} /></Field>
@@ -373,25 +484,85 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
 }
 
 /* ========================= Home sections ========================= */
-interface Section { id: string; key: string; title: string; subtitle: string | null; enabled: boolean; sort: number }
+interface Section { id: string; key: string; title: string; subtitle: string | null; enabled: boolean; sort: number; data: Record<string, unknown> }
+const FIELD_LABELS: Record<string, string> = { cta: "Button text", link: "Button link", body: "Picture: body type", color: "Picture: colour", short: "Short name", icon: "Icon name" };
+const pretty = (k: string) => FIELD_LABELS[k] ?? k.charAt(0).toUpperCase() + k.slice(1).replace(/([A-Z])/g, " $1").toLowerCase();
+
+/** Edits whatever a section holds: lists of cards (slides, numbers, steps…), plain lists, single texts. */
+function SectionContent({ data, onChange }: { data: Record<string, unknown>; onChange: (d: Record<string, unknown>) => void }) {
+  const keys = Object.keys(data).filter((k) => k !== "homeSection"); // homeSection only ties the section to its cars
+  if (!keys.length) return null;
+  return (
+    <div className="mt-3 space-y-3 rounded-xl bg-slate-50 p-3">
+      {keys.map((k) => {
+        const v = data[k];
+        if (typeof v === "string") return <Field key={k} label={pretty(k)}><Input value={v} onChange={(e) => onChange({ ...data, [k]: e.target.value })} /></Field>;
+        if (!Array.isArray(v)) return null;
+        if (v.every((x) => typeof x === "string"))
+          return <Field key={k} label={pretty(k)} hint="one per line"><Textarea rows={Math.min(8, v.length + 1)} value={(v as string[]).join("\n")} onChange={(e) => onChange({ ...data, [k]: e.target.value.split("\n") })} /></Field>;
+        const rows = v as Record<string, string>[];
+        const fields = Object.keys(rows[0] ?? {});
+        const put = (next: Record<string, string>[]) => onChange({ ...data, [k]: next });
+        return (
+          <div key={k} className="space-y-2">
+            <p className="text-sm font-semibold text-slate-700">{pretty(k)}</p>
+            {rows.map((row, i) => (
+              <div key={i} className="rounded-lg border border-slate-200 bg-white p-2">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {fields.map((name) => (
+                    <Field key={name} label={pretty(name)} className={String(row[name] ?? "").length > 50 ? "sm:col-span-2" : undefined}>
+                      {String(row[name] ?? "").length > 50 ? (
+                        <Textarea rows={2} value={String(row[name] ?? "")} onChange={(e) => put(rows.map((r, j) => (j === i ? { ...r, [name]: e.target.value } : r)))} />
+                      ) : (
+                        <Input value={String(row[name] ?? "")} onChange={(e) => put(rows.map((r, j) => (j === i ? { ...r, [name]: e.target.value } : r)))} />
+                      )}
+                    </Field>
+                  ))}
+                </div>
+                <div className="mt-1 flex justify-end">
+                  {/* the last card stays: its fields are what "Add" copies. To drop the whole section, untick Visible. */}
+                  {rows.length > 1 ? <Button type="button" size="sm" variant="ghost" onClick={() => put(rows.filter((_, j) => j !== i))}><Trash2 className="size-4 text-rose-500" /> Remove</Button> : null}
+                </div>
+              </div>
+            ))}
+            {fields.length ? <Button type="button" size="sm" variant="secondary" onClick={() => put([...rows, Object.fromEntries(fields.map((n) => [n, ""]))])}><Plus className="size-4" /> Add</Button> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AdminHome() {
   const { can } = useAuth();
   const qc = useQueryClient();
   const flash = useFlash();
   const q = useQuery({ queryKey: ["admin/home-sections"], queryFn: () => api.get<Section[]>("/api/admin/home-sections") });
+  const [draft, setDraft] = useState<Record<string, Section>>({});
+  const [open, setOpen] = useState<string | null>(null);
   const save = useMutation({
-    mutationFn: (s: Section) => api.patch(`/api/admin/home-sections/${s.id}`, { title: s.title, subtitle: s.subtitle, enabled: s.enabled, sort: s.sort }),
-    onSuccess: () => { flash.ok("Home section saved — refresh the site to see it."); void qc.invalidateQueries({ queryKey: ["admin/home-sections"] }); },
+    mutationFn: (s: Section) => {
+      // blank lines in a plain list are only a half-typed row
+      const data = Object.fromEntries(Object.entries(s.data).map(([k, v]) => [k, Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]).map((x) => x.trim()).filter(Boolean) : v]));
+      return api.patch(`/api/admin/home-sections/${s.id}`, { title: s.title, subtitle: s.subtitle, enabled: s.enabled, sort: s.sort, data });
+    },
+    onSuccess: async (_r, s) => {
+      flash.ok("Saved — it is live on the home page.");
+      await qc.invalidateQueries({ queryKey: ["admin/home-sections"] });
+      setDraft((d) => {
+        const { [s.id]: _done, ...rest } = d;
+        return rest;
+      });
+    },
     onError: flash.err,
   });
-  const [draft, setDraft] = useState<Record<string, Section>>({});
   const row = (s: Section) => draft[s.id] ?? s;
   const edit = (s: Section, patch: Partial<Section>) => setDraft((d) => ({ ...d, [s.id]: { ...row(s), ...patch } }));
 
   if (!can("website.content.manage")) return <Denied />;
   return (
     <div>
-      <PageHeader title="Home page sections" subtitle="Titles, subtitles, order and what shows on the public home page." actions={<Button variant="secondary" onClick={() => window.open("/", "_blank")}>Open home <ExternalLink className="size-4" /></Button>} />
+      <PageHeader title="Home page sections" subtitle="Titles, order, what shows, and each section's own content." actions={<Button variant="secondary" onClick={() => window.open("/", "_blank")}>Open home <ExternalLink className="size-4" /></Button>} />
       {flash.node}
       {q.isLoading ? (
         <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24" />)}</div>
@@ -400,6 +571,7 @@ export function AdminHome() {
           {q.data?.map((s0) => {
             const s = row(s0);
             const dirty = JSON.stringify(s) !== JSON.stringify(s0);
+            const hasContent = Object.keys(s.data ?? {}).some((k) => k !== "homeSection");
             return (
               <Card key={s.id}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -411,7 +583,9 @@ export function AdminHome() {
                   <Field label="Subtitle"><Input value={s.subtitle ?? ""} onChange={(e) => edit(s0, { subtitle: e.target.value })} /></Field>
                   <Field label="Order"><Input type="number" value={String(s.sort)} onChange={(e) => edit(s0, { sort: Number(e.target.value) || 0 })} /></Field>
                 </div>
-                <div className="mt-3 flex justify-end">
+                {open === s.id ? <SectionContent data={s.data} onChange={(data) => edit(s0, { data })} /> : null}
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  {hasContent ? <Button size="sm" variant="ghost" onClick={() => setOpen(open === s.id ? null : s.id)}>{open === s.id ? "Hide content" : "Edit content"}</Button> : null}
                   <Button size="sm" disabled={!dirty} loading={save.isPending && save.variables?.id === s.id} onClick={() => save.mutate(s)}><Save className="size-4" /> Save</Button>
                 </div>
               </Card>
@@ -510,6 +684,7 @@ function PageForm({ id, onClose, onSaved, onError }: { id: string | null; onClos
 /* ============================ Settings ============================ */
 export function AdminSettings() {
   const { can } = useAuth();
+  const qc = useQueryClient();
   const flash = useFlash();
   const q = useQuery({ queryKey: ["admin/site"], queryFn: () => api.get<Record<string, unknown>>("/api/admin/site") });
   const [f, setF] = useState<Record<string, unknown>>({});
@@ -521,20 +696,28 @@ export function AdminSettings() {
   const setBank = (k: string, v: string) => setF({ ...f, bank: { ...bank, [k]: v } });
   const submit = async () => {
     setSaving(true);
-    try { const r = await api.put<{ site: Record<string, unknown> }>("/api/admin/site", f); setF(r.site); flash.ok("Branding saved — it shows across the whole site and Sora's messages."); }
+    try { const r = await api.put<{ site: Record<string, unknown> }>("/api/admin/site", f); setF(r.site); void qc.invalidateQueries(); flash.ok("Branding saved — it shows across the whole site and in the AI employee's messages."); }
     catch (e) { flash.err(e); } finally { setSaving(false); }
   };
   return (
     <div className="max-w-3xl">
-      <PageHeader title="Branding & settings" subtitle="One place for the company identity used across the site, invoices and Sora." />
+      <PageHeader title="Branding & settings" subtitle="One place for the company identity used across the site, invoices and the AI employee." />
       {flash.node}
       {q.isLoading ? <Skeleton className="h-80" /> : (
         <div className="space-y-5">
           <Card>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Company name"><Input value={t("companyName")} onChange={(e) => setF({ ...f, companyName: e.target.value })} /></Field>
-              <Field label="Digital FTE name" hint="the AI assistant's name"><Input value={t("ftEName")} onChange={(e) => setF({ ...f, ftEName: e.target.value })} /></Field>
+              <Field label="Company name" hint="a new name also replaces the old one in the site's text"><Input value={t("companyName")} onChange={(e) => setF({ ...f, companyName: e.target.value })} /></Field>
+              <Field label="Digital FTE name" hint="the AI assistant's name, also replaced in the site's text"><Input value={t("ftEName")} onChange={(e) => setF({ ...f, ftEName: e.target.value })} /></Field>
               <Field label="Tagline" className="sm:col-span-2"><Input value={t("tagline")} onChange={(e) => setF({ ...f, tagline: e.target.value })} /></Field>
+              <div className="sm:col-span-2">
+                <p className="mb-1 text-sm font-medium text-slate-700">Logo</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <img src={t("logoUrl") || "/favicon.svg"} alt="" className="size-12 rounded-xl object-contain ring-1 ring-slate-200" />
+                  <UploadButton label={t("logoUrl") ? "Replace logo" : "Upload logo"} onUploaded={(urls) => setF({ ...f, logoUrl: urls[0] ?? "" })} />
+                  {t("logoUrl") ? <Button type="button" size="sm" variant="ghost" onClick={() => setF({ ...f, logoUrl: "" })}>Use the default mark</Button> : null}
+                </div>
+              </div>
               <Field label="Primary colour"><div className="flex gap-2"><input type="color" value={t("primaryColor") || "#0f4c81"} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} className="h-10 w-14 rounded-lg border border-slate-200" /><Input value={t("primaryColor")} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} /></div></Field>
               <Field label="Accent colour"><div className="flex gap-2"><input type="color" value={t("accentColor") || "#f59e0b"} onChange={(e) => setF({ ...f, accentColor: e.target.value })} className="h-10 w-14 rounded-lg border border-slate-200" /><Input value={t("accentColor")} onChange={(e) => setF({ ...f, accentColor: e.target.value })} /></div></Field>
             </div>

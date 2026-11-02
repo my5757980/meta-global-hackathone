@@ -181,6 +181,7 @@ export type PricingPolicy = z.infer<typeof PricingPolicySchema>;
 
 export const SiteSettingsSchema = z.object({
   companyName: z.string().default("Hikari Motors"),
+  logoUrl: z.string().default(""), // empty = the built-in mark
   tagline: z.string().default("Quality used cars from Japan, delivered to your port"),
   ftEName: z.string().default("Sora"),
   primaryColor: z.string().default("#0f4c81"),

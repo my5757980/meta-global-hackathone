@@ -4,6 +4,7 @@ import { Bot } from "lucide-react";
 import { api, qs } from "../lib/api";
 import { date, usd2 } from "../lib/format";
 import { Empty, Input, PageHeader, Pagination, Skeleton, StatusBadge, Table, Tabs } from "../ui";
+import { FteName } from "../lib/site";
 
 interface Row {
   id: string;
@@ -34,7 +35,7 @@ export default function Invoices() {
   };
   return (
     <div>
-      <PageHeader title="Invoices" subtitle="Requested by agents and by Sora · approved by the Supervisor" />
+      <PageHeader title="Invoices" subtitle={<>Requested by agents and by <FteName /> · approved by the Supervisor</>} />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <Tabs
           value={status}
@@ -75,7 +76,7 @@ export default function Invoices() {
                 <td className="px-4 py-3 whitespace-nowrap">
                   {r.requestedByKind === "fte" ? (
                     <span className="inline-flex items-center gap-1 font-semibold text-violet-700">
-                      <Bot className="size-4" /> Sora
+                      <Bot className="size-4" /> <FteName />
                     </span>
                   ) : (
                     r.requestedByName
