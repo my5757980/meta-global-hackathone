@@ -22,7 +22,7 @@ import { openMcpSession } from "./mcp";
 import { transcribeMessage } from "./voice";
 import { skillIndex } from "./skills";
 import { SUMMARY_PROMPT, systemPrompt } from "./prompts";
-import { asksPermissionAgain, promisesPerson, promisesWork, saidYes } from "./guards";
+import { acceptsQuote, asksPermissionAgain, offeredSomethingElse, promisesPerson, promisesWork, saidYes } from "./guards";
 import { overBudget } from "../services/publicDemo";
 
 const MAX_STEPS = 8;
@@ -78,6 +78,7 @@ function dataUrl(fileRow: { path: string; mime: string }): string | null {
 }
 
 /** Tools that are the work itself: after one of these, a further "shall I...?" is the next honest question. */
+const CLOSING_TOOLS = new Set(["request_invoice", "request_approval", "handover_to_human", "place_bid"]);
 const WORK_TOOLS = new Set(["search_stock", "search_auction_lots", "read_auction_sheet", "quote_cnf", "request_invoice", "place_bid"]);
 
 async function buildHistory(conversationId: string, soraId: string): Promise<ChatCompletionMessageParam[]> {
@@ -212,6 +213,10 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
   if (trigger.note) messages.push({ role: "user", content: `[System event for you to act on now: ${trigger.note}]` });
 
   const buyerSaidYes = trigger.kind === "message" && lastInHistory?.role === "user" && typeof lastInHistory.content === "string" && saidYes(lastInHistory.content);
+  // the buyer accepted a quote in the message before: the work now is the invoice, not another quote
+  const before = [...messages].reverse().find((m) => m.role === "assistant");
+  const beforeText = typeof before?.content === "string" ? before.content : "";
+  const acceptedQuote = (trigger.kind === "message" || trigger.kind === "eval") && lastInHistory?.role === "user" && typeof lastInHistory.content === "string" && acceptsQuote(lastInHistory.content) && /\[cards shown: [^\]]*quote/.test(beforeText) && !offeredSomethingElse(beforeText);
   const mcp = await openMcpSession({ workerKey: "sales", task: "sales.chat", principalUserId: sora.id, principalName: sora.name, principalKind: "fte", conversationId, buyerUserId: conv.customerUserId, runId: run!.id }).catch(async (e) => {
     publish(members, "typing", { conversationId, userId: sora.id, on: false });
     await db().update(s.fteRuns).set({ status: "error", error: String((e as Error)?.message ?? e).slice(0, 500), finishedAt: new Date(), latencyMs: Date.now() - t0 }).where(eq(s.fteRuns.id, run!.id));
@@ -250,6 +255,13 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
           nudged = true;
           toolCalls.push({ name: "keep_your_word", args: { said: finalText.slice(0, 300) }, ok: true, ms: 0, preview: "[guard] the reply promised work with no tool call; the model was told to do it now", guard: true });
           messages.push({ role: "assistant", content: finalText }, { role: "user", content: "[System note: your reply says you are doing something now, but you called no tool, so nothing happened and the buyer would wait for nothing. Call the tool now and answer with its result. The buyer has not seen that reply. If you truly need something from the buyer first, ask for it and promise nothing.]" });
+          continue;
+        }
+        // A yes to the quote just given, answered with another quote or more questions: the buyer never gets the invoice they accepted.
+        if (!nudged && !handedOver && step < MAX_STEPS - 1 && acceptedQuote && !toolCalls.some((t) => t.ok && CLOSING_TOOLS.has(t.name))) {
+          nudged = true;
+          toolCalls.push({ name: "act_on_the_yes", args: { said: finalText.slice(0, 300) }, ok: true, ms: 0, preview: "[guard] the buyer accepted the quote and no invoice was requested; the model was told to do it now", guard: true });
+          messages.push({ role: "assistant", content: finalText }, { role: "user", content: "[System note: the buyer has accepted your quote, so do not quote again and do not ask again. Now, in this turn: find_or_create_lead, add_lead_note, then request_invoice with the quote_id. Only if the buyer's or company's name or the phone is truly missing, ask for that alone. The buyer has not seen your draft above.]" });
           continue;
         }
         // A plain yes answered with "Shall I...?" and no real work: the buyer would have to say yes twice. Back to the model, once; the buyer never saw it.

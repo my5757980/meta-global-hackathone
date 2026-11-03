@@ -32,6 +32,13 @@ export function promisesWork(text: string): boolean {
  */
 const PLAIN_YES = /^(?:yes|yes please|yep|yeah|ok|okay|sure|please do|go ahead|proceed|do it|confirm|confirmed|deal|agreed|haan?|haan ji|han ji|ji|ji haan|jee|theek hai|thik hai|bilkul|kar do|kardo|ndiyo|sawa|ہاں|ہاں جی|جی|جی ہاں|ٹھیک ہے|بالکل)(?=$|[\s.!,👍🙏])[\s.!,👍🙏]*(?:please|ji)?[\s.!👍🙏]*$/i;
 export const saidYes = (text: string) => text.trim().length <= 40 && PLAIN_YES.test(text.trim());
+
+/** The buyer accepts what was just quoted, in words of their own. Anything with a condition or a question stays with the model. */
+const ACCEPTS = /(i accept|i'?ll take|i will take|take it|go ahead|send (?:me )?the invoice|invoice me|proceed|confirmed|i agree)/i;
+const NOT_YET = /(no|not|don'?t|but|if|discount|cheaper|lower|later|compare|think)|[?؟]/i;
+export const acceptsQuote = (text: string) => saidYes(text) || (text.trim().length <= 200 && ACCEPTS.test(text) && !NOT_YET.test(text));
+/** After the quote the last message offered something else, so a yes may be to that. */
+export const offeredSomethingElse = (reply: string) => /(other|another|similar|more options|alternatives?|cheaper|watch for)[^?؟]*[?؟]\s*(\[cards shown|$)/i.test(reply);
 const ASKS_AGAIN = /\b(?:shall i|should i|would you like me to|do you want me to|want me to|may i|can i go ahead|do you confirm|please confirm|are you sure)\b[^?؟]*[?؟]/i;
 const ASKS_AGAIN_OTHER = /(کیا میں|کروں\s*[?؟]|kar doon\s*\?|kar dun\s*\?|karun\s*\?)/i;
 export const asksPermissionAgain = (reply: string) => ASKS_AGAIN.test(reply) || ASKS_AGAIN_OTHER.test(reply);

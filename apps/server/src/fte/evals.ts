@@ -742,6 +742,7 @@ export const CASES: Case[] = [
     title: "Yuki writes first to an imported lead, with no price",
     run: async (c) => {
       const { lead } = await findOrCreateLead({ customerName: "Eval Imports", contactPerson: "Eval Buyer", phone: c.vars.phone!, email: `eval-${genId()}@example.com`, countryCode: "KE", ownerUserId: c.soraId, customerUserId: c.buyerUserId, source: "excel" }, evalActor(c));
+      await db().update(s.leads).set({ status: "new" }).where(eq(s.leads.id, lead.id)); // as an import leaves it
       await runDeskForEval("crm", { task: "crm.leads", title: "eval", conversationId: c.conversationId, note: `New imported leads, not yet contacted: ${JSON.stringify([{ id: lead.id, name: "Eval Imports", person: "Eval Buyer", email: lead.email, country: "KE" }])}. Call first_contact_lead once for each.` });
       const notes = await db().select({ body: s.leadNotes.body }).from(s.leadNotes).where(eq(s.leadNotes.leadId, lead.id));
       const text = notes.map((n) => n.body).join(" ");
