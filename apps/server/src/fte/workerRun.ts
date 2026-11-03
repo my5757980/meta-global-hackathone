@@ -28,7 +28,7 @@ export interface WorkerJob {
 const MAX_STEPS = 10;
 let paused = false;
 export const workforceOn = () => !paused && env.FTE_ENABLED && env.WORKFORCE_ENABLED && modelConfigured();
-export const reflexOn = () => !paused && env.WORKFORCE_ENABLED; // steps that need no model
+export const reflexOn = () => !paused && env.FTE_ENABLED && env.WORKFORCE_ENABLED; // steps that need no model
 
 const MUTED = ["invoice.requested", "invoice.approved", "invoice.rejected", "invoice.edited", "payment.slip", "payment.recorded", "progress.updated", "document.uploaded", "ops.signal", "approval.requested", "approval.decided", "enquiry.created", "auction.order.created", "contact.message", "leads.imported", "web_order.created", "vehicle.created"];
 /** The eval suite's test sales stay out of the business: no reactions, no ledger rows, no room talk. */

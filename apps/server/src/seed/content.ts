@@ -97,9 +97,9 @@ export const HOME_SECTIONS = [
     title: "Our clients and their cars",
     data: {
       items: [
-        { title: "Hilux delivered to Mombasa", country: "Kenya", body: "Pickup", color: "Silver", image: "/cars/toyota-hilux-2.jpg" },
-        { title: "Fleet of Probox for Dar es Salaam", country: "Tanzania", body: "Wagon", color: "Pearl White", image: "/cars/toyota-probox-2.jpg" },
-        { title: "Prado for a family in Kingston", country: "Jamaica", body: "SUV", color: "Black", image: "/cars/toyota-land-cruiser-prado-2.jpg" },
+        { title: "Hilux delivered to Mombasa", country: "Kenya", body: "Pickup", color: "Silver", image: "/cars/toyota-hilux-2.jpg", videoUrl: "" },
+        { title: "Fleet of Probox for Dar es Salaam", country: "Tanzania", body: "Wagon", color: "Pearl White", image: "/cars/toyota-probox-2.jpg", videoUrl: "" },
+        { title: "Prado for a family in Kingston", country: "Jamaica", body: "SUV", color: "Black", image: "/cars/toyota-land-cruiser-prado-2.jpg", videoUrl: "" },
       ],
     },
   },
