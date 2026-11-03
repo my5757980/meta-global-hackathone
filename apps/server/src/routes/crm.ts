@@ -211,18 +211,19 @@ crmRouter.get(
     const full = await getInvoiceFull(String(req.params.id));
     if (!full) throw notFound();
     if (!can(u, "crm.invoices.view_all") && full.invoice.requestedBy !== u.id && full.lead?.ownerUserId !== u.id) throw notFound();
-    const audit = await db().select({ a: s.auditLog, actor: s.users.name }).from(s.auditLog).leftJoin(s.users, eq(s.users.id, s.auditLog.actorUserId)).where(and(eq(s.auditLog.entity, "invoice"), eq(s.auditLog.entityId, full.invoice.id))).orderBy(s.auditLog.createdAt);
+    const unitIds = (await db().select({ id: s.units.id }).from(s.units).where(eq(s.units.invoiceId, full.invoice.id))).map((x) => x.id);
+    const audit = await db().select({ a: s.auditLog, actor: s.users.name, actorType: s.users.kind }).from(s.auditLog).leftJoin(s.users, eq(s.users.id, s.auditLog.actorUserId)).where(inArray(s.auditLog.entityId, [full.invoice.id, ...unitIds])).orderBy(s.auditLog.createdAt);
     let conversation = null;
     let fteTrail: unknown[] = [];
     if (full.lead?.customerUserId) {
       const [c] = await db().select().from(s.chatConversations).where(and(eq(s.chatConversations.kind, "customer"), eq(s.chatConversations.customerUserId, full.lead.customerUserId))).limit(1);
       if (c) {
         conversation = { id: c.id, summary: c.fteSummary, holder: c.holder };
-        fteTrail = (await db().select({ a: s.auditLog }).from(s.auditLog).where(and(eq(s.auditLog.conversationId, c.id), eq(s.auditLog.actorKind, "fte"))).orderBy(desc(s.auditLog.createdAt)).limit(30)).map((x) => x.a).reverse();
+        fteTrail = (await db().select({ a: s.auditLog, actor: s.users.name }).from(s.auditLog).leftJoin(s.users, eq(s.users.id, s.auditLog.actorUserId)).where(and(eq(s.auditLog.conversationId, c.id), eq(s.auditLog.actorKind, "fte"))).orderBy(desc(s.auditLog.createdAt)).limit(30)).map((x) => ({ ...x.a, actor: x.actor })).reverse();
       }
     }
     const [quote] = full.invoice.quoteId ? await db().select().from(s.quotes).where(eq(s.quotes.id, full.invoice.quoteId)).limit(1) : [];
-    return { ...full, audit: audit.map((x) => ({ ...x.a, actor: x.actor })), conversation, fteTrail, quote: quote ?? null, canApprove: can(u, "crm.invoices.approve"), canDelete: can(u, "crm.invoices.delete") };
+    return { ...full, audit: audit.map((x) => ({ ...x.a, actor: x.actor, actorType: x.actorType })), conversation, fteTrail, quote: quote ?? null, canApprove: can(u, "crm.invoices.approve"), canDelete: can(u, "crm.invoices.delete") };
   }),
 );
 

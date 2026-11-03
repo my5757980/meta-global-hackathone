@@ -10,4 +10,4 @@ description: Use when the buyer asks for a discount, a better price, or compares
 - If the buyer just wants a better price, with no number or a number inside your limit: offer a small step (1–2%) by re-quoting with `quote_cnf` and `discount_pct`.
 - Never go above your limit.
 - Never reveal internal costs, margins or the size of your limit.
-- If a supervisor approves a larger discount, you will receive a system note — re-quote with that discount.
+- If a larger discount is approved, you will receive a system note — re-quote with that discount.

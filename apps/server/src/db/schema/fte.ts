@@ -1,4 +1,4 @@
-import { boolean, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { genId } from "../../lib/id";
 import { users } from "./platform";
 
@@ -9,6 +9,7 @@ export const fteRuns = pgTable(
   "fte_runs",
   {
     id: id(),
+    workerKey: text().notNull().default("sales"),
     trigger: text().notNull(), // message | event | approval | eval
     conversationId: text(),
     eventId: text(),
@@ -28,6 +29,48 @@ export const fteRuns = pgTable(
   },
   (t) => [index("runs_conv_idx").on(t.conversationId, t.startedAt), index("runs_started_idx").on(t.startedAt)],
 );
+
+/** The roster's live settings: who holds which seat and how much each may do alone. The role cards are in fte/workforce.ts. */
+export const fteWorkers = pgTable("fte_workers", {
+  key: text().primaryKey(),
+  userId: text()
+    .notNull()
+    .references(() => users.id),
+  levels: jsonb().notNull().default({}), // task key -> autonomy level
+  enabled: boolean().notNull().default(true),
+  dailyTokens: integer(), // null = the envelope's workerDailyTokens
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Authority decisions in a signed chain: each row's signature covers it and the one before it. */
+export const fteDecisions = pgTable(
+  "fte_decisions",
+  {
+    id: id(),
+    seq: integer().notNull(),
+    workerKey: text().notNull(),
+    task: text().notNull(),
+    entity: text().notNull(),
+    entityId: text(),
+    decision: text().notNull(),
+    reason: text().notNull(),
+    signature: text().notNull(),
+    overruledBy: text().references(() => users.id),
+    overruleNote: text(),
+    overruledAt: timestamp({ withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("decisions_seq_uq").on(t.seq)],
+);
+
+/** One written report per day from the chief of staff. */
+export const fteReports = pgTable("fte_reports", {
+  id: id(),
+  day: text().notNull().unique(),
+  body: text().notNull(),
+  data: jsonb().notNull().default({}),
+  createdAt: createdAt(),
+});
 
 export const approvals = pgTable(
   "approvals",

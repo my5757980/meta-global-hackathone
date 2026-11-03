@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { useCallback, useEffect, useState } from "react";
+import { Linking, Pressable, StyleSheet, View } from "react-native";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { api, errText } from "../lib/api";
@@ -126,6 +126,7 @@ export function CheckoutScreen() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<{ orderNo: string; totalUsd: number; items: number } | null>(null);
+  const options = useFetch<{ provider: "paypal" | "demo" | null }>("/api/shop/pay-options");
   const gate = useBuyerGate("cart");
   if (gate) return gate;
 
@@ -146,13 +147,17 @@ export function CheckoutScreen() {
     );
 
   const ready = shop.cart?.items.filter((v) => v.status === "available") ?? [];
-  const submit = async () => {
+  const submit = async (pay?: "online") => {
     setBusy(true);
     setErr(null);
     try {
-      const r = await api.post<{ orderNo: string; totalUsd: number; items: number }>("/api/shop/checkout", { notes: notes.trim() || undefined });
-      setDone(r);
+      const r = await api.post<{ orderId: string; orderNo: string; totalUsd: number; items: number }>("/api/shop/checkout", { notes: notes.trim() || undefined, pay });
       void shop.refresh();
+      if (pay) {
+        nav.replace("Pay", { id: r.orderId });
+        return;
+      }
+      setDone(r);
     } catch (e) {
       setErr(errText(e));
     } finally {
@@ -186,7 +191,82 @@ export function CheckoutScreen() {
         </Field>
         <T style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>This sends an order request — no payment now. We confirm availability, then send the invoice with bank details for the advance.</T>
         {err ? <View style={{ marginTop: 12 }}><ErrorBox text={err} /></View> : null}
-        <Button title="Send order request" icon="paper-plane-outline" loading={busy} onPress={submit} style={{ marginTop: 14 }} />
+        <Button title="Send order request" icon="paper-plane-outline" loading={busy} onPress={() => void submit()} style={{ marginTop: 14 }} />
+        {options.data?.provider ? (
+          <>
+            <T style={{ color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 14 }}>Or pay the FOB total now. The freight to your port is added on the invoice.</T>
+            <Button title={options.data.provider === "paypal" ? "Pay now with PayPal" : "Pay now online (demo)"} variant="secondary" icon="card-outline" disabled={busy} onPress={() => void submit("online")} style={{ marginTop: 8 }} />
+          </>
+        ) : null}
+      </Card>
+    </Screen>
+  );
+}
+
+/* ============================== Paying online ============================== */
+export function PayScreen() {
+  const nav = useNavigation<any>();
+  const route = useRoute<any>();
+  const id = route.params?.id as string;
+  const q = useFetch<WebOrder>(`/api/shop/orders/${encodeURIComponent(id)}`);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const o = q.data;
+  const demo = o?.paymentMethod === "Online (demo)";
+  const start = async (open: boolean) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const p = await api.post<{ approveUrl: string | null }>(`/api/shop/orders/${encodeURIComponent(id)}/pay`, {});
+      q.reload();
+      if (p.approveUrl && open) await Linking.openURL(p.approveUrl);
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const capture = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.post(`/api/shop/orders/${encodeURIComponent(id)}/capture`, {});
+      q.reload();
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    if (o && !o.paidAt && !o.paymentRef) void start(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [o?.id]);
+  if (q.loading) return <Screen><Skeleton h={200} /></Screen>;
+  if (!o) return <Screen><ErrorBox text={q.error ?? "Order not found"} onRetry={q.reload} /></Screen>;
+  return (
+    <Screen>
+      <Card style={{ alignItems: "center", paddingVertical: 24 }}>
+        <Ionicons name={o.paidAt ? "checkmark-circle" : "card-outline"} size={52} color={o.paidAt ? C.green : C.muted} />
+        <T style={{ fontSize: 20, fontWeight: "800", color: C.ink, marginTop: 8 }}>{o.paidAt ? "Payment received" : `Pay order ${o.orderNo}`}</T>
+        <T style={{ fontSize: 24, fontWeight: "800", color: C.ink, marginTop: 4 }}>{usd(o.totalUsd)}</T>
+        {o.paidAt ? (
+          <>
+            <T style={{ textAlign: "center", marginTop: 8, color: C.muted, lineHeight: 20 }}>Your invoice is being prepared, and you will see it in the chat and in My invoices.</T>
+            <Button title="View my orders" onPress={() => nav.replace("Orders")} style={{ marginTop: 14, alignSelf: "stretch" }} />
+          </>
+        ) : demo ? (
+          <>
+            <T style={{ textAlign: "center", marginTop: 8, color: C.muted, lineHeight: 20 }}>This is a demo stand-in for the payment page. No money moves, and nothing is asked of you.</T>
+            <Button title="Approve demo payment" loading={busy} onPress={() => void capture()} style={{ marginTop: 14, alignSelf: "stretch" }} />
+          </>
+        ) : (
+          <>
+            <Button title="Pay with PayPal" icon="open-outline" loading={busy} onPress={() => void start(true)} style={{ marginTop: 14, alignSelf: "stretch" }} />
+            {o.paymentRef ? <Button title="I have paid" variant="secondary" disabled={busy} onPress={() => void capture()} style={{ marginTop: 8, alignSelf: "stretch" }} /> : null}
+          </>
+        )}
+        {err ? <View style={{ marginTop: 12, alignSelf: "stretch" }}><ErrorBox text={err} /></View> : null}
       </Card>
     </Screen>
   );
@@ -246,6 +326,7 @@ export function OrdersScreen() {
               <View style={st.next}>
                 <T style={{ color: C.text, fontSize: 12 }}>{NEXT[o.status] ?? ""}</T>
               </View>
+              {o.paidAt ? <T style={{ color: C.green, fontSize: 12, fontWeight: "700", marginTop: 6 }}>Paid online · {o.paymentMethod}</T> : o.paymentMethod && o.paymentMethod !== "Order request" && o.status === "pending" ? <Button title="Pay now" small onPress={() => nav.navigate("Pay", { id: o.id })} style={{ marginTop: 8, alignSelf: "flex-start" }} /> : null}
               {o.notes ? <T style={{ color: C.muted, fontSize: 12, marginTop: 6 }}>Your note: {o.notes}</T> : null}
             </Card>
           ))}

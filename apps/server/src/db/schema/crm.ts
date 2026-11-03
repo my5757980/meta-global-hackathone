@@ -165,6 +165,7 @@ export const payments = pgTable(
     fxRate: numeric({ precision: 8, scale: 3, mode: "number" }),
     yenAmount: integer(),
     receiptFileId: text().references(() => files.id),
+    slipReference: text(), // the transfer's reference on the bank slip: the same slip is never recorded twice
     recordedBy: text().references(() => users.id),
     createdAt: createdAt(),
   },

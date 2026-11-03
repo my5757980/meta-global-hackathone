@@ -10,6 +10,7 @@ import { postMessage } from "../services/chat";
 import { envelope, now, siteSettings } from "../services/settings";
 import { notify } from "../services/notify";
 import { ensureWebsiteAccount, getInvoiceFull } from "../services/crm";
+import { env } from "../env";
 import { triggerSora } from "./agent";
 
 async function conversationForLead(leadId: string) {
@@ -22,12 +23,13 @@ async function conversationForLead(leadId: string) {
 }
 
 async function soraId() {
-  const [u] = await db().select({ id: s.users.id }).from(s.users).where(eq(s.users.kind, "fte")).limit(1);
+  const [u] = await db().select({ id: s.users.id }).from(s.users).where(eq(s.users.username, "sora")).limit(1);
   return u!.id;
 }
 
 /** Cap proactive messages per buyer per day (the envelope). */
 async function underDailyCap(conversationId: string): Promise<boolean> {
+  if (env.WORKFORCE_ENABLED) return true; // a buyer's own money and shipment: every step is news, and the steps are few
   const env0 = await envelope();
   const sora = await soraId();
   const since = new Date(Date.now() - 86400_000);
@@ -56,7 +58,7 @@ export function registerSoraHandlers() {
     });
     triggerSora(conv.id, {
       kind: "event",
-      note: `Invoice ${full.invoice.number} was APPROVED by Supervisor ${full.approvedBy?.name ?? ""}. Total C&F $${full.totals.total.toLocaleString("en-US")}, advance ${full.invoice.advancePercent}% = $${full.totals.advance.toLocaleString("en-US")}. The invoice card is already shown above. Tell the buyer warmly in one short message: the invoice is approved, the advance amount, pay by bank transfer to ${site.bank.bankName} (SWIFT ${site.bank.swift}, account "${site.bank.accountName}" ${site.bank.accountNo}) with the invoice number as reference, and that they can open it in their account.`,
+      note: `Invoice ${full.invoice.number} was APPROVED by ${full.approvedBy?.name ?? "the invoice desk"}. Total C&F $${full.totals.total.toLocaleString("en-US")}, advance ${full.invoice.advancePercent}% = $${full.totals.advance.toLocaleString("en-US")}. The invoice card is already shown above. Tell the buyer warmly in one short message: the invoice is approved, the advance amount, pay by bank transfer to ${site.bank.bankName} (SWIFT ${site.bank.swift}, account "${site.bank.accountName}" ${site.bank.accountNo}) with the invoice number in the payment details, that they can open it in their account, and to send a photo of the bank slip here once paid.`,
     });
   });
 
@@ -101,6 +103,11 @@ export function registerSoraHandlers() {
     if (!inv) return;
     const conv = await conversationForLead(inv.leadId);
     if (!conv || !(await underDailyCap(conv.id))) return;
+    if (env.WORKFORCE_ENABLED) {
+      // one line per document, not a model run: a shipment brings several at once
+      await postMessage({ conversationId: conv.id, senderUserId: null, kind: "system", body: `New document for your ${u.year ?? ""} ${u.make} ${u.model} (chassis ${u.chassis}): ${folder}. It is in your account under My Invoices.`, meta: { invoiceId: inv.id, link: `/account/invoices/${inv.id}` } });
+      return;
+    }
     triggerSora(conv.id, { kind: "event", note: `A new document was uploaded for ${u.year ?? ""} ${u.make} ${u.model} (chassis ${u.chassis}): folder "${folder}". Tell the buyer it is available in their account under My Invoices.` });
   });
 

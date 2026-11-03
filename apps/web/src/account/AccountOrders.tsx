@@ -52,6 +52,7 @@ export default function AccountOrders() {
                 ))}
               </ul>
               <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">{NEXT[o.status] ?? ""}</p>
+              {o.paidAt ? <p className="mt-2 text-xs font-semibold text-emerald-700">Paid online · {o.paymentMethod}</p> : o.paymentMethod !== "Order request" && o.status === "pending" ? <LinkButton to={`/pay/${o.id}`} size="sm" className="mt-2">Pay now</LinkButton> : null}
               {o.notes && <p className="mt-2 text-xs text-slate-500">Your note: {o.notes}</p>}
             </Card>
           ))}

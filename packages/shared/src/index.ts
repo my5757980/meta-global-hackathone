@@ -164,8 +164,27 @@ export const EnvelopeSchema = z.object({
   escalateTopics: z.array(z.string()).default(["complaint", "refund", "legal", "payment dispute"]),
   followUpAfterHours: z.number().int().min(1).max(720).default(24),
   advanceReminderDays: z.number().int().min(1).max(60).default(5),
+  // the workforce's limits: what each FTE may decide alone, and what only the owner decides
+  invoiceAutoApproveUsd: z.number().min(0).default(60_000),
+  paymentAutoRecordUsd: z.number().min(0).default(60_000),
+  chiefApproveUsd: z.number().min(0).default(150_000),
+  chiefMaxDiscountPct: z.number().min(0).max(50).default(8),
+  chiefMaxBidJpy: z.number().int().min(0).default(6_000_000),
+  ownerAnswerHours: z.number().int().min(1).max(240).default(24),
+  workerDailyTokens: z.number().int().min(1000).default(400_000),
 });
 export type Envelope = z.infer<typeof EnvelopeSchema>;
+
+/** The Digital FTEs. Each holds one seat in the business, with its own account, tools and limits. */
+export const WORKER_KEYS = ["sales", "invoices", "accounts", "operations", "auction", "crm", "website", "chief"] as const;
+export type WorkerKey = (typeof WORKER_KEYS)[number];
+/** Autonomy per task: L0 a person does it, L1 it proposes and a person approves, L3 it acts and stops at its limits, L4 it runs on its own. */
+export const AUTONOMY_LABELS: Record<number, string> = {
+  0: "L0: a person does this",
+  1: "L1: proposes, a person approves",
+  3: "L3: acts, stops at its limits",
+  4: "L4: runs on its own",
+};
 
 export const PricingPolicySchema = z.object({
   fxJpyPerUsd: z.number().positive().default(150),

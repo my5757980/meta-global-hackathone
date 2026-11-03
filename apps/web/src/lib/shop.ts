@@ -21,6 +21,8 @@ export interface WebOrder {
   id: string;
   orderNo: string;
   status: string;
+  paymentMethod: string;
+  paidAt: string | null;
   totalUsd: number;
   notes: string | null;
   createdAt: string;

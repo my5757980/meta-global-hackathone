@@ -9,6 +9,7 @@ import { useLiveEvent } from "../lib/sse";
 import { ago, dateTime, usd } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Select, Skeleton, Stat, StatusBadge, Tabs } from "../ui";
 import { FteName, useFte } from "../lib/site";
+import Workforce from "./Workforce";
 
 interface Overview {
   model: { name: string; configured: boolean; family: string };
@@ -35,6 +36,8 @@ interface Run {
   startedAt: string;
   conversationId: string | null;
   customer: string | null;
+  workerName: string | null;
+  workerKey: string;
 }
 interface EvalRunRow {
   id: string;
@@ -69,7 +72,7 @@ interface EvalIndex {
 export default function FteConsole() {
   const { can } = useAuth();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<"activity" | "approvals" | "envelope" | "skills" | "evals" | "schedule">("activity");
+  const [tab, setTab] = useState<"workforce" | "activity" | "approvals" | "envelope" | "skills" | "evals" | "schedule">("workforce");
   const ov = useQuery({ queryKey: ["fte-overview"], queryFn: () => api.get<Overview>("/api/fte/overview") });
   const runs = useQuery({ queryKey: ["fte-runs"], queryFn: () => api.get<Run[]>("/api/fte/runs") });
   const onRun = useCallback(() => {
@@ -88,7 +91,7 @@ export default function FteConsole() {
             <span className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-brand-600 text-white">
               <Bot className="size-5" />
             </span>
-            <FteName /> — Digital FTE console
+            Digital workforce console
           </span>
         }
         subtitle={d ? `${d.model.family} · ${d.model.name} · ${d.model.configured ? "online" : "model key missing"}` : "…"}
@@ -111,6 +114,7 @@ export default function FteConsole() {
           value={tab}
           onChange={setTab}
           items={[
+            { value: "workforce", label: "Workforce" },
             { value: "activity", label: "Live activity" },
             { value: "approvals", label: "Approvals", count: (d?.pendingApprovals.length ?? 0) + (d?.pendingInvoices.length ?? 0) },
             { value: "envelope", label: "Authority envelope" },
@@ -120,6 +124,7 @@ export default function FteConsole() {
           ]}
         />
       </div>
+      {tab === "workforce" && <Workforce />}
       {tab === "evals" && <Evals canRun={can("fte.evals.run")} />}
       {tab === "schedule" && <Schedule canMove={can("fte.envelope.manage")} />}
       {tab === "activity" && (
@@ -134,7 +139,8 @@ export default function FteConsole() {
                 <li key={r.id}>
                   <button onClick={() => setOpen(r)} className="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left hover:bg-slate-50">
                     <StatusBadge status={r.status} />
-                    <span className="text-sm font-semibold text-slate-900">{r.customer ?? "—"}</span>
+                    <span className="text-sm font-semibold text-slate-900">{r.workerName ?? "—"}</span>
+                    {r.customer && <span className="text-sm text-slate-600">with {r.customer}</span>}
                     <Badge tone={r.trigger === "message" ? "blue" : "violet"}>{r.trigger === "message" ? "buyer message" : r.trigger === "event" ? "proactive" : r.trigger}</Badge>
                     <span className="flex min-w-0 flex-1 flex-wrap gap-1">
                       {r.toolCalls.map((t, i) => (
@@ -341,8 +347,30 @@ function EnvelopeEditor({ env, canEdit }: { env: Envelope; canEdit: boolean }) {
         <Field label="Always hand to a person (comma separated)" className="sm:col-span-2">
           <Input value={f.escalateTopics.join(", ")} onChange={(e) => setF({ ...f, escalateTopics: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} disabled={!canEdit} />
         </Field>
+        <p className="font-semibold text-slate-900 sm:col-span-2">What the other desks may do</p>
+        <Field label="Invoice desk approves up to ($)">
+          <Input type="number" min={0} step={1000} value={f.invoiceAutoApproveUsd} onChange={num("invoiceAutoApproveUsd")} disabled={!canEdit} />
+        </Field>
+        <Field label="Accounts desk records up to ($)">
+          <Input type="number" min={0} step={1000} value={f.paymentAutoRecordUsd} onChange={num("paymentAutoRecordUsd")} disabled={!canEdit} />
+        </Field>
+        <Field label="Chief of staff approves up to ($)">
+          <Input type="number" min={0} step={1000} value={f.chiefApproveUsd} onChange={num("chiefApproveUsd")} disabled={!canEdit} />
+        </Field>
+        <Field label="Chief of staff: largest discount (%)">
+          <Input type="number" min={0} max={50} step={0.5} value={f.chiefMaxDiscountPct} onChange={num("chiefMaxDiscountPct")} disabled={!canEdit} />
+        </Field>
+        <Field label="Chief of staff: largest bid (¥)">
+          <Input type="number" min={0} step={10000} value={f.chiefMaxBidJpy} onChange={num("chiefMaxBidJpy")} disabled={!canEdit} />
+        </Field>
+        <Field label="If the owner does not answer, not approved after (hours)">
+          <Input type="number" min={1} max={720} value={f.ownerAnswerHours} onChange={num("ownerAnswerHours")} disabled={!canEdit} />
+        </Field>
+        <Field label="Model budget per desk per day (tokens)">
+          <Input type="number" min={0} step={10000} value={f.workerDailyTokens} onChange={num("workerDailyTokens")} disabled={!canEdit} />
+        </Field>
         <div className="flex items-center gap-3 sm:col-span-2">
-          {canEdit ? <Button type="submit">Save envelope</Button> : <p className="text-sm text-slate-500">Only the Supervisor can change the envelope.</p>}
+          {canEdit ? <Button type="submit">Save envelope</Button> : <p className="text-sm text-slate-500">Only the owner can change the limits.</p>}
           {msg && <span className="text-sm text-slate-600">{msg}</span>}
         </div>
       </form>
@@ -408,7 +436,7 @@ function Schedule({ canMove }: { canMove: boolean }) {
             </Button>
           </div>
         ) : (
-          <p className="mt-3 text-sm text-slate-500">Only the Supervisor moves the demo clock.</p>
+          <p className="mt-3 text-sm text-slate-500">Only the owner moves the demo clock.</p>
         )}
         {msg && <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">{msg}</p>}
         <p className="mt-4 text-xs text-slate-500">Moving the clock runs everything that falls due: quote follow-ups, follow-ups <FteName /> scheduled itself, and auction days ending — lots are settled and <FteName /> tells each buyer whether the bid won.</p>

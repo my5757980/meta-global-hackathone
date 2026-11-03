@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Link, Navigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { Link, Navigate, useNavigate } from "react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, CheckCircle2, Heart, ShoppingCart, Trash2 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -157,6 +157,8 @@ function CheckoutInner() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<{ orderNo: string; totalUsd: number; items: number } | null>(null);
+  const nav = useNavigate();
+  const options = useQuery({ queryKey: ["pay-options"], queryFn: () => api.get<{ provider: "paypal" | "demo" | null }>("/api/shop/pay-options") });
 
   if (done)
     return (
@@ -177,14 +179,20 @@ function CheckoutInner() {
     );
 
   const ready = q.data?.items.filter((v) => v.status === "available") ?? [];
-  const submit = async () => {
+  const submit = async (pay?: "online") => {
     setBusy(true);
     setErr(null);
     try {
-      const r = await api.post<{ orderNo: string; totalUsd: number; items: number }>("/api/shop/checkout", { notes: notes.trim() || undefined });
-      setDone(r);
+      const r = await api.post<{ orderId: string; orderNo: string; totalUsd: number; items: number }>("/api/shop/checkout", { notes: notes.trim() || undefined, pay });
       void qc.invalidateQueries({ queryKey: ["shop"] });
       void qc.invalidateQueries({ queryKey: ["my-orders"] });
+      if (pay) {
+        const p = await api.post<{ approveUrl: string | null }>(`/api/shop/orders/${r.orderId}/pay`, {});
+        if (p.approveUrl) window.location.assign(p.approveUrl);
+        else nav(`/pay/${r.orderId}`);
+        return;
+      }
+      setDone(r);
     } catch (e) {
       setErr(errText(e));
     } finally {
@@ -220,7 +228,15 @@ function CheckoutInner() {
             <p className="mt-1 text-3xl font-extrabold text-brand-700">{usd(q.data!.totalUsd)}</p>
             <p className="mt-2 text-xs text-slate-500">This sends an order request — no payment now. We confirm availability, then send the invoice with bank details for the advance.</p>
             {err && <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{err}</p>}
-            <Button size="lg" className="mt-4 w-full" loading={busy} onClick={submit}>Send order request</Button>
+            <Button size="lg" className="mt-4 w-full" loading={busy} onClick={() => void submit()}>Send order request</Button>
+            {options.data?.provider && (
+              <>
+                <p className="mt-4 text-xs text-slate-500">Or pay the FOB total now. The freight to your port is added on the invoice.</p>
+                <Button size="lg" variant="secondary" className="mt-2 w-full" disabled={busy} onClick={() => void submit("online")}>
+                  {options.data.provider === "paypal" ? "Pay now with PayPal" : "Pay now online (demo)"}
+                </Button>
+              </>
+            )}
           </Card>
         </div>
       )}

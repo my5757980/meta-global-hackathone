@@ -33,7 +33,7 @@ export const HOME_SECTIONS = [
     data: {
       items: [
         { icon: "ShieldCheck", title: "Inspected before you pay", text: "Every stock car and auction lot comes with its inspection grade explained in plain words." },
-        { icon: "Bot", title: "Answers in minutes, 24/7", text: "Sora, our AI sales executive, quotes the landed price to your port at any hour — a person approves every invoice." },
+        { icon: "Bot", title: "Answers in minutes, 24/7", text: "Sora, our AI sales executive, quotes the landed price to your port at any hour, and our AI invoice desk has your invoice out in minutes." },
         { icon: "Ship", title: "Shipping you can follow", text: "RoRo and container shipping with live progress, from purchase to arrival at your port." },
         { icon: "FileText", title: "Clean paperwork", text: "Export certificate, inspection certificate, B/L and courier — uploaded to your account the day they exist." },
       ],
@@ -128,11 +128,11 @@ export const FAQS = [
   { category: "Shipping", question: "Which documents will I receive?", answer: "Export certificate, commercial invoice, B/L (or telex release), and inspection certificate where required — couriered or released electronically." },
   { category: "Cars", question: "What is an auction grade?", answer: "Japan's auction houses grade cars from 1 to 6 (and R/RA for repaired). Grade 4 and above means good condition; the auction sheet lists every scratch and dent." },
   { category: "Cars", question: "Can my country import right-hand-drive cars?", answer: "Many countries can, some cannot. Tell Sora your country and it will check before quoting." },
-  { category: "Account", question: "Who is Sora?", answer: "Sora is our AI sales executive, built with Meta's Muse Spark Open model. Sora answers, searches and quotes 24/7; every invoice is approved by a human supervisor." },
+  { category: "Account", question: "Who is Sora?", answer: "Sora is our AI sales executive, built with Meta's Muse Spark Open model. Sora answers, searches and quotes 24/7. A team of Digital FTEs checks invoices, reads payment slips and files your documents, and our people handle anything outside policy." },
 ];
 
 export const TESTIMONIALS = [
-  { name: "Joseph M.", country: "Kenya", rating: 5, text: "Sora answered at midnight with three Hilux options and the exact price to Mombasa. The supervisor approved my invoice the next morning." },
+  { name: "Joseph M.", country: "Kenya", rating: 5, text: "Sora answered at midnight with three Hilux options and the exact price to Mombasa. The invoice was in the chat a minute after I said yes." },
   { name: "Andre C.", country: "Jamaica", rating: 5, text: "I could see the auction sheet explained in plain English before I bid. The Prado arrived exactly as described." },
   { name: "Amina H.", country: "Tanzania", rating: 5, text: "Every document appeared in my account — no chasing on WhatsApp for the B/L." },
   { name: "Ravi P.", country: "Guyana", rating: 4, text: "Good prices on the Probox fleet and clear shipping updates." },
@@ -160,12 +160,12 @@ export const PAGES = [
   {
     slug: "about",
     title: "About Hikari Motors",
-    body: `Hikari Motors is a **demo exporter** used to show AutoFTE — a platform any Japanese used-car exporter can run under its own name.\n\nWe buy from Japan's auction halls and our own stock yard in Yokohama, inspect every car, and ship to buyers across Africa, the Caribbean, the Pacific and Asia.\n\n### How we work\n- **Sora**, our AI sales executive (built with Meta's Muse Spark Open), answers buyers day and night, searches stock and auctions, reads auction sheets and quotes the landed price to the buyer's port.\n- **People approve.** Every invoice, every discount beyond policy and every bid above the limit is approved by a human supervisor.\n- **Everything is on record.** Leads, invoices, payments, units, documents and shipping progress live in one system, and buyers see their own records in their account.`,
+    body: `Hikari Motors is a **demo exporter** used to show AutoFTE — a platform any Japanese used-car exporter can run under its own name.\n\nWe buy from Japan's auction halls and our own stock yard in Yokohama, inspect every car, and ship to buyers across Africa, the Caribbean, the Pacific and Asia.\n\n### How we work\n- **Sora**, our AI sales executive (built with Meta's Muse Spark Open), answers buyers day and night, searches stock and auctions, reads auction sheets and quotes the landed price to the buyer's port.\n- **A team of Digital FTEs does the back office.** One checks and approves each invoice, one reads payment slips, one files your shipping documents, each inside limits the company sets.\n- **People decide what matters.** Anything above those limits reaches the owner, and you can always ask to speak to a person.\n- **Everything is on record.** Leads, invoices, payments, units, documents and shipping progress live in one system, and buyers see their own records in their account.`,
   },
   {
     slug: "how-to-buy",
     title: "How to buy",
-    body: `1. **Find a car** in Shop or Auction — or ask Sora in the chat.\n2. **Get a C&F quote** to your port. Sora shows every line: car, inspection, freight, insurance.\n3. **Request the invoice.** A supervisor approves it and you receive it in chat and in your account.\n4. **Pay the advance** by bank transfer to the company account on the invoice.\n5. **Follow shipping** step by step and download your documents.`,
+    body: `1. **Find a car** in Shop or Auction — or ask Sora in the chat.\n2. **Get a C&F quote** to your port. Sora shows every line: car, inspection, freight, insurance.\n3. **Request the invoice.** Our invoice desk checks it, and you receive it in chat and in your account, usually within minutes.\n4. **Pay the advance** by bank transfer to the company account on the invoice, and send the bank slip in the chat or on your invoice page.\n5. **Follow shipping** step by step and download your documents.`,
   },
   { slug: "terms", title: "Terms of sale (demo)", body: "These are demo terms for a fictional company. Prices are C&F unless stated. Cars are sold as described in the inspection report. Deposits reserve a car for 7 days." },
   { slug: "privacy", title: "Privacy (demo)", body: "Demo policy: we store only what is needed to sell and ship your car, and you can ask for a copy or deletion at any time." },
@@ -206,6 +206,6 @@ export const BLOG = [
     slug: "meet-sora",
     title: "Meet Sora, our AI sales executive",
     excerpt: "How an AI employee answers, quotes and works with our team.",
-    body: `Sora is a **Digital FTE** built with Meta's **Muse Spark Open** model. Sora works from our real records — stock, auctions, ports and price policy — and never invents a price.\n\nSora can search cars, read auction sheets, quote C&F, record your request in our CRM and ask our supervisor to issue your invoice. Anything outside policy goes to a person, with a summary, so you never repeat yourself.`,
+    body: `Sora is a **Digital FTE** built with Meta's **Muse Spark Open** model. Sora works from our real records — stock, auctions, ports and price policy — and never invents a price.\n\nSora can search cars, read auction sheets, quote C&F, record your request in our CRM and ask our invoice desk to issue your invoice. Anything outside policy goes to a person, with a summary, so you never repeat yourself.`,
   },
 ];

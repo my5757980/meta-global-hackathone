@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import Constants from "expo-constants";
+import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { api, errText } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { absUrl, getServer, isWeb, setServer, setToken } from "../lib/config";
 import { useFetch } from "../lib/data";
 import { downloadAndShare } from "../lib/download";
+import { uploadChatFile } from "../lib/upload";
 import { date, initials, usd } from "../lib/format";
 import { useRestart } from "../lib/restart";
 import { C, useColors, useSite } from "../lib/site";
@@ -73,7 +75,8 @@ export function MenuScreen() {
         <ListRow icon="newspaper-outline" title="Guides" onPress={go("Blog")} />
         <ListRow icon="card-outline" title="Bank details" onPress={go("Bank")} />
         <ListRow icon="mail-outline" title="Contact us" onPress={go("Contact")} />
-        <ListRow icon="shield-checkmark-outline" title="Terms & privacy" onPress={go("Page", { slug: "terms" })} />
+        <ListRow icon="document-text-outline" title="Terms" onPress={go("Page", { slug: "terms" })} />
+        <ListRow icon="shield-checkmark-outline" title="Privacy" onPress={go("Page", { slug: "privacy" })} />
         <ListRow icon="camera-outline" title="Photo credits" onPress={() => void Linking.openURL(absUrl("/credits"))} />
       </Card>
 
@@ -111,7 +114,7 @@ export function AuthScreen() {
   const route = useRoute<any>();
   const col = useColors();
   const { signIn, register, demo, demoMode } = useAuth();
-  const [mode, setMode] = useState<"in" | "up">("in");
+  const [mode, setMode] = useState<"in" | "up">(route.params?.mode === "register" ? "up" : "in");
   const [f, setF] = useState({ login: "", password: "", name: "", email: "", phone: "" });
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -638,7 +641,7 @@ export function InvoicesScreen() {
       {q.loading ? (
         <Skeleton h={160} />
       ) : !q.data?.length ? (
-        <Empty icon="document-text-outline" title="No invoices yet" text="When our supervisor approves an invoice for you, it appears here with payments, documents and shipping progress." />
+        <Empty icon="document-text-outline" title="No invoices yet" text="When an invoice is approved for you, it appears here with payments, documents and shipping progress." />
       ) : (
         <View style={{ gap: 12 }}>
           {q.data.map((inv) => {
@@ -665,6 +668,52 @@ export function InvoicesScreen() {
         </View>
       )}
     </Screen>
+  );
+}
+
+/** Paying is done at the buyer's bank. The slip comes here, and the accounts desk reads it. */
+function SendSlip({ inv, onSent }: { inv: CustomerInvoice; onSent: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const run = async (send: () => Promise<{ message: string }>) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      setMsg({ ok: true, text: (await send()).message });
+      onSent();
+    } catch (e) {
+      setMsg({ ok: false, text: errText(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pick = async () => {
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
+    if (r.canceled || !r.assets?.[0]) return;
+    const a = r.assets[0];
+    await run(async () => {
+      const id = await uploadChatFile(a.uri, a.mimeType ?? "image/jpeg", a.fileName ?? "slip.jpg");
+      return api.post<{ message: string }>(`/api/account/invoices/${inv.id}/slip-file`, { fileId: id });
+    });
+  };
+  const sample = (part: "advance" | "balance") => void run(() => api.post<{ message: string }>(`/api/account/invoices/${inv.id}/demo-slip`, { part }));
+  const advanceDue = inv.totals.paid + 0.01 < inv.totals.advance;
+  return (
+    <>
+      <SectionTitle title="Paid? Send us the bank slip" />
+      <Card>
+        <T style={{ color: C.text }}>Our accounts desk reads it and updates this page, usually within a minute.</T>
+        <Button title="Upload slip picture" icon="cloud-upload-outline" loading={busy} onPress={() => void pick()} style={{ marginTop: 10 }} />
+        {inv.demoSlips ? (
+          <View style={{ marginTop: 12 }}>
+            <T style={{ color: C.muted, fontSize: 12 }}>Demo: there is no real bank, so these print a sample slip with this invoice's figures and send it.</T>
+            {advanceDue ? <Button title={`Sample slip: advance ${usd(inv.totals.advance - inv.totals.paid)}`} variant="secondary" disabled={busy} onPress={() => sample("advance")} style={{ marginTop: 8 }} /> : null}
+            <Button title={`Sample slip: balance ${usd(inv.totals.balance)}`} variant="secondary" disabled={busy} onPress={() => sample("balance")} style={{ marginTop: 8 }} />
+          </View>
+        ) : null}
+        {msg ? <T style={{ color: msg.ok ? C.green : "#be123c", marginTop: 10 }}>{msg.text}</T> : null}
+      </Card>
+    </>
   );
 }
 
@@ -755,6 +804,7 @@ export function InvoiceScreen() {
           </Card>
         </View>
       ))}
+      {inv.totals.balance > 0 && inv.status !== "awaiting_approval" ? <SendSlip inv={inv} onSent={q.reload} /> : null}
       {inv.payments.length ? (
         <>
           <SectionTitle title="Payments" />

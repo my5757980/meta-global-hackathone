@@ -91,6 +91,9 @@ export interface WebOrder {
   id: string;
   orderNo: string;
   status: string;
+  paymentMethod?: string;
+  paymentRef?: string | null;
+  paidAt?: string | null;
   totalUsd: number;
   notes: string | null;
   createdAt: string;
@@ -98,6 +101,7 @@ export interface WebOrder {
 }
 
 export interface CustomerInvoice {
+  demoSlips?: boolean;
   id: string;
   number: string;
   status: string;

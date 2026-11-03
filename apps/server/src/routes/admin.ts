@@ -7,6 +7,7 @@ import * as s from "../db/schema";
 import { bad, conflict, h, notFound, parse } from "../lib/http";
 import { requirePerm } from "../auth/session";
 import { audit } from "../services/audit";
+import { emit } from "../services/events";
 import { ensureCustomerConversation, postMessage } from "../services/chat";
 import { clearSettingsCache, putSetting, siteSettings } from "../services/settings";
 import { renameInContent } from "../services/rename";
@@ -231,6 +232,7 @@ adminRouter.post(
       await tx.insert(s.vehicles).values({ id, ...vals, stockNo, refNo, slug, updatedAt: new Date() });
       await tx.insert(s.vehicleImages).values(images.map((url, i) => ({ vehicleId: id, url, sort: i })));
       await audit(tx, { actorUserId: u.id, actorKind: "human", action: "vehicle.created", entity: "vehicle", entityId: id, summary: `Added vehicle ${b.title} (${stockNo})` });
+      await emit("vehicle.created", { vehicleId: id }, { tx });
     });
     const matchedBuyerRequests = await matchBuyerRequests(id);
     return { id, stockNo, slug, matchedBuyerRequests };
@@ -467,6 +469,7 @@ adminRouter.get(
       .select({
         id: s.webOrders.id,
         orderNo: s.webOrders.orderNo,
+        paidAt: s.webOrders.paidAt,
         status: s.webOrders.status,
         totalUsd: s.webOrders.totalUsd,
         notes: s.webOrders.notes,

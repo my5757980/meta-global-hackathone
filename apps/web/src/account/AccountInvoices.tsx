@@ -8,6 +8,7 @@ import { Badge, Card, Empty, Skeleton } from "../ui";
 import { AccountShell } from "./Account";
 
 export interface CustomerInvoice {
+  demoSlips?: boolean;
   id: string;
   number: string;
   status: string;
@@ -36,7 +37,7 @@ export default function AccountInvoices() {
       {q.isLoading ? (
         <Skeleton className="h-40" />
       ) : !q.data?.length ? (
-        <Empty icon={<FileText className="size-8" />} title="No invoices yet" text="When our supervisor approves an invoice for you, it appears here with payments, documents and shipping progress." />
+        <Empty icon={<FileText className="size-8" />} title="No invoices yet" text="When an invoice is approved for you, it appears here with payments, documents and shipping progress." />
       ) : (
         <div className="space-y-3">
           {q.data.map((inv) => {

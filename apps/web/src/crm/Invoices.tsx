@@ -35,7 +35,7 @@ export default function Invoices() {
   };
   return (
     <div>
-      <PageHeader title="Invoices" subtitle={<>Requested by agents and by <FteName /> · approved by the Supervisor</>} />
+      <PageHeader title="Invoices" subtitle={<>Requested by agents and by <FteName /> · approved by the invoice desk</>} />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <Tabs
           value={status}

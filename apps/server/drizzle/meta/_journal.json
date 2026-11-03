@@ -36,6 +36,20 @@
       "when": 1793613594478,
       "tag": "0004_chat_delivered",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793661978679,
+      "tag": "0005_digital_workforce",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793664808795,
+      "tag": "0006_online_payment",
+      "breakpoints": true
     }
   ]
 }

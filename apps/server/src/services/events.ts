@@ -11,6 +11,11 @@ import { now } from "./settings";
 type Handler = (payload: Record<string, unknown>, ev: { id: string; type: string }) => Promise<void>;
 const handlers = new Map<string, Handler[]>();
 let kick: (() => void) | null = null;
+let muted = new Set<string>();
+/** While the eval suite runs, its test sales must not set the business's reactions off. */
+export const muteEvents = (types: string[]) => {
+  muted = new Set(types);
+};
 
 export function on(type: string, fn: Handler) {
   const list = handlers.get(type) ?? [];
@@ -32,7 +37,7 @@ export async function processDue(limit = 20): Promise<number> {
     const t = await now();
     const due = await db().select().from(events).where(and(eq(events.status, "pending"), lte(events.dueAt, t))).orderBy(asc(events.dueAt)).limit(limit);
     for (const ev of due) {
-      const list = handlers.get(ev.type) ?? [];
+      const list = muted.has(ev.type) ? [] : (handlers.get(ev.type) ?? []);
       try {
         for (const fn of list) await fn(ev.payload as Record<string, unknown>, { id: ev.id, type: ev.type });
         await db().update(events).set({ status: list.length ? "done" : "skipped", processedAt: new Date(), attempts: ev.attempts + 1 }).where(eq(events.id, ev.id));

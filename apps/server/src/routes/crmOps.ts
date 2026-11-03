@@ -672,10 +672,14 @@ crmOps.post(
     const errors = rows.filter((r) => r.status === "error").length;
     if (!dry && ok.length) {
       await db().transaction(async (tx) => {
+        const leadIds: string[] = [];
         for (const r of ok) {
           const [lead] = await tx.insert(s.leads).values(r.data!).returning();
+          leadIds.push(lead!.id);
           await audit(tx, { actorUserId: u.id, actorKind: "human", action: "lead.created", entity: "lead", entityId: lead!.id, summary: `Imported lead ${lead!.customerName} from Excel (row ${r.row})` });
         }
+        const { emit } = await import("../services/events");
+        await emit("leads.imported", { leadIds, importedBy: u.name }, { tx });
       });
       const { notify, usersWithPerm } = await import("../services/notify");
       const sup = (await usersWithPerm("crm.leads.view_all")).filter((x) => x !== u.id);

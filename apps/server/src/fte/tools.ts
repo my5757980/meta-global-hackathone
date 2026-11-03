@@ -15,7 +15,11 @@ import { quote } from "../services/pricing";
 import { envelope, pricingPolicy, siteSettings } from "../services/settings";
 import { setHolder, postMessage } from "../services/chat";
 import { notify, usersWithPerm } from "../services/notify";
+import { emit } from "../services/events";
 import { getSkill, loadSkills } from "./skills";
+import type { WorkerKey } from "@autofte/shared";
+import { toolsOf, workerUser } from "./workforce";
+import { WORKER_TOOLS } from "./workerTools";
 
 export interface ToolCtx {
   principalUserId: string;
@@ -24,6 +28,8 @@ export interface ToolCtx {
   conversationId?: string | null;
   buyerUserId?: string | null;
   runId?: string | null;
+  workerKey?: WorkerKey; // which seat is acting: its role card lists the only tools it may use
+  task?: string;
 }
 
 export interface ToolDef {
@@ -276,7 +282,7 @@ const BASE_TOOLS: ToolDef[] = [
       // a port the database does not know must not fail the whole lead (it would hit the foreign key): it can be set later
       const port = a.port_id ? await resolvePort(String(a.port_id), c.code, String(a.port_id)) : null;
       const r = await findOrCreateLead(
-        { customerName: String(a.customer_name), contactPerson: a.contact_person as string, phone: String(a.phone), email: (a.email as string) ?? null, countryCode: c.code, portId: port?.id ?? null, ownerUserId: ctx.principalUserId, customerUserId: ctx.buyerUserId ?? null, source: "web_chat" },
+        { customerName: String(a.customer_name), contactPerson: a.contact_person as string, phone: String(a.phone), email: (a.email as string) ?? null, countryCode: c.code, portId: port?.id ?? null, ownerUserId: ctx.workerKey && ctx.workerKey !== "sales" ? ((await workerUser("sales"))?.id ?? ctx.principalUserId) : ctx.principalUserId, customerUserId: ctx.buyerUserId ?? null, source: ctx.workerKey === "crm" ? "contact_form" : "web_chat" },
         actorOf(ctx),
       );
       return { lead_id: r.lead.id, status: r.lead.status, matched_existing: !r.created };
@@ -294,7 +300,7 @@ const BASE_TOOLS: ToolDef[] = [
   {
     name: "request_invoice",
     description:
-      "Ask the Supervisor to issue an invoice for quoted car(s). You never issue invoices yourself — this creates a pending request in the CRM. Needs the lead_id and the quote_id(s) the buyer accepted.",
+      "Ask the invoice desk to issue an invoice for quoted car(s). You never issue invoices yourself — this creates a pending request in the CRM, and your colleague on the invoice desk checks and approves it. Needs the lead_id and the quote_id(s) the buyer accepted.",
     input: {
       lead_id: z.string().min(8).max(40),
       quote_ids: z.array(z.string().min(8).max(40)).min(1).max(10),
@@ -346,7 +352,7 @@ const BASE_TOOLS: ToolDef[] = [
         },
         actorOf(ctx),
       );
-      return { invoice_id: inv.id, number: inv.number, status: "pending", total_cnf_usd: money(inv.totalCnfUsd), advance_percent: inv.advancePercent, message: "Waiting for the Supervisor's approval. Tell the buyer they will receive the invoice here as soon as it is approved." };
+      return { invoice_id: inv.id, number: inv.number, status: "pending", total_cnf_usd: money(inv.totalCnfUsd), advance_percent: inv.advancePercent, message: "It is with the invoice desk for approval. Tell the buyer they will receive the invoice here as soon as it is approved." };
     },
   },
   {
@@ -372,6 +378,7 @@ const BASE_TOOLS: ToolDef[] = [
         return ap!;
       });
       await notify(await usersWithPerm("fte.approvals.decide"), { type: "approval", title: `${ctx.principalName} asks approval: ${a.kind}${a.discount_pct ? ` ${a.discount_pct}%` : ""}`, body: String(a.reason).slice(0, 140), link: `/fte/approvals`, data: { approvalId: row.id } });
+      await emit("approval.requested", { approvalId: row.id });
       return { approval_id: row.id, status: "pending", message: "Tell the buyer a supervisor is reviewing the request." };
     },
   },
@@ -448,6 +455,43 @@ const BASE_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "hand_payment_slip",
+    description: "The buyer sent a picture of a bank slip or transfer receipt, or says they paid and attached proof. This hands the latest picture to the accounts desk, who read it and record it. Call it in the same turn, then tell the buyer accounts are checking it. Never say a payment is received until you are told.",
+    input: { invoice_number: z.string().max(30).optional().describe("Only if the buyer said which invoice") },
+    async run(a, ctx) {
+      if (!ctx.conversationId || !ctx.buyerUserId) throw new ToolError("No buyer in this conversation");
+      const recent = await db().select({ fileIds: s.chatMessages.fileIds }).from(s.chatMessages).where(and(eq(s.chatMessages.conversationId, ctx.conversationId), eq(s.chatMessages.senderUserId, ctx.buyerUserId), eq(s.chatMessages.kind, "image"))).orderBy(desc(s.chatMessages.createdAt)).limit(1);
+      const fileId = (recent[0]?.fileIds as string[] | undefined)?.[0];
+      if (!fileId) throw new ToolError("The buyer has sent no picture. Ask them to send a photo of the bank slip here.");
+      const [already] = await db().select({ id: s.events.id }).from(s.events).where(and(eq(s.events.type, "payment.slip"), sql`${s.events.payload}->>'fileId' = ${fileId}`)).limit(1);
+      if (already) return { already_with_accounts: true, message: "Accounts already have this picture. Say nothing more about it unless the buyer asks." };
+      let invoiceId: string | null = null;
+      if (a.invoice_number) {
+        const [inv] = await db().select({ id: s.invoices.id }).from(s.invoices).where(eq(s.invoices.number, String(a.invoice_number).trim().toUpperCase())).limit(1);
+        invoiceId = inv?.id ?? null;
+      }
+      await emit("payment.slip", { fileId, buyerUserId: ctx.buyerUserId, invoiceId });
+      await audit(db(), { actorUserId: ctx.principalUserId, actorKind: ctx.principalKind, action: "payment.slip", entity: "conversation", entityId: ctx.conversationId, summary: `${ctx.principalName} passed a payment slip to accounts`, conversationId: ctx.conversationId, fteRunId: ctx.runId });
+      return { handed_over: true, message: "Accounts have it. Tell the buyer they are checking it and will confirm here." };
+    },
+  },
+  {
+    name: "continue_web_order",
+    description: "The buyer told you the port for their website order, which the website desk was waiting for. This hands the order back to that desk with the port. Get the port_id from list_ports first.",
+    input: { order_no: z.string().min(3).max(40), port_id: z.string().min(2).max(80) },
+    async run(a, ctx) {
+      if (!ctx.buyerUserId) throw new ToolError("No buyer in this conversation");
+      const [o] = await db().select().from(s.webOrders).where(and(eq(s.webOrders.orderNo, String(a.order_no).trim().toUpperCase()), eq(s.webOrders.userId, ctx.buyerUserId))).limit(1);
+      if (!o) throw new ToolError("This buyer has no such order");
+      if (o.invoiceId) return { already_invoiced: true };
+      if (o.status === "cancelled") throw new ToolError("That order was cancelled");
+      const port = await resolvePort(String(a.port_id));
+      if (!port) throw new ToolError("Unknown port_id: call list_ports first");
+      await emit("web_order.created", { orderId: o.id, portId: port.id });
+      return { handed_back: true, message: "The website desk has it. Tell the buyer the invoice is being prepared." };
+    },
+  },
+  {
     name: "load_skill",
     description: "Load the full procedure of one of your skills (see the skill list in your instructions) before doing that kind of task.",
     input: { name: z.string().min(2).max(60) },
@@ -459,11 +503,13 @@ const BASE_TOOLS: ToolDef[] = [
   },
 ];
 
-export const TOOLS: ToolDef[] = [...BASE_TOOLS, ...AUCTION_TOOLS, ...FOLLOW_TOOLS];
+export const TOOLS: ToolDef[] = [...BASE_TOOLS, ...AUCTION_TOOLS, ...FOLLOW_TOOLS, ...WORKER_TOOLS];
 
 export async function runTool(name: string, args: Record<string, unknown>, ctx: ToolCtx): Promise<{ ok: boolean; result: unknown }> {
   const def = TOOLS.find((t) => t.name === name);
   if (!def) return { ok: false, result: { error: `Unknown tool ${name}` } };
+  // the server keeps each seat to its role card, whatever the model asks for. An outside agent gets the sales seat's tools.
+  if (!toolsOf(ctx.workerKey).includes(name)) return { ok: false, result: { error: `${name} is not one of your tools. If this is not your job, pass it on.` } };
   const parsed = z.object(def.input).safeParse(args ?? {});
   if (!parsed.success) return { ok: false, result: { error: "Invalid arguments: " + parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ") } };
   try {

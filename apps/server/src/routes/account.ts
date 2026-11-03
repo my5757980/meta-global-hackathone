@@ -1,15 +1,20 @@
 import { Router } from "express";
+import multer from "multer";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
 import * as s from "../db/schema";
-import { forbidden, h, notFound, parse } from "../lib/http";
+import { bad, forbidden, h, HttpError, notFound, parse } from "../lib/http";
 import { requireAuth, type AuthUser } from "../auth/session";
+import { env } from "../env";
 import { getInvoiceFull } from "../services/crm";
 import { getFile } from "../services/files";
 import { invoicePdf } from "../services/invoiceDocs";
+import { tooMany } from "../services/publicDemo";
+import { receiveSlip, sampleSlip } from "../services/slips";
 
 export const accountRouter = Router();
+const slipUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
 
 /**
  * Leads linked to this signed-in customer. Linked only: anyone can type someone's e-mail when signing up
@@ -51,6 +56,7 @@ async function invoiceForCustomer(invId: string) {
     totals: { total, advance: Math.round(((total * inv.advancePercent) / 100) * 100) / 100, paid, balance: Math.round((total - paid) * 100) / 100 },
     payments: payments.map((p) => ({ date: p.receivedDate, amountUsd: Number(p.amountUsd) })),
     vehicles: vs,
+    demoSlips: env.DEMO_MODE, // the demo has no bank, so it can print a slip to send
   };
 }
 
@@ -96,6 +102,55 @@ accountRouter.get(
     const [inv] = await db().select({ id: s.invoices.id, leadId: s.invoices.leadId, status: s.invoices.status }).from(s.invoices).where(eq(s.invoices.id, String(req.params.id))).limit(1);
     if (!inv || !leadIds.includes(inv.leadId) || inv.status === "rejected") throw notFound();
     return invoiceForCustomer(inv.id);
+  }),
+);
+
+/** The buyer's own open invoice, or nothing. */
+async function takeSlip(u: AuthUser, invoiceId: string, buf: Buffer, mime: string, name: string) {
+  const leadIds = await myLeadIds(u);
+  const [inv] = leadIds.length ? await db().select({ id: s.invoices.id, number: s.invoices.number, status: s.invoices.status }).from(s.invoices).where(and(eq(s.invoices.id, invoiceId), inArray(s.invoices.leadId, leadIds))).limit(1) : [];
+  if (!inv || !["approved", "sent"].includes(inv.status)) throw notFound("Invoice not found");
+  if (env.PUBLIC_DEMO && tooMany(`slip:${u.id}`, 6, 10 * 60_000)) throw new HttpError(429, "This is a shared public demo: please wait a few minutes before sending more.");
+  return receiveSlip(u.id, inv, buf, mime, name);
+}
+
+accountRouter.post(
+  "/invoices/:id/slip",
+  slipUpload.single("file"),
+  h(async (req) => {
+    const u = requireAuth(req);
+    const file = req.file;
+    if (!file) throw bad("Choose a picture of the bank slip");
+    if (!/^image\/(png|jpeg|webp)$/.test(file.mimetype)) throw bad("Send the slip as a picture: JPG or PNG");
+    return takeSlip(u, String(req.params.id), file.buffer, file.mimetype, file.originalname);
+  }),
+);
+
+/** The app uploads its picture the way the chat does, then names it here. */
+accountRouter.post(
+  "/invoices/:id/slip-file",
+  h(async (req) => {
+    const u = requireAuth(req);
+    const b = parse(z.object({ fileId: z.string().min(8).max(60) }), req.body);
+    const f = await getFile(b.fileId);
+    if (!f || f.ownerUserId !== u.id || !/^image\/(png|jpeg|webp)$/.test(f.mime)) throw bad("Send the slip as a picture: JPG or PNG");
+    const { readFileSync } = await import("node:fs");
+    return takeSlip(u, String(req.params.id), readFileSync(f.abs), f.mime, f.originalName ?? "slip");
+  }),
+);
+
+/** The demo has no bank: this prints the slip a buyer would photograph, with this invoice's real figures, and sends it the same way. */
+accountRouter.post(
+  "/invoices/:id/demo-slip",
+  h(async (req) => {
+    const u = requireAuth(req);
+    if (!env.DEMO_MODE) throw notFound();
+    const b = parse(z.object({ part: z.enum(["advance", "balance"]) }), req.body ?? {});
+    const full = await getInvoiceFull(String(req.params.id));
+    if (!full) throw notFound("Invoice not found");
+    const png = await sampleSlip(full, b.part);
+    if (!png) throw bad("Nothing is owed on this invoice");
+    return takeSlip(u, full.invoice.id, png, "image/png", `slip-${full.invoice.number}.png`);
   }),
 );
 

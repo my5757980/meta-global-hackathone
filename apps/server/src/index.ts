@@ -28,6 +28,7 @@ import { modelConfigured, primaryModelName } from "./fte/model";
 import { users } from "./db/schema";
 import { eq } from "drizzle-orm";
 import { noteChange, startPublicDemoResets } from "./services/demoReset";
+import { chiefHeartbeat, registerWorkforce } from "./fte/workerHandlers";
 
 async function main() {
   await openDb();
@@ -38,6 +39,7 @@ async function main() {
   }
   loadSkills(true);
   registerSoraHandlers();
+  registerWorkforce();
 
   const app = express();
   app.disable("x-powered-by");
@@ -95,15 +97,20 @@ async function main() {
   }
   app.use(errorMiddleware);
 
-  app.listen(env.PORT, () => {
+  const server = app.listen(env.PORT, () => {
     console.log(`AutoFTE API on http://localhost:${env.PORT} (db: ${dbKind()}, model: ${modelConfigured() ? primaryModelName() : "NOT configured"})`);
   });
+  // the FTEs call the MCP server here over kept-alive connections: Node's default of 5 s closes them while they are being reused
+  server.keepAliveTimeout = 75_000;
+  server.headersTimeout = 80_000;
   startScheduler();
   // auction days end on the (demo) clock: settle them now and every minute
   const { settleAuctions } = await import("./services/auction");
   const settle = () => void settleAuctions().catch((e) => console.error("[auction settle]", e));
   settle();
   setInterval(settle, 60_000).unref();
+  // the chief of staff's heartbeat: nothing waits forever, and the day gets its report
+  setInterval(() => void chiefHeartbeat().catch((e) => console.error("[heartbeat]", e)), 5 * 60_000).unref();
 }
 
 main().catch((e) => {

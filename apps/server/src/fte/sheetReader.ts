@@ -58,6 +58,7 @@ export async function readSheet(lotId: string, opts: { fresh?: boolean } = {}): 
     messages: [{ role: "user", content: [{ type: "text", text: PROMPT }, { type: "image_url", image_url: { url: `data:${mime};base64,${png.toString("base64")}` } }] as never }],
     effort: "medium",
     maxTokens: 3500,
+    timeoutMs: 150_000,
   });
   const text = r.message.content ?? "";
   const json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);

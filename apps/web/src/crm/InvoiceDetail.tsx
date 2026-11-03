@@ -19,9 +19,9 @@ interface Full {
   requestedBy: { name: string; kind: string } | null;
   approvedBy: { name: string } | null;
   totals: { total: number; advance: number; paid: number; balance: number };
-  audit: { id: string; action: string; summary: string; createdAt: string; actor: string | null; actorKind: string }[];
+  audit: { id: string; action: string; summary: string; createdAt: string; actor: string | null; actorKind: string; actorType: string | null }[];
   conversation: { id: string; summary: string | null; holder: string } | null;
-  fteTrail: { id: string; action: string; summary: string; createdAt: string }[];
+  fteTrail: { id: string; action: string; summary: string; createdAt: string; actor: string | null }[];
   quote: { lines: { label: string; usd: number }[] } | null;
   canApprove: boolean;
   canDelete: boolean;
@@ -253,14 +253,14 @@ export default function InvoiceDetail() {
           {d.fteTrail.length > 0 && (
             <Card>
               <p className="flex items-center gap-2 font-semibold text-slate-900">
-                <Bot className="size-4 text-violet-600" /> <FteName />'s audit trail
+                <Bot className="size-4 text-violet-600" /> What the FTEs did in the chat
               </p>
               <ol className="mt-3 space-y-2 border-l-2 border-violet-100 pl-4">
                 {d.fteTrail.map((a) => (
                   <li key={a.id} className="text-sm">
                     <p className="text-slate-800">{a.summary}</p>
                     <p className="text-[11px] text-slate-400">
-                      {a.action} · {dateTime(a.createdAt)}
+                      {a.actor ?? "FTE"} · {a.action} · {dateTime(a.createdAt)}
                     </p>
                   </li>
                 ))}
@@ -269,13 +269,14 @@ export default function InvoiceDetail() {
           )}
           <Card>
             <p className="font-semibold text-slate-900">History</p>
+            {d.audit.length > 0 && <p className="mt-1 text-xs text-slate-500">{d.audit.filter((a) => a.actorType === "fte").length} steps by Digital FTEs · {d.audit.filter((a) => a.actorType === "staff").length} by people</p>}
             {!d.audit.length && <p className="mt-2 text-sm text-slate-500">Nothing recorded since the request.</p>}
             <ol className="mt-3 space-y-2">
               {d.audit.map((a) => (
                 <li key={a.id} className="text-sm">
                   <p className="text-slate-800">{a.summary}</p>
                   <p className="text-[11px] text-slate-400">
-                    {a.actorKind === "fte" ? fte : a.actor} · {dateTime(a.createdAt)}
+                    {a.actor ?? fte} · {dateTime(a.createdAt)}
                   </p>
                 </li>
               ))}

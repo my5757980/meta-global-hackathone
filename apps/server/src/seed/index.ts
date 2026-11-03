@@ -32,6 +32,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ROOT } from "../env";
 import { SEEDED_RUN } from "@autofte/shared";
+import { recordDecision } from "../services/ledger";
 export { addDays, chunkInsert, isoDate };
 
 const ROLE_PERMS: Record<RoleSlug, PermissionKey[] | "all"> = {
@@ -593,14 +594,21 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
   Object.assign(sum, auctionSum);
 
   // ---------- chat ----------
+  // the roster, and the room where the FTEs work in the open
+  const seats: [string, string][] = [["sales", "fte"], ["invoices", "w_invoices"], ["accounts", "w_accounts"], ["operations", "w_operations"], ["auction", "w_auction"], ["crm", "w_crm"], ["website", "w_website"], ["chief", "w_chief"]];
+  await db.insert(s.fteWorkers).values(seats.map(([key, user]) => ({ key, userId: userIds[user]! })));
+  const roomId = genId();
+  await db.insert(s.chatConversations).values({ id: roomId, kind: "group", title: "AI workforce room", holder: "human", lastMessageAt: now });
+  await db.insert(s.chatMembers).values([...seats.map(([, user]) => userIds[user]!), userIds.admin!, userIds.manager!, userIds.supervisor!].map((userId) => ({ conversationId: roomId, userId })));
+  await db.insert(s.settings).values({ key: "workforce.room", value: roomId as never });
   const groupId = genId();
   await db.insert(s.chatConversations).values({ id: groupId, kind: "group", title: "Sales team", holder: "human", lastMessageAt: addDays(now, -1) });
   await db.insert(s.chatMembers).values(
     ["manager", "supervisor", "agent", "agent2", "accounts"].map((k, i) => ({ conversationId: groupId, userId: userIds[k]!, role: i < 2 ? "admin" : "member" })),
   );
   await db.insert(s.chatMessages).values([
-    { conversationId: groupId, senderUserId: userIds.manager!, body: "Morning team — Sora handled 14 chats overnight. Two invoice requests are waiting for Daniel.", createdAt: addDays(now, -1) },
-    { conversationId: groupId, senderUserId: userIds.supervisor!, body: "On it. Approving the Mombasa Hilux first.", createdAt: addDays(now, -1) },
+    { conversationId: groupId, senderUserId: userIds.manager!, body: "Morning team. The desks handled 14 chats overnight and cleared the invoice requests. Nothing is waiting for us.", createdAt: addDays(now, -1) },
+    { conversationId: groupId, senderUserId: userIds.supervisor!, body: "Good. I will call the Mombasa buyer who asked to speak to a person.", createdAt: addDays(now, -1) },
   ]);
   const custConv = genId();
   await db.insert(s.chatConversations).values({ id: custConv, kind: "customer", customerUserId: userIds.customer!, holder: "fte", assignedUserId: userIds.agent!, lastMessageAt: addDays(now, -3), fteSummary: "Joseph (Mwangi Auto Traders, Mombasa) bought a car earlier; second invoice approved, advance paid; asking about shipping dates." });
@@ -638,6 +646,41 @@ export async function seedAll(db: DB, log: (m: string) => void = console.log): P
     };
   });
   await chunkInsert(db, s.fteRuns, seededRuns);
+
+  // the desks' week too, labelled the same way, so the workforce page is not empty on a fresh demo
+  const deskJobs: [string, string[]][] = [
+    ["invoices", ["review_invoice", "approve_invoice"]],
+    ["invoices", ["review_invoice", "price_invoice", "review_invoice", "approve_invoice"]],
+    ["accounts", ["read_payment_slip", "find_invoice", "record_payment"]],
+    ["operations", ["read_document", "get_unit_work", "file_document"]],
+    ["auction", ["get_auction_enquiry", "get_auction_lot", "answer_enquiry"]],
+    ["auction", ["review_auction_order", "update_auction_order"]],
+    ["crm", ["get_contact_message", "find_or_create_lead", "add_lead_note", "reply_contact_message"]],
+    ["website", ["review_web_order", "order_to_invoice"]],
+    ["website", ["write_listing"]],
+    ["chief", ["get_approval", "decide_approval"]],
+  ];
+  await chunkInsert(db, s.fteRuns, Array.from({ length: 40 }, (_, i) => {
+    const [workerKey, names] = deskJobs[i % deskJobs.length]!;
+    const startedAt = new Date(now.getTime() - rng.int(26 * 60, 6.8 * 24 * 60) * 60_000);
+    const latency = rng.int(3000, 14000);
+    return { workerKey, trigger: "event", status: "ok", steps: names.length, provider: SEEDED_RUN, model: "meta-models/muse-spark-open-1026", promptTokens: rng.int(3000, 8000), completionTokens: rng.int(100, 500), latencyMs: latency, firstReplyMs: latency, toolCalls: names.map((name) => ({ name, args: {}, ok: true, ms: rng.int(20, 300), preview: "" })), startedAt, finishedAt: new Date(startedAt.getTime() + latency) };
+  }));
+  const decided = invoiceRows.filter((i) => i.status === "approved" || i.status === "sent").slice(0, 5);
+  for (const [i, inv] of decided.entries()) {
+    await recordDecision({ workerKey: "invoices", task: "invoice.review", entity: "invoice", entityId: inv.id, decision: "approved", reason: `Seeded demo history: invoice ${inv.number}, every rubric check passed and the price is the accepted quote.`, createdAt: addDays(now, -(decided.length - i)) }, db);
+  }
+  await db.insert(s.fteReports).values({
+    day: addDays(now, -1).toISOString().slice(0, 10),
+    body: "Seeded demo report.\nDone: 14 chats answered, 3 invoices approved and sent, 2 payments recorded, 4 documents filed.\nMissed or failed: nothing.\nNeeds you: nothing.",
+    data: {},
+  });
+  await db.insert(s.chatMessages).values(
+    decided.slice(0, 2).flatMap((inv, i) => [
+      { conversationId: roomId, senderUserId: userIds.w_invoices!, body: `Invoice ${inv.number} is out: every check passed, final PDF added and marked as sent.`, createdAt: addDays(now, -(2 - i)) },
+      { conversationId: roomId, senderUserId: userIds.w_accounts!, body: `Advance on ${inv.number} read from the slip and recorded. The slip matched the invoice and the company's account.`, createdAt: new Date(addDays(now, -(2 - i)).getTime() + 3 * 3600_000) },
+    ]),
+  );
   const weekAgo = addDays(now, -7).getTime();
   const fteLeads = leadRows.filter((l) => l.ownerUserId === agents.fte && new Date(l.createdAt as Date).getTime() > weekAgo).slice(0, 12);
   const fteInvoices = invoiceRows.filter((i) => i.requestedBy === agents.fte && new Date(i.createdAt as Date).getTime() > weekAgo).slice(0, 6);

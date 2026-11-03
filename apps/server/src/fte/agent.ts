@@ -8,6 +8,7 @@ import { desc, eq } from "drizzle-orm";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { ChatCard, VehicleCardItem } from "@autofte/shared";
 import { env } from "../env";
+import { levelOf } from "./workforce";
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { listMessages, markRead, postMessage, setHolder, soraUserId } from "../services/chat";
@@ -34,6 +35,7 @@ export interface RunTrigger {
   kind: "message" | "event" | "approval" | "eval";
   note?: string; // for events: what happened, in plain words, for Sora to act on
   eventId?: string;
+  retried?: boolean;
 }
 
 /** Queue a run for a conversation; overlapping triggers collapse into one follow-up run. */
@@ -45,7 +47,11 @@ export function triggerSora(conversationId: string, trigger: RunTrigger) {
     return;
   }
   const p = runSora(conversationId, trigger)
-    .catch((e) => console.error("[sora]", e))
+    .catch((e) => {
+      console.error("[sora]", e);
+      // the run never got going: what it was told must not be lost
+      if (!trigger.retried) setTimeout(() => triggerSora(conversationId, { ...trigger, retried: true }), 15_000).unref();
+    })
     .finally(() => {
       running.delete(conversationId);
       if (again.has(conversationId)) {
@@ -92,6 +98,10 @@ async function buildHistory(conversationId: string, soraId: string): Promise<Cha
     }
     if (m.kind === "system") {
       out.unshift({ role: "user", content: `[System note: ${text}]` });
+      continue;
+    }
+    if ((m.meta as { slip?: boolean } | null)?.slip) {
+      out.unshift({ role: "user", content: `[The buyer sent a payment slip from their invoice page: ${text}. Accounts already have it. Do not hand it over again.]` });
       continue;
     }
     if (fromSora) {
@@ -163,8 +173,9 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
   const [conv] = await db().select().from(s.chatConversations).where(eq(s.chatConversations.id, conversationId)).limit(1);
   if (!conv || conv.kind !== "customer") return;
   if (conv.holder !== "fte" && trigger.kind !== "approval") return;
-  const [sora] = await db().select().from(s.users).where(eq(s.users.kind, "fte")).limit(1);
+  const [sora] = await db().select().from(s.users).where(eq(s.users.username, "sora")).limit(1);
   if (!sora) return;
+  if (trigger.kind !== "eval" && env.WORKFORCE_ENABLED && (await levelOf("sales", "sales.chat")) === 0) return; // set to manual: people answer on the desk
   const members = await conversationMembers(conversationId);
   if (trigger.kind === "message") void soraUserId().then((id) => markRead(conversationId, id)).catch(() => {}); // the buyer sees the blue ticks: Sora has read it
   const [run] = await db().insert(s.fteRuns).values({ trigger: trigger.kind, conversationId, eventId: trigger.eventId ?? null, status: "running" }).returning();
@@ -200,7 +211,11 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
 
   const lastInHistory = messages.at(-1);
   const buyerSaidYes = trigger.kind === "message" && lastInHistory?.role === "user" && typeof lastInHistory.content === "string" && saidYes(lastInHistory.content);
-  const mcp = await openMcpSession({ principalUserId: sora.id, principalName: sora.name, principalKind: "fte", conversationId, buyerUserId: conv.customerUserId, runId: run!.id });
+  const mcp = await openMcpSession({ workerKey: "sales", task: "sales.chat", principalUserId: sora.id, principalName: sora.name, principalKind: "fte", conversationId, buyerUserId: conv.customerUserId, runId: run!.id }).catch(async (e) => {
+    publish(members, "typing", { conversationId, userId: sora.id, on: false });
+    await db().update(s.fteRuns).set({ status: "error", error: String((e as Error)?.message ?? e).slice(0, 500), finishedAt: new Date(), latencyMs: Date.now() - t0 }).where(eq(s.fteRuns.id, run!.id));
+    throw e;
+  });
   const toolCalls: { name: string; args: unknown; ok: boolean; ms: number; preview: string; guard?: true }[] = [];
   let promptTokens = 0;
   let completionTokens = 0;

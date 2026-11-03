@@ -1,7 +1,8 @@
+import { useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { PROGRESS_STAGES, UNIT_FOLDERS } from "@autofte/shared";
-import { Check, ChevronLeft, Download, FileText, Image as ImageIcon, Printer } from "lucide-react";
+import { Check, ChevronLeft, Download, FileText, Image as ImageIcon, Printer, Upload } from "lucide-react";
 import { api } from "../lib/api";
 import { date, usd2 } from "../lib/format";
 import { useSite } from "../lib/site";
@@ -9,10 +10,60 @@ import { Badge, Button, Card, Empty, Skeleton, clsx } from "../ui";
 import { AccountShell } from "./Account";
 import { STATUS, type CustomerInvoice } from "./AccountInvoices";
 
+/** Paying is done at the buyer's bank. The slip comes here, and the accounts desk reads it. */
+function SendSlip({ inv }: { inv: CustomerInvoice }) {
+  const file = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const run = async (send: () => Promise<{ message: string }>) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      setMsg({ ok: true, text: (await send()).message });
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const upload = (f: File) => {
+    const form = new FormData();
+    form.append("file", f);
+    return run(async () => {
+      const r = await fetch(`/api/account/invoices/${inv.id}/slip`, { method: "POST", body: form, credentials: "include" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Could not send the slip");
+      return j;
+    });
+  };
+  const sample = (part: "advance" | "balance") => run(() => api.post<{ message: string }>(`/api/account/invoices/${inv.id}/demo-slip`, { part }));
+  const advanceDue = inv.totals.paid + 0.01 < inv.totals.advance;
+  return (
+    <Card>
+      <p className="font-semibold text-slate-900">Paid? Send us the bank slip</p>
+      <p className="mt-1 text-sm text-slate-600">Our accounts desk reads it and updates this page, usually within a minute.</p>
+      <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" aria-label="Bank slip picture" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void upload(f); }} />
+      <Button className="mt-3 w-full" disabled={busy} onClick={() => file.current?.click()}>
+        <Upload className="size-4" /> {busy ? "Sending…" : "Upload slip picture"}
+      </Button>
+      {inv.demoSlips && (
+        <div className="mt-3 rounded-xl bg-amber-50 p-3">
+          <p className="text-xs text-amber-900">Demo: there is no real bank, so these print a sample slip with this invoice's figures and send it.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {advanceDue && <Button variant="secondary" size="sm" disabled={busy} onClick={() => void sample("advance")}>Sample slip: advance {usd2(inv.totals.advance - inv.totals.paid)}</Button>}
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => void sample("balance")}>Sample slip: balance {usd2(inv.totals.balance)}</Button>
+          </div>
+        </div>
+      )}
+      {msg && <p role="status" className={clsx("mt-2 text-sm", msg.ok ? "text-emerald-700" : "text-rose-700")}>{msg.text}</p>}
+    </Card>
+  );
+}
+
 export default function AccountInvoice() {
   const { id } = useParams();
   const site = useSite();
-  const q = useQuery({ queryKey: ["my-invoice", id], queryFn: () => api.get<CustomerInvoice>(`/api/account/invoices/${id}`) });
+  const q = useQuery({ queryKey: ["my-invoice", id], queryFn: () => api.get<CustomerInvoice>(`/api/account/invoices/${id}`), refetchInterval: 8000 });
   if (q.isLoading) return <AccountShell title="Invoice"><Skeleton className="h-64" /></AccountShell>;
   if (!q.data) return <AccountShell title="Invoice"><Empty title="Invoice not found" /></AccountShell>;
   const inv = q.data;
@@ -146,6 +197,7 @@ export default function AccountInvoice() {
               <p className="mt-2 text-xs text-slate-500">Reference: {inv.number}. We never ask you to pay a personal account.</p>
             </Card>
           )}
+          {inv.totals.balance > 0 && inv.status !== "awaiting_approval" && <SendSlip inv={inv} />}
         </div>
       </div>
     </AccountShell>

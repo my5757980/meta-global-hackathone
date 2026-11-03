@@ -17,6 +17,13 @@ export const STAFF: StaffSeed[] = [
   { key: "agent2", name: "Hiro Tanaka", email: "hiro@hikari-motors.example", username: "hiro", role: "agent", title: "Sales Agent (Caribbean & Pacific)", phone: "+81 90 1111 0005" },
   { key: "accounts", name: "Grace Wanjiru", email: "grace@hikari-motors.example", username: "grace", role: "accounts", title: "Accounts", phone: "+81 90 1111 0006" },
   { key: "fte", name: "Sora", email: "sora@hikari-motors.example", username: "sora", role: "fte", title: "AI Sales Executive", phone: "+81 90 1111 0007" },
+  { key: "w_invoices", name: "Mei", email: "mei@hikari-motors.example", username: "mei", role: "fte", title: "AI Invoice Supervisor", phone: "+81 90 1111 0011" },
+  { key: "w_accounts", name: "Ren", email: "ren@hikari-motors.example", username: "ren", role: "fte", title: "AI Accounts Officer", phone: "+81 90 1111 0012" },
+  { key: "w_operations", name: "Aoi", email: "aoi@hikari-motors.example", username: "aoi", role: "fte", title: "AI Operations Officer", phone: "+81 90 1111 0013" },
+  { key: "w_auction", name: "Kaito", email: "kaito@hikari-motors.example", username: "kaito", role: "fte", title: "AI Auction Desk", phone: "+81 90 1111 0014" },
+  { key: "w_crm", name: "Yuki", email: "yuki@hikari-motors.example", username: "yuki", role: "fte", title: "AI CRM Officer", phone: "+81 90 1111 0015" },
+  { key: "w_website", name: "Hana", email: "hana@hikari-motors.example", username: "hana", role: "fte", title: "AI Website Officer", phone: "+81 90 1111 0016" },
+  { key: "w_chief", name: "Tomo", email: "tomo@hikari-motors.example", username: "tomo", role: "fte", title: "AI Chief of Staff", phone: "+81 90 1111 0017" },
 ];
 
 export interface CustomerSeed {

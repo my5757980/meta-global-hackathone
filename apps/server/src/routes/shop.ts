@@ -8,9 +8,13 @@ import * as s from "../db/schema";
 import { bad, forbidden, h, notFound, parse } from "../lib/http";
 import { requireAuth } from "../auth/session";
 import { audit } from "../services/audit";
+import { emit } from "../services/events";
 import { ensureCustomerConversation, postMessage } from "../services/chat";
 import { notify, usersWithPerm } from "../services/notify";
 import { listVehicles } from "../services/website";
+import { env } from "../env";
+import { capturePayment, createPayment, payMethodName, payProvider } from "../services/onlinePay";
+import { siteSettings } from "../services/settings";
 
 /**
  * The shop: wishlist, cart and checkout (an order REQUEST — payment is by bank transfer after staff confirm).
@@ -142,7 +146,9 @@ shopRouter.post(
   "/checkout",
   h(async (req) => {
     const u = buyer(req);
-    const { notes } = parse(z.object({ notes: z.string().trim().max(1000).optional() }), req.body ?? {});
+    const { notes, pay } = parse(z.object({ notes: z.string().trim().max(1000).optional(), pay: z.enum(["online"]).optional() }), req.body ?? {});
+    const provider = pay ? payProvider() : null;
+    if (pay && !provider) throw bad("Paying online is not set up here. Send an order request instead.");
     const cart = await cartFor(u.id);
     const ready = cart.items.filter((v) => v.status === "available");
     if (!ready.length) throw bad(cart.items.length ? "None of the cars in your cart is still available" : "Your cart is empty");
@@ -150,10 +156,11 @@ shopRouter.post(
     const conv = await ensureCustomerConversation(u.id, "web");
     const total = ready.reduce((t, v) => t + price(v), 0);
     const order = await db().transaction(async (tx) => {
-      const [o] = await tx.insert(s.webOrders).values({ orderNo, userId: u.id, status: "pending", paymentMethod: "Order request", totalUsd: total, notes: notes || null }).returning();
+      const [o] = await tx.insert(s.webOrders).values({ orderNo, userId: u.id, status: "pending", paymentMethod: provider ? payMethodName(provider) : "Order request", totalUsd: total, notes: notes || null }).returning();
       await tx.insert(s.webOrderItems).values(ready.map((v) => ({ orderId: o!.id, vehicleId: v.id, title: `${v.title} (${v.stockNo})`, priceUsd: price(v) })));
       await tx.delete(s.cartItems).where(and(eq(s.cartItems.userId, u.id), inArray(s.cartItems.vehicleId, ready.map((v) => v.id))));
       await audit(tx, { actorUserId: u.id, actorKind: "human", action: "web_order.created", entity: "web_order", entityId: o!.id, summary: `Order request ${orderNo}: ${ready.length} car(s), ${formatUsd(total)}`, conversationId: conv.id });
+      if (!provider) await emit("web_order.created", { orderId: o!.id }, { tx }); // paying online: the desk starts when the money is in
       return o!;
     });
     // After the commit, never inside it: postMessage looks up recipients with db(), and PGlite has ONE
@@ -163,11 +170,61 @@ shopRouter.post(
       conversationId: conv.id,
       senderUserId: null,
       kind: "system",
-      body: `Order request ${orderNo} received: ${ready.map((v) => `${v.title} (${v.stockNo})`).join(", ")} — ${formatUsd(total)} FOB. A colleague will confirm availability and send the invoice with bank details.`,
+      body: provider ? `Order ${orderNo} received: ${ready.map((v) => `${v.title} (${v.stockNo})`).join(", ")} — ${formatUsd(total)} FOB, waiting for your online payment.` : `Order request ${orderNo} received: ${ready.map((v) => `${v.title} (${v.stockNo})`).join(", ")} — ${formatUsd(total)} FOB. A colleague will confirm availability and send the invoice with bank details.`,
       meta: { webOrderId: order.id, orderNo },
     }).catch((e) => console.error("[checkout] chat note failed", e));
     await notify(await usersWithPerm("website.orders.manage"), { type: "order", title: `New order request ${orderNo}`, body: `${u.name} · ${ready.length} car(s) · ${formatUsd(total)}`, link: "/admin/orders" });
-    return { orderId: order.id, orderNo, totalUsd: total, items: ready.length };
+    return { orderId: order.id, orderNo, totalUsd: total, items: ready.length, payOnline: !!provider };
+  }),
+);
+
+// ---------- paying online ----------
+shopRouter.get(
+  "/pay-options",
+  h(async () => ({ provider: payProvider() })),
+);
+
+/** Starts, or starts again, an online payment for this buyer's own unpaid order. */
+shopRouter.post(
+  "/orders/:id/pay",
+  h(async (req) => {
+    const u = buyer(req);
+    const provider = payProvider();
+    if (!provider) throw bad("Paying online is not set up here.");
+    const [o] = await db().select().from(s.webOrders).where(and(eq(s.webOrders.id, String(req.params.id)), eq(s.webOrders.userId, u.id))).limit(1);
+    if (!o) throw notFound("Order not found");
+    if (o.paidAt) return { paid: true, provider, approveUrl: null };
+    if (o.status === "cancelled") throw bad("This order was cancelled.");
+    const site = await siteSettings();
+    const back = `${env.PUBLIC_URL.replace(/\/$/, "")}/pay/${o.id}`;
+    const p = await createPayment({ orderNo: o.orderNo, amountUsd: Number(o.totalUsd), returnUrl: back, cancelUrl: back, brand: site.companyName }).catch((e) => {
+      throw bad((e as Error).message);
+    });
+    await db().update(s.webOrders).set({ paymentRef: p.ref, paymentMethod: payMethodName(provider) }).where(eq(s.webOrders.id, o.id));
+    return { paid: false, provider, approveUrl: p.approveUrl };
+  }),
+);
+
+/** The provider has the final word: only a completed payment for the right amount marks the order as paid. */
+shopRouter.post(
+  "/orders/:id/capture",
+  h(async (req) => {
+    const u = buyer(req);
+    const [o] = await db().select().from(s.webOrders).where(and(eq(s.webOrders.id, String(req.params.id)), eq(s.webOrders.userId, u.id))).limit(1);
+    if (!o) throw notFound("Order not found");
+    if (o.paidAt) return { paid: true };
+    if (!o.paymentRef) throw bad("Start the payment first.");
+    const c = await capturePayment(o.paymentRef, Number(o.totalUsd)).catch((e) => ({ completed: false, amountUsd: 0, detail: (e as Error).message }));
+    if (!c.completed) throw bad(`The payment did not go through: ${c.detail}`);
+    const conv = await ensureCustomerConversation(u.id, "web");
+    await db().transaction(async (tx) => {
+      await tx.update(s.webOrders).set({ paidAt: new Date(), status: "paid" }).where(eq(s.webOrders.id, o.id));
+      await audit(tx, { actorUserId: u.id, actorKind: "human", action: "web_order.paid", entity: "web_order", entityId: o.id, summary: `Order ${o.orderNo} paid online: ${formatUsd(c.amountUsd)} (${o.paymentMethod}, ${o.paymentRef})`, conversationId: conv.id });
+      await emit("web_order.created", { orderId: o.id }, { tx });
+    });
+    await postMessage({ conversationId: conv.id, senderUserId: null, kind: "system", body: `Payment of ${formatUsd(c.amountUsd)} received for order ${o.orderNo}. Your invoice is being prepared.`, meta: { webOrderId: o.id, orderNo: o.orderNo } }).catch((e) => console.error("[capture] chat note failed", e));
+    await notify(await usersWithPerm("website.orders.manage"), { type: "order", title: `Order ${o.orderNo} paid online`, body: `${u.name} · ${formatUsd(c.amountUsd)}`, link: "/admin/orders" });
+    return { paid: true };
   }),
 );
 

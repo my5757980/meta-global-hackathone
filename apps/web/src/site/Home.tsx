@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Banknote, Bot, ChevronLeft, ChevronRight, ClipboardCheck, FileText, Gavel, Landmark, Quote, ShieldCheck, Ship, Star, WalletCards } from "lucide-react";
+import { ArrowRight, Banknote, Bot, ChevronLeft, ChevronRight, ClipboardCheck, FileText, Gavel, Landmark, Play, Quote, ShieldCheck, Ship, Star, WalletCards } from "lucide-react";
 import { api } from "../lib/api";
 import { date } from "../lib/format";
 import type { VehicleCard as V } from "../lib/site";
@@ -182,15 +182,29 @@ export default function Home() {
         <section className="container-page mt-16">
           <h2 className="text-2xl font-bold text-slate-900">{sec("videos")!.title}</h2>
           <div className="mt-5 grid gap-4 sm:grid-cols-3">
-            {sec("videos")!.data.items.map((v: { title: string; country: string; body: string; color: string; image?: string }) => (
-              <div key={v.title} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <img src={v.image ?? carImg(v.body, v.color)} alt="" className="aspect-video w-full object-cover" loading="lazy" />
-                <div className="p-4">
-                  <p className="font-semibold text-slate-900">{v.title}</p>
-                  <p className="text-sm text-slate-500">{v.country}</p>
-                </div>
-              </div>
-            ))}
+            {sec("videos")!.data.items.map((v: { title: string; country: string; body: string; color: string; image?: string; videoUrl?: string }) => {
+              const inner = (
+                <>
+                  <span className="relative block">
+                    <img src={v.image ?? carImg(v.body, v.color)} alt="" className="aspect-video w-full object-cover" loading="lazy" />
+                    {v.videoUrl && (
+                      <span className="absolute inset-0 flex items-center justify-center">
+                        <span className="flex size-12 items-center justify-center rounded-full bg-black/60 text-white"><Play className="size-6" /></span>
+                      </span>
+                    )}
+                  </span>
+                  <span className="block p-4">
+                    <span className="block font-semibold text-slate-900">{v.title}</span>
+                    <span className="block text-sm text-slate-500">{v.country}</span>
+                  </span>
+                </>
+              );
+              return v.videoUrl ? (
+                <a key={v.title} href={v.videoUrl} target="_blank" rel="noreferrer" aria-label={`Watch: ${v.title}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md">{inner}</a>
+              ) : (
+                <div key={v.title} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">{inner}</div>
+              );
+            })}
           </div>
         </section>
       )}
@@ -424,7 +438,7 @@ function SoraBand({ name }: { name: string }) {
           </span>
           <h2 className="mt-3 text-2xl font-bold text-slate-900 sm:text-3xl">Meet {name}, our AI sales executive</h2>
           <p className="mt-2 text-slate-600">
-            {name} answers in your language at any hour, finds real cars from stock and auctions, reads the auction sheet for you and quotes the exact price to your port. A human supervisor approves every invoice.
+            {name} answers in your language at any hour, finds real cars from stock and auctions, reads the auction sheet for you and quotes the exact price to your port. A team of Digital FTEs does the rest of the work, inside limits the owner sets.
           </p>
           <ul className="mt-4 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
             {["Exact C&F to 220+ ports", "Auction sheets explained", "Voice notes in Urdu & English", "Invoice approved by a person"].map((t) => (
@@ -444,7 +458,7 @@ function SoraBand({ name }: { name: string }) {
               I found 3 Hilux. <strong>HK-10003</strong> 2017 GR Sport, 9,400 km — <strong>C&F Mombasa $23,239</strong> incl. inspection and freight. Shall I reserve it?
             </div>
             <div className="ml-auto max-w-[70%] rounded-2xl rounded-br-md bg-brand-600 px-3 py-2 text-white">Yes please 👍</div>
-            <div className="max-w-[90%] rounded-2xl rounded-bl-md bg-emerald-50 px-3 py-2 text-emerald-800 ring-1 ring-emerald-200">Invoice request sent to our supervisor ✓</div>
+            <div className="max-w-[90%] rounded-2xl rounded-bl-md bg-emerald-50 px-3 py-2 text-emerald-800 ring-1 ring-emerald-200">Invoice request sent to our invoice desk ✓</div>
           </div>
         </div>
       </div>

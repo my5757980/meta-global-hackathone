@@ -10,8 +10,8 @@ import { Button, Card, Field, Input } from "../ui";
 const DEMO: Record<string, { label: string; who: string; icon: React.ReactNode; to: string }> = {
   customer: { label: "Customer", who: "Joseph Mwangi · Kenya", icon: <User className="size-5" />, to: "/account/invoices" },
   agent: { label: "Sales Agent", who: "Ayesha Raza", icon: <Headset className="size-5" />, to: "/crm" },
-  supervisor: { label: "Supervisor", who: "Daniel Mensah · approves invoices", icon: <ShieldCheck className="size-5" />, to: "/crm/invoices" },
-  manager: { label: "Manager", who: "Fatima Noor · FTE console", icon: <Briefcase className="size-5" />, to: "/fte" },
+  supervisor: { label: "Supervisor", who: "Daniel Mensah · can do any desk by hand", icon: <ShieldCheck className="size-5" />, to: "/crm/invoices" },
+  manager: { label: "Manager", who: "Fatima Noor · the Digital workforce", icon: <Briefcase className="size-5" />, to: "/fte" },
   accounts: { label: "Accounts", who: "Grace Wanjiru · payments", icon: <Wallet className="size-5" />, to: "/crm/invoices" },
   admin: { label: "Admin", who: "Kenji Watanabe", icon: <Crown className="size-5" />, to: "/crm" },
 };

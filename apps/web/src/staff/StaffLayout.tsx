@@ -103,7 +103,7 @@ export function StaffLayout() {
     },
     {
       title: "Digital FTE",
-      items: [{ to: "/fte", label: `${fte} console`, icon: <Bot className="size-4" />, show: can("fte.console") }],
+      items: [{ to: "/fte", label: "Digital workforce", icon: <Bot className="size-4" />, show: can("fte.console") }],
     },
   ];
 
@@ -139,7 +139,7 @@ export function StaffLayout() {
         {nav}
         <div className="mt-auto shrink-0 rounded-xl bg-white/5 p-3 text-[11px] text-slate-400 ring-1 ring-white/10">
           <Bot className="mb-1 size-4 text-violet-300" />
-          {fte} works 24/7 on Muse Spark Open. Every invoice still needs a Supervisor.
+          Eight Digital FTEs work 24/7 on Muse Spark Open. People set their limits.
         </div>
       </aside>
       {menu && (
@@ -164,7 +164,7 @@ export function StaffLayout() {
           <div className="hidden items-center gap-1 md:flex">
             <TopLink to="/crm" icon={<LayoutDashboard className="size-4" />} label="CRM" show={can("crm.access")} />
             <TopLink to="/desk" icon={<MessagesSquare className="size-4" />} label="Chat" show={can("chat.desk")} />
-            <TopLink to="/fte" icon={<Bot className="size-4" />} label={fte} show={can("fte.console")} />
+            <TopLink to="/fte" icon={<Bot className="size-4" />} label="FTEs" show={can("fte.console")} />
             <TopLink to="/admin" icon={<PanelsTopLeft className="size-4" />} label="Site admin" show={can("website.admin")} />
             <TopLink to="/" icon={<Globe className="size-4" />} label="Website" show />
             <TopLink to="/auction/admin" icon={<Gavel className="size-4" />} label="Auction" show={can("auction.admin")} />

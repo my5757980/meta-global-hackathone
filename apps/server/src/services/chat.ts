@@ -17,7 +17,7 @@ onPresence((userId, online) => {
 });
 
 export async function soraUserId(): Promise<string> {
-  const [u] = await db().select({ id: s.users.id }).from(s.users).where(eq(s.users.kind, "fte")).limit(1);
+  const [u] = await db().select({ id: s.users.id }).from(s.users).where(eq(s.users.username, "sora")).limit(1);
   if (!u) throw new Error("The AI employee's account is missing — run npm run setup");
   return u.id;
 }
@@ -85,13 +85,13 @@ export async function postMessage(m: PostMessage, tx: DBorTx = db()) {
   const sender = m.senderUserId ? (await tx.select({ id: s.users.id, name: s.users.name, kind: s.users.kind, title: s.users.title }).from(s.users).where(eq(s.users.id, m.senderUserId)).limit(1))[0] : null;
   const out = { ...msg!, sender: sender ?? null };
   // see-everything staff follow BUYER threads live; staff DMs and groups stay with their members
-  const [cv] = await tx.select({ kind: s.chatConversations.kind }).from(s.chatConversations).where(eq(s.chatConversations.id, m.conversationId)).limit(1);
+  const [cv] = await tx.select({ kind: s.chatConversations.kind, holder: s.chatConversations.holder }).from(s.chatConversations).where(eq(s.chatConversations.id, m.conversationId)).limit(1);
   const to = new Set([...(await conversationMembers(m.conversationId)), ...(cv?.kind === "customer" ? await onlineViewAll() : [])]);
   publish(to, "message", out);
-  // one tick became two for everyone already online (and for the AI employee, who is always here)
+  // one tick became two for everyone already online (and for the AI employee while the thread is theirs: it is always here)
   if (m.senderUserId && (m.kind ?? "text") !== "system") {
     const sora = await soraUserId();
-    const here = [...(await conversationMembers(m.conversationId))].filter((id) => id !== m.senderUserId && (id === sora || isOnline(id)));
+    const here = [...(await conversationMembers(m.conversationId))].filter((id) => id !== m.senderUserId && (id === sora ? cv?.holder === "fte" : isOnline(id)));
     if (here.length) {
       await tx.update(s.chatMembers).set({ lastDeliveredAt: new Date() }).where(and(eq(s.chatMembers.conversationId, m.conversationId), inArray(s.chatMembers.userId, here)));
       publish(to, "delivered", { conversationId: m.conversationId });

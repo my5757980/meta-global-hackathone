@@ -816,6 +816,7 @@ interface AdminOrderRow {
   id: string;
   orderNo: string;
   status: string;
+  paidAt: string | null;
   totalUsd: number;
   notes: string | null;
   createdAt: string;
@@ -863,7 +864,10 @@ export function AdminOrders() {
                 <p className="text-xs text-slate-500">{o.customer.email}</p>
               </td>
               <td className="px-4 py-3 text-slate-600">{o.items}</td>
-              <td className="px-4 py-3 font-semibold text-slate-900">{formatUsd(o.totalUsd)}</td>
+              <td className="px-4 py-3 font-semibold text-slate-900">
+                {formatUsd(o.totalUsd)}
+                {o.paidAt && <span className="block text-xs font-medium text-emerald-700">Paid online</span>}
+              </td>
               <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
               <td className="px-4 py-3 text-slate-500">{ago(o.createdAt)}</td>
             </tr>

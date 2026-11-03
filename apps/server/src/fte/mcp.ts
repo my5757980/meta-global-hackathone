@@ -15,6 +15,7 @@ import { db } from "../db/client";
 import { mcpTokens, users } from "../db/schema";
 import { randomToken, sha256 } from "../lib/id";
 import { TOOLS, runTool, type ToolCtx } from "./tools";
+import { toolsOf } from "./workforce";
 
 // ---------- run tokens (memory only) ----------
 const runTokens = new Map<string, { ctx: ToolCtx; expires: number }>();
@@ -95,19 +96,28 @@ export interface McpSession {
 
 export async function openMcpSession(ctx: ToolCtx): Promise<McpSession> {
   const token = issueRunToken(ctx);
-  const client = new Client({ name: "sora-digital-fte", version: "1.0.0" });
-  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${env.PORT}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } });
-  await client.connect(transport);
+  const open = async () => {
+    const c = new Client({ name: "autofte-digital-fte", version: "1.0.0" });
+    await c.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${env.PORT}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+    return c;
+  };
+  const client = await open().catch(() => open());
   if (!toolCache) {
     const listed = await client.listTools();
     toolCache = listed.tools.map((t) => ({ type: "function" as const, function: { name: t.name, description: t.description ?? "", parameters: (t.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown> } }));
   }
+  const mine = toolsOf(ctx.workerKey);
   return {
-    tools: toolCache,
+    tools: toolCache.filter((t) => t.type === "function" && mine.includes(t.function.name)),
     async call(name, args) {
-      const r = await client.callTool({ name, arguments: args });
-      const text = Array.isArray(r.content) ? r.content.map((c) => ("text" in c ? (c.text as string) : "")).join("\n") : "";
-      return { ok: !r.isError, text };
+      try {
+        const r = await client.callTool({ name, arguments: args }, undefined, { timeout: 240_000 });
+        const text = Array.isArray(r.content) ? r.content.map((c) => ("text" in c ? (c.text as string) : "")).join("\n") : "";
+        return { ok: !r.isError, text };
+      } catch {
+        // a tool that did not answer is for the FTE to deal with, not the end of its job
+        return { ok: false, text: JSON.stringify({ error: "This tool did not answer in time, and may or may not have finished. Check before repeating anything." }) };
+      }
     },
     async close() {
       revokeRunToken(token);

@@ -1,12 +1,15 @@
 import { useCallback, useState } from "react";
-import { FlatList, Pressable, StyleSheet, View } from "react-native";
+import { FlatList, Linking, Pressable, StyleSheet, View } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { setStatusBarStyle } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
+import { api, errText } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { absUrl } from "../lib/config";
 import { useFetch } from "../lib/data";
+import { date } from "../lib/format";
 import { C, useColors, useSite } from "../lib/site";
 import type { VehicleCard } from "../lib/types";
 import { Button, Card, Chip, ErrorBox, Input, Screen, SectionTitle, Skeleton, T, VehicleTile } from "../ui";
@@ -18,6 +21,8 @@ interface HomeData {
   bodyTypes: { name: string; count: number }[];
   steering: { name: string; count: number }[];
   brands: { name: string; slug: string }[];
+  blog: { slug: string; title: string; excerpt: string | null; coverUrl: string | null; publishedAt: string | null }[];
+  faqs: { id?: string; question: string; answer: string }[];
 }
 type Slide = { title: string; subtitle: string; cta?: string };
 
@@ -33,6 +38,24 @@ export default function HomeScreen() {
   // neither city changes its clocks in the year, so this needs no time-zone library
   const clock = (offsetHours: number) => new Date(Date.now() + offsetHours * 3600_000).toISOString().slice(11, 16);
   const [search, setSearch] = useState("");
+  const { me } = useAuth();
+  const [openFaq, setOpenFaq] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [news, setNews] = useState<{ ok: boolean; text: string } | null>(null);
+  const [joining, setJoining] = useState(false);
+  const join = async () => {
+    setJoining(true);
+    setNews(null);
+    try {
+      const r = await api.post<{ message: string }>("/api/public/newsletter", { email: email.trim() });
+      setNews({ ok: true, text: r.message });
+      setEmail("");
+    } catch (e) {
+      setNews({ ok: false, text: errText(e) });
+    } finally {
+      setJoining(false);
+    }
+  };
   const toShop = (params: Record<string, string>) => nav.navigate("ShopTab", { screen: "Shop", params: { ...params, t: Date.now() }, pop: true });
   // the header is the brand colour: white status icons here, dark everywhere else
   useFocusEffect(
@@ -235,6 +258,28 @@ export default function HomeScreen() {
           </>
         ) : null}
 
+        {items<{ title: string; country: string; image?: string; videoUrl?: string }>("videos").length ? (
+          <>
+            <SectionTitle title={sec("videos")?.title ?? "From our clients"} />
+            <FlatList
+              horizontal
+              data={items<{ title: string; country: string; image?: string; videoUrl?: string }>("videos")}
+              keyExtractor={(v) => v.title}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 12 }}
+              renderItem={({ item }) => (
+                <Card style={{ width: 240, padding: 0, overflow: "hidden" }} onPress={item.videoUrl ? () => void Linking.openURL(item.videoUrl!) : undefined}>
+                  {item.image ? <Image source={{ uri: absUrl(item.image) }} style={{ width: 240, height: 135 }} contentFit="cover" accessibilityLabel={item.title} /> : null}
+                  <View style={{ padding: 12 }}>
+                    <T style={{ fontWeight: "700", color: C.ink }}>{item.title}</T>
+                    <T style={{ color: C.muted, fontSize: 12 }}>{item.country}</T>
+                  </View>
+                </Card>
+              )}
+            />
+          </>
+        ) : null}
+
         {q.data?.testimonials.length ? (
           <>
             <SectionTitle title="What buyers say" />
@@ -260,6 +305,64 @@ export default function HomeScreen() {
           </>
         ) : null}
 
+        {items<{ name: string; short: string }>("member_of").length ? (
+          <>
+            <SectionTitle title={sec("member_of")?.title ?? "Member of"} />
+            <View style={{ gap: 8 }}>
+              {items<{ name: string; short: string }>("member_of").map((m) => (
+                <Card key={m.name}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <View style={st.short}>
+                      <T style={{ fontWeight: "800", fontSize: 12, color: C.text }}>{m.short}</T>
+                    </View>
+                    <T style={{ flex: 1, color: C.text, fontSize: 13 }}>{m.name}</T>
+                  </View>
+                </Card>
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        {sec("register") && !me ? (
+          <Card style={{ marginTop: 22, backgroundColor: col.brand, borderColor: col.brand }}>
+            <T style={{ color: "#fff", fontWeight: "800", fontSize: 18 }}>{sec("register")!.title}</T>
+            {sec("register")!.subtitle ? <T style={{ color: "rgba(255,255,255,0.85)", marginTop: 4, lineHeight: 20 }}>{sec("register")!.subtitle}</T> : null}
+            <Button title="Register now" variant="accent" onPress={() => nav.navigate("Auth", { mode: "register" })} style={{ marginTop: 12 }} />
+          </Card>
+        ) : null}
+
+        {q.data?.blog?.length ? (
+          <>
+            <SectionTitle title={sec("guides")?.title ?? "Latest guides"} action={<Button small variant="ghost" title="All guides" onPress={() => nav.navigate("Blog")} />} />
+            <View style={{ gap: 8 }}>
+              {q.data.blog.map((b) => (
+                <Card key={b.slug} onPress={() => nav.navigate("BlogPost", { slug: b.slug })}>
+                  {b.publishedAt ? <T style={{ color: C.muted, fontSize: 12 }}>{date(b.publishedAt)}</T> : null}
+                  <T style={{ fontWeight: "700", color: C.ink, marginTop: 2 }}>{b.title}</T>
+                  {b.excerpt ? <T lines={2} style={{ color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 2 }}>{b.excerpt}</T> : null}
+                </Card>
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        {q.data?.faqs?.length ? (
+          <>
+            <SectionTitle title={sec("faq")?.title ?? "FAQ"} action={<Button small variant="ghost" title="All" onPress={() => nav.navigate("Faq")} />} />
+            <Card style={{ padding: 0 }}>
+              {q.data.faqs.map((f) => (
+                <Pressable key={f.question} accessibilityRole="button" onPress={() => setOpenFaq(openFaq === f.question ? null : f.question)} style={st.link}>
+                  <View style={{ flex: 1 }}>
+                    <T style={{ fontWeight: "600", color: C.ink }}>{f.question}</T>
+                    {openFaq === f.question ? <T style={{ color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 4 }}>{f.answer}</T> : null}
+                  </View>
+                  <Ionicons name={openFaq === f.question ? "chevron-up" : "chevron-down"} size={18} color={C.faint} />
+                </Pressable>
+              ))}
+            </Card>
+          </>
+        ) : null}
+
         <SectionTitle title="Buying from Japan" />
         <Card style={{ padding: 0 }}>
           {[
@@ -276,6 +379,15 @@ export default function HomeScreen() {
             </Pressable>
           ))}
         </Card>
+        <SectionTitle title="Our newsletter" />
+        <Card>
+          <T style={{ color: C.muted, fontSize: 13 }}>New stock and shipping news, now and then.</T>
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+            <Input value={email} onChangeText={setEmail} placeholder="Your e-mail" keyboardType="email-address" autoCapitalize="none" style={{ flex: 1 }} />
+            <Button title="Sign up" loading={joining} onPress={() => void join()} />
+          </View>
+          {news ? <T style={{ color: news.ok ? C.green : "#be123c", fontSize: 13, marginTop: 8 }}>{news.text}</T> : null}
+        </Card>
         <T style={{ textAlign: "center", color: C.faint, fontSize: 12, marginTop: 18 }}>Built with Muse Spark Open</T>
       </Screen>
     </View>
@@ -287,5 +399,6 @@ const st = StyleSheet.create({
   mark: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
   headerBtn: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },
   ai: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
+  short: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#f1f5f9", alignItems: "center", justifyContent: "center" },
   link: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: C.line },
 });

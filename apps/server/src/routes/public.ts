@@ -10,6 +10,7 @@ import { siteSettings } from "../services/settings";
 import { catalogFacets, getVehicleBySlugOrId, listVehicles, relatedVehicles, suggest, type VehicleFilters } from "../services/website";
 import { notify, usersWithPerm } from "../services/notify";
 import { usdJpy } from "../services/fx";
+import { emit } from "../services/events";
 import { BODY_PHOTOS } from "../seed/photos";
 
 export const publicRouter = Router();
@@ -145,7 +146,8 @@ publicRouter.post(
       }),
       req.body,
     );
-    await db().insert(s.contactMessages).values(body);
+    const [msg] = await db().insert(s.contactMessages).values(body).returning({ id: s.contactMessages.id });
+    await emit("contact.message", { messageId: msg!.id });
     await notify(await usersWithPerm("website.content.manage"), { type: "contact", title: `New contact message from ${body.name}`, body: body.subject ?? body.message.slice(0, 80), link: "/admin/messages" });
     return { ok: true };
   }),

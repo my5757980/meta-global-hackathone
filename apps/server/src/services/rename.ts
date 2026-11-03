@@ -44,5 +44,5 @@ export async function renameInContent(tx: Tx, names: { company: [string, string]
       if (Object.keys(set).length) await tx.update(t).set(set).where(eq(t.id, row.id));
     }
   }
-  if (names.fte[0] !== names.fte[1]) await tx.update(s.users).set({ name: names.fte[1] }).where(eq(s.users.kind, "fte"));
+  if (names.fte[0] !== names.fte[1]) await tx.update(s.users).set({ name: names.fte[1] }).where(eq(s.users.username, "sora")); // only the sales FTE carries the site's AI name
 }

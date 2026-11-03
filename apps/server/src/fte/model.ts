@@ -15,10 +15,10 @@ interface Provider {
 
 const providers: Provider[] = [];
 if (env.BASETEN_API_KEY) {
-  providers.push({ name: "baseten", client: new OpenAI({ apiKey: env.BASETEN_API_KEY, baseURL: env.BASETEN_BASE_URL, timeout: 90_000, maxRetries: 0 }), model: env.BASETEN_MODEL });
+  providers.push({ name: "baseten", client: new OpenAI({ apiKey: env.BASETEN_API_KEY, baseURL: env.BASETEN_BASE_URL, maxRetries: 0 }), model: env.BASETEN_MODEL });
 }
 if (env.FIREWORKS_API_KEY && env.FIREWORKS_MODEL) {
-  providers.push({ name: "fireworks", client: new OpenAI({ apiKey: env.FIREWORKS_API_KEY, baseURL: env.FIREWORKS_BASE_URL, timeout: 90_000, maxRetries: 0 }), model: env.FIREWORKS_MODEL });
+  providers.push({ name: "fireworks", client: new OpenAI({ apiKey: env.FIREWORKS_API_KEY, baseURL: env.FIREWORKS_BASE_URL, maxRetries: 0 }), model: env.FIREWORKS_MODEL });
 }
 
 export const modelConfigured = () => providers.length > 0;
@@ -43,22 +43,25 @@ function retryable(e: unknown): boolean {
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
-export async function chat(opts: { messages: ChatCompletionMessageParam[]; tools?: ChatCompletionTool[]; effort?: Effort; maxTokens?: number; json?: boolean }): Promise<ChatResult> {
+export async function chat(opts: { messages: ChatCompletionMessageParam[]; tools?: ChatCompletionTool[]; effort?: Effort; maxTokens?: number; json?: boolean; timeoutMs?: number }): Promise<ChatResult> {
   if (!providers.length) throw new Error("No Meta model provider configured (set BASETEN_API_KEY in .env)");
   let lastErr: unknown;
   for (const p of providers) {
     for (let attempt = 0; attempt < 4; attempt++) {
       const t0 = Date.now();
       try {
-        const r = await p.client.chat.completions.create({
-          model: p.model,
-          messages: opts.messages,
-          ...(opts.tools?.length ? { tools: opts.tools, tool_choice: "auto" as const } : {}),
-          max_tokens: opts.maxTokens ?? 1800,
-          ...(opts.json ? { response_format: { type: "json_object" as const } } : {}),
-          // Muse Spark Open always reasons; "low" keeps chat replies fast.
-          ...({ reasoning_effort: opts.effort ?? "low" } as Record<string, unknown>),
-        });
+        const r = await p.client.chat.completions.create(
+          {
+            model: p.model,
+            messages: opts.messages,
+            ...(opts.tools?.length ? { tools: opts.tools, tool_choice: "auto" as const } : {}),
+            max_tokens: opts.maxTokens ?? 1800,
+            ...(opts.json ? { response_format: { type: "json_object" as const } } : {}),
+            // Muse Spark Open always reasons; "low" keeps chat replies fast.
+            ...({ reasoning_effort: opts.effort ?? "low" } as Record<string, unknown>),
+          },
+          { timeout: opts.timeoutMs ?? 45_000 }, // a call that hangs is cut and tried again, rather than making a buyer wait
+        );
         const choice = r.choices[0]!;
         countTokens((r.usage?.prompt_tokens ?? 0) + (r.usage?.completion_tokens ?? 0));
         return {
@@ -72,6 +75,7 @@ export async function chat(opts: { messages: ChatCompletionMessageParam[]; tools
         };
       } catch (e) {
         lastErr = e;
+        console.warn(`[model] ${p.name} attempt ${attempt + 1} failed after ${((Date.now() - t0) / 1000).toFixed(0)} s: ${(e as { status?: number })?.status ?? (e as Error)?.message}`);
         if (!retryable(e) || attempt === 3) break;
         // a rate limit needs real patience (the provider's Retry-After when given), other blips a short pause
         const status = (e as { status?: number })?.status;

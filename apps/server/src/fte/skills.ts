@@ -41,8 +41,12 @@ export function getSkill(name: string): Skill | undefined {
   return loadSkills().find((s) => s.name === name);
 }
 
+/** The skills in the sales FTE's prompt. The desks' own skills are in their role prompts. */
+const SALES_SKILLS = ["after-sale-updates", "buy-at-auction", "close-and-request-invoice", "escalate-to-human", "find-cars", "negotiate-within-envelope", "qualify-buyer", "quote-landed-price", "read-auction-sheet"];
+
 export function skillIndex(): string {
   return loadSkills()
+    .filter((s) => SALES_SKILLS.includes(s.name))
     .map((s) => `- ${s.name}: ${s.description}`)
     .join("\n");
 }

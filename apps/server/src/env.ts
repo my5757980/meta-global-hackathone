@@ -38,6 +38,10 @@ const schema = z.object({
     .string()
     .default("true")
     .transform((v) => v !== "false"),
+  WORKFORCE_ENABLED: z
+    .string()
+    .default("true")
+    .transform((v) => v !== "false"),
   FIREBASE_SERVICE_ACCOUNT: z.string().optional(),
   PUBLIC_DEMO: z
     .string()
@@ -49,6 +53,9 @@ const schema = z.object({
   TURN_USERNAME: z.string().optional(),
   TURN_PASSWORD: z.string().optional(),
   SMTP_URL: z.string().optional(),
+  PAYPAL_CLIENT_ID: z.string().optional(),
+  PAYPAL_SECRET: z.string().optional(),
+  PAYPAL_BASE_URL: z.string().default("https://api-m.sandbox.paypal.com"),
   MAIL_FROM: z.string().default("no-reply@hikari-motors.example"),
 });
 

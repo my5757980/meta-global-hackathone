@@ -185,6 +185,7 @@ export const contactMessages = pgTable("contact_messages", {
   phone: text(),
   subject: text(),
   message: text().notNull(),
+  reply: text(),
   handled: boolean().notNull().default(false),
   createdAt: createdAt(),
 });
@@ -225,6 +226,9 @@ export const webOrders = pgTable("web_orders", {
     .references(() => users.id),
   status: text().notNull().default("pending"),
   paymentMethod: text().notNull().default("Order request"),
+  paymentRef: text(), // the online payment's id at the provider
+  paidAt: timestamp({ withTimezone: true }),
+  invoiceId: text(), // the invoice this order became
   totalUsd: usd().notNull(),
   notes: text(),
   createdAt: createdAt(),

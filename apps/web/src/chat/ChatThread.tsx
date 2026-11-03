@@ -421,7 +421,7 @@ export function Composer({ conversationId, onSent, initial, placeholder, soraHin
       )}
       {soraHint && (
         <p className="mt-1 flex items-center gap-1 px-1 text-[11px] text-slate-400">
-          <Bot className="size-3" /> <FteName /> is an AI built with Muse Spark Open · voice notes in Urdu or English · a person approves every invoice
+          <Bot className="size-3" /> <FteName /> is an AI built with Muse Spark Open · voice notes in Urdu or English · ask for a person at any time
         </p>
       )}
     </div>
