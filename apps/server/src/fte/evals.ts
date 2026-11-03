@@ -20,6 +20,7 @@ import { documentPng, ensureUnit, slipPng } from "../services/ops";
 import { fobFromLot } from "../services/pricing";
 import { envelope, pricingPolicy, siteSettings } from "../services/settings";
 import { pauseDesks, runDeskForEval } from "./workerRun";
+import { ON_A_CALL } from "./prompts";
 import { toolsOf } from "./workforce";
 import { runSora } from "./agent";
 import { asksPermissionAgain } from "./guards";
@@ -724,6 +725,43 @@ export const CASES: Case[] = [
       }
     },
   },
+  {
+    id: "desk-mei-corrects",
+    category: "desks",
+    title: "Mei corrects a misspelt name, and no price moves",
+    run: async (c) => {
+      const inv = await deskInvoice(c, "d11", 1, "sent");
+      await runDeskForEval("invoices", { task: "invoice.review", title: "eval", conversationId: c.conversationId, note: `A buyer (buyer_user_id ${c.buyerUserId}) asks to correct invoice_id ${inv.id}: "The consignee name is misspelt. It should be Eval Motors Limited." Read it with review_invoice. If it is a spelling, phone, e-mail or address fix, call correct_invoice, then tell_buyer_through_sales that it is done.` });
+      const [after] = await db().select({ name: s.invoices.consigneeName, total: s.invoices.totalCnfUsd }).from(s.invoices).where(eq(s.invoices.id, inv.id)).limit(1);
+      return verdict(after?.name === "Eval Motors Limited" && Number(after?.total) === Number(inv.totalCnfUsd), `name "${after?.name}", total ${after?.total}`);
+    },
+  },
+  {
+    id: "desk-yuki-first-contact",
+    category: "desks",
+    title: "Yuki writes first to an imported lead, with no price",
+    run: async (c) => {
+      const { lead } = await findOrCreateLead({ customerName: "Eval Imports", contactPerson: "Eval Buyer", phone: c.vars.phone!, email: `eval-${genId()}@example.com`, countryCode: "KE", ownerUserId: c.soraId, customerUserId: c.buyerUserId, source: "excel" }, evalActor(c));
+      await runDeskForEval("crm", { task: "crm.leads", title: "eval", conversationId: c.conversationId, note: `New imported leads, not yet contacted: ${JSON.stringify([{ id: lead.id, name: "Eval Imports", person: "Eval Buyer", email: lead.email, country: "KE" }])}. Call first_contact_lead once for each.` });
+      const notes = await db().select({ body: s.leadNotes.body }).from(s.leadNotes).where(eq(s.leadNotes.leadId, lead.id));
+      const text = notes.map((n) => n.body).join(" ");
+      c.reply = text;
+      return verdict(/First message/.test(text) && !/\$\s?\d|USD\s?\d/.test(text), text ? "written, no price" : "nothing written");
+    },
+  },
+  {
+    id: "call-short-answer",
+    category: "desks",
+    title: "On a call, Sora answers in a short spoken line",
+    run: async (c) => {
+      await postMessage({ conversationId: c.conversationId, senderUserId: c.buyerUserId, body: "Hello, do you have a Toyota Hilux for Mombasa, Kenya?" });
+      await runSora(c.conversationId, { kind: "eval", note: ON_A_CALL });
+      const [last] = await db().select({ body: s.chatMessages.body }).from(s.chatMessages).where(and(eq(s.chatMessages.conversationId, c.conversationId), eq(s.chatMessages.senderUserId, c.soraId))).orderBy(desc(s.chatMessages.createdAt)).limit(1);
+      const said = last?.body ?? "";
+      c.reply = said;
+      return verdict(!!said && said.length <= 450 && !/\*\*|\n\s*[-*\d]/.test(said), `${said.length} characters`);
+    },
+  },
   // ── reads auction sheets (Muse Spark Open vision, compared with each lot's true marks) ──
   ...[0, 1, 2].map(
     (i): Case => ({
@@ -750,7 +788,7 @@ export const CASES: Case[] = [
 
 /** Real data the scripts point at, picked fresh each run (stock moves; lots get sold). */
 async function loadVars(): Promise<Vars> {
-  const deskCars = await db().select({ no: s.vehicles.stockNo }).from(s.vehicles).where(and(eq(s.vehicles.status, "available"), eq(s.vehicles.steering, "Right"))).orderBy(s.vehicles.stockNo).limit(10).offset(8);
+  const deskCars = await db().select({ no: s.vehicles.stockNo }).from(s.vehicles).where(and(eq(s.vehicles.status, "available"), eq(s.vehicles.steering, "Right"))).orderBy(s.vehicles.stockNo).limit(11).offset(8);
   const cars = await db().select({ no: s.vehicles.stockNo }).from(s.vehicles).where(and(eq(s.vehicles.status, "available"), eq(s.vehicles.steering, "Right"))).orderBy(s.vehicles.stockNo).limit(8);
   if (cars.length < 8) throw new Error("Not enough cars in stock for the evals — run npm run setup -- --reset");
   const v: Vars = {};

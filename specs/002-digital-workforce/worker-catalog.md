@@ -14,7 +14,7 @@ One Postgres database: stock, auction lots and results, leads, quotes, invoices,
 
 | Seat | FTE | Woken by |
 | --- | --- | --- |
-| Sales | Sora | A buyer's message, and every event about that buyer |
+| Sales | Sora | A buyer's message or call, and every event about that buyer |
 | Invoices | Mei | `invoice.requested` |
 | Accounts | Ren | `payment.slip` |
 | Operations | Aoi | A document arriving from the yard or the shipping line |
@@ -41,7 +41,7 @@ Each task has its own dial: L0 a person does it, L1 it proposes and a person app
 
 ## Human supervisor
 
-The owner. The owner sets the limits, moves the dials, answers what is above the chief of staff's mandate, reads the daily report, and can overrule a decision. A person also takes any chat a buyer asks a person for, and any voice or video call.
+The owner. The owner sets the limits, moves the dials, answers what is above the chief of staff's mandate, reads the daily report, and can overrule a decision. A person also takes any chat or call a buyer asks a person for, and phones an imported lead with no e-mail.
 
 ## Verification checkpoints
 

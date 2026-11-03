@@ -45,10 +45,13 @@ AutoFTE had one Digital FTE, Sora, doing the sales agent's job. People did the r
 - **FR-12** A website order with no known port waits: the sales FTE asks the buyer, and hands it back to the website desk with the answer.
 - **FR-13** A buyer can pay a website order online: PayPal with the company's keys, or, in demo mode without keys, a stand-in page that moves no money and says so. The website desk then makes the invoice, and the payment goes on it by itself once the provider has confirmed it.
 - **FR-14** Anyone in the console can watch one whole sale run: a scripted buyer and outside world, and the real FTEs. It does not touch the demo clock.
+- **FR-15** While Sora holds a chat, a buyer can call her on the website and in the app. She picks up at once and takes turns: the buyer speaks, Muse Spark Open hears it through the voice-note path, and the browser or phone reads her answer aloud with its own voice. Every turn stays in the chat as text, and the call leaves its line there. Asking for a person hands over as usual.
+- **FR-16** Mei can correct a name, phone, e-mail or address on an invoice when a buyer asks, even after sending, with a new PDF. Prices and cars are not touched, and a different buyer altogether goes up.
+- **FR-17** Yuki writes the first message to each imported lead: by e-mail if there is a mail server, otherwise kept on the lead. A lead with no e-mail waits for a person to phone. Sora closes a lead when the buyer says they no longer want to buy.
 
 ## Not in scope
 
-- Talking on a voice or video call. A call rings a person: the book's escalation exit.
+- Interrupting Sora mid-sentence on a call, a face on a video call, or a voice the device does not have. Calls with a person stay ordinary voice and video calls.
 - Real bank and shipping-line feeds. The demo simulates them on the demo clock and says so on screen.
 - Hiring new FTEs automatically (the book's self-expanding workforce).
 

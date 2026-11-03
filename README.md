@@ -14,12 +14,12 @@ is above them.
 
 | Seat | FTE | Does |
 | --- | --- | --- |
-| Sales | **Sora** | Chats with buyers in their language, finds cars, quotes the landed price, bids, asks for the invoice, tells them every step |
-| Invoices | **Mei** | Checks each request against a rubric written in code, prices it, approves or rejects, sends the final PDF |
+| Sales | **Sora** | Chats with buyers in their language, and picks up their calls; finds cars, quotes the landed price, bids, asks for the invoice, tells them every step |
+| Invoices | **Mei** | Checks each request against a rubric written in code, prices it, approves or rejects, sends the final PDF, corrects a name or address |
 | Accounts | **Ren** | Reads the bank slip **picture**, matches it to the invoice, records the money, fills the costing. Refuses a slip to the wrong account or one used before |
 | Operations | **Aoi** | Makes the unit, reads documents, checks the chassis on them, files them in six folders, moves the shipping stages |
 | Auction desk | **Kaito** | Answers enquiries from the lot's own sheet and past prices, handles orders on lots |
-| CRM | **Yuki** | Takes imported leads, answers the contact form, makes the lead |
+| CRM | **Yuki** | Takes imported leads and writes to them first, answers the contact form, makes the lead |
 | Website | **Hana** | Turns website orders into invoice requests, writes listings for new cars |
 | Chief of staff | **Tomo** | Decides what is above a desk's limit, inside his own signed mandate. Sends the rest to the owner with his opinion. Writes the daily report |
 
@@ -65,9 +65,10 @@ To do it yourself:
 6. **Be the owner.** On *Authority envelope*, lower the invoice desk's limit to $1,000 and buy another car: Mei passes it up and
    Tomo decides. Lower Tomo's mandate too, and it reaches *Needs you* with his opinion. If you do not answer in time, the safe
    default applies: not approved. Turn a seat's dial to L1 and it proposes while you approve; to L0, and you do its job yourself.
-7. **Auction.** As Customer, open Auction, pick a lot and press *Ask Sora to read the sheet*. The sheet is an image;
+7. **Call her.** In the chat, press *Call Sora* and speak. She picks up, hears you through Muse Spark Open, and the browser reads her answer aloud. The call stays in the chat as text.
+8. **Auction.** As Customer, open Auction, pick a lot and press *Ask Sora to read the sheet*. The sheet is an image;
    Muse Spark Open reads it. Ask Sora to bid: inside its limit it bids, above it Tomo or the owner must agree.
-8. **Rebrand.** As Admin, open Branding, change the company, the AI's name, the logo and the colours. The site, the invoices
+9. **Rebrand.** As Admin, open Branding, change the company, the AI's name, the logo and the colours. The site, the invoices
    and Sora's own words follow. *Reset demo* puts everything back in seconds.
 
 ## How the workforce runs
@@ -120,10 +121,10 @@ flowchart LR
   unanswered for 24 hours, an auction day settled, a promised follow-up falling due, a wanted car arriving in stock.
 - **Everything is audited.** Every run records its trigger, tool calls, arguments, results, tokens and latency, and every
   business change has an audit row with who did it, person or Sora.
-- **Evals.** `npm run eval` runs 64 cases on the live model through the real tools, for Sora and for every desk: fresh test
+- **Evals.** `npm run eval` runs 67 cases on the live model through the real tools, for Sora and for every desk: fresh test
   buyers, answers checked against the database, everything removed afterwards. Safety cases block a release, among them a
   slip to another account, the same slip twice, orders written inside a picture, a document for another car, and a seat
-  reaching for another seat's tool. The last full run passed 64 of 64; a model's replies vary, so a case or two can move between
+  reaching for another seat's tool. The last full run is in `evals/last-run.json`; a model's replies vary, so a case or two can move between
   runs. The suite found real bugs while this was being built, including the guards above and invoice numbers colliding after a delete.
 - **A whole sale, tested.** On the live model, from the first message to the delivered car: 23 steps by FTEs, none by people.
 
