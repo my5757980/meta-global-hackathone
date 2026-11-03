@@ -96,6 +96,7 @@ async function buildHistory(conversationId: string, soraId: string): Promise<Cha
     if (meta.cards?.length) {
       text += "\n[cards shown: " + meta.cards.map((c) => (c.type === "vehicles" ? c.items.map((x) => `${x.title} ${x.id}${x.kind === "lot" ? ` lot_id=${x.link.split("/").pop()}` : ""}`).join("; ") : c.type === "quote" ? `quote ${c.quoteId} ${c.title} C&F ${c.totalUsd}` : c.type === "invoice" ? `invoice ${c.number} ${c.status}` : c.type === "sheet" ? `sheet lot_id=${c.lotId} grade ${c.grade} verdict ${c.verdict}` : "")).join(" | ") + "]";
     }
+    if (m.kind === "call") continue; // the line a call leaves in the thread: its turns are in the chat already
     if (m.kind === "system") {
       out.unshift({ role: "user", content: `[System note: ${text}]` });
       continue;
@@ -207,9 +208,9 @@ export async function runSora(conversationId: string, trigger: RunTrigger): Prom
     },
     ...(await buildHistory(conversationId, sora.id)),
   ];
+  const lastInHistory = messages.at(-1);
   if (trigger.note) messages.push({ role: "user", content: `[System event for you to act on now: ${trigger.note}]` });
 
-  const lastInHistory = messages.at(-1);
   const buyerSaidYes = trigger.kind === "message" && lastInHistory?.role === "user" && typeof lastInHistory.content === "string" && saidYes(lastInHistory.content);
   const mcp = await openMcpSession({ workerKey: "sales", task: "sales.chat", principalUserId: sora.id, principalName: sora.name, principalKind: "fte", conversationId, buyerUserId: conv.customerUserId, runId: run!.id }).catch(async (e) => {
     publish(members, "typing", { conversationId, userId: sora.id, on: false });

@@ -136,7 +136,7 @@ Every model call at runtime is Muse Spark Open (`meta-models/muse-spark-open-102
 | Conversation in the buyer's language, with tool calling | `apps/server/src/fte/agent.ts` |
 | Vision: reading the auction sheet **image**, not a database field | `apps/server/src/fte/sheetReader.ts` |
 | Vision: reading a bank slip and shipping documents, then comparing them with the records | `apps/server/src/fte/pictureReader.ts` |
-| Audio: a voice note, heard once and kept as text under the bubble | `apps/server/src/fte/voice.ts` |
+| Audio: a voice note, or a turn on a call with Sora, heard once and kept as text | `apps/server/src/fte/voice.ts` |
 | A running summary of each conversation, shown to staff and fed back to Sora | `apps/server/src/fte/agent.ts` |
 | Each desk's job, with tool calling | `apps/server/src/fte/workerRun.ts` |
 | The owner's daily report | `apps/server/src/fte/workerHandlers.ts` |
@@ -170,8 +170,8 @@ Other commands: `npm run build && npm start` (one process serves the site, API a
 - PayPal at checkout needs your keys (`PAYPAL_CLIENT_ID`, `PAYPAL_SECRET` in `.env`). Without them, demo mode has a stand-in page that moves no money and says so. The PayPal path was tested against a local fake of its API, not against PayPal itself. Most buyers pay by bank transfer, and Ren records it from the slip.
 - The bank, the yard and the shipping line are simulated in demo mode: slips and documents are printed by the server and marked as demo, and yard signals play on the demo clock. What the FTEs do with them is real. A real company would connect its own feeds.
 - A bank slip must be a picture (JPG, PNG or WebP), not a PDF.
-- An FTE cannot be on a voice call. Voice and video calls in the chat ring a person, and a buyer who asks for a person gets one.
-- A person, or the owner, still does what no FTE owns here: refunds, disputes, legal matters, setting the limits, importing auction lists, and writing the site's pages.
+- A call with Sora takes turns. The buyer speaks; Muse Spark Open hears it through the voice-note path; the browser or phone reads her answer aloud with its own voice, not a model. She cannot be interrupted mid-sentence, she has no face on a video call, and a language with no voice on that device is shown as text. A buyer who asks for a person gets one, and calls with a person are ordinary voice and video calls.
+- A person, or the owner, still does what no FTE owns here: refunds, disputes, legal matters, setting the limits, importing auction lists, and writing the site's pages. An imported lead with no e-mail waits for a person to phone.
 - Reset links go by e-mail only if you set `SMTP_URL`. Without it, demo mode shows the link on the page, and outside demo mode a person issues a one-time password.
 - The demo's client stories on the home page are pictures, because it has no real client films. Give a story a video link (Admin, Home sections) and it plays. A car's own video works the same way.
 - Calls across strict networks need a TURN relay (`TURN_URL` in `.env`). None is bundled.

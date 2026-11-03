@@ -3,9 +3,10 @@ import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, conflict, forbidden } from "../lib/http";
 import { isStaff, type AuthUser } from "../auth/session";
-import { canSeeConversation, conversationMembers, postMessage, setHolder } from "./chat";
+import { canSeeConversation, conversationMembers, postMessage, setHolder, soraUserId } from "./chat";
+import { deskManual } from "../fte/workforce";
 import { isOnline, onPresence, publish } from "./sse";
-import { fteName } from "./settings";
+import { fteName, siteSettings } from "./settings";
 import { pushToUsers } from "./push";
 import { env } from "../env";
 
@@ -56,7 +57,8 @@ export async function startCall(u: AuthUser, conversationId: string, media: "aud
   if (conv.kind === "staff_dm") callee = (await conversationMembers(conv.id)).find((m) => m !== u.id) ?? null;
   else if (isStaff(u)) callee = conv.customerUserId;
   else {
-    // a buyer can call the colleague holding their chat; Sora answers in writing
+    // a buyer calling while the AI employee holds the chat reaches her; with the desks off, or holding a person's chat, as before
+    if (conv.holder === "fte" && !(await deskManual("sales", "sales.chat"))) return answerAsFte(u, conv.id, media);
     if (conv.holder !== "human" || !conv.assignedUserId) throw bad(`${await fteName()} answers in writing — a team member can call you once they join the chat`);
     callee = conv.assignedUserId;
   }
@@ -80,6 +82,18 @@ export async function startCall(u: AuthUser, conversationId: string, media: "aud
   c.timer = setTimeout(() => void finish(c, "missed").catch(() => {}), RING_MS);
   publish([callee], "call", { type: "ring", callId: c.id, conversationId: conv.id, media, from: { id: u.id, name: u.name } });
   return { callId: c.id, media, peer: { id: callee, name: them?.name ?? "" } };
+}
+
+/** The AI employee picks up at once. There is no peer connection: the buyer's page takes turns with her through the chat. */
+async function answerAsFte(u: AuthUser, conversationId: string, media: "audio" | "video") {
+  if (busy(u.id)) throw conflict("You are already in a call");
+  const soraId = await soraUserId();
+  const [sora] = await db().select({ name: s.users.name }).from(s.users).where(eq(s.users.id, soraId)).limit(1);
+  const site = await siteSettings();
+  const [row] = await db().insert(s.chatCalls).values({ conversationId, callerId: u.id, calleeId: soraId, media: "audio", status: "active", answeredAt: new Date() }).returning();
+  live.set(row!.id, { id: row!.id, conversationId, callerId: u.id, calleeId: soraId, media: "audio", answeredAt: Date.now(), timer: null });
+  void media;
+  return { callId: row!.id, media: "audio" as const, fte: true, peer: { id: soraId, name: sora?.name ?? "" }, greeting: `Hello, this is ${sora?.name ?? "the sales team"} from ${site.companyName}. How can I help you?` };
 }
 
 export async function signalCall(u: AuthUser, callId: string, type: string, data: unknown) {

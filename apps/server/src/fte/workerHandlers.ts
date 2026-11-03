@@ -168,6 +168,14 @@ export function registerWorkforce() {
     await notify([row.buyer], { type: "order", title: `Order ${o.orderNo} is ${status}`, body: String(stage), link: "/auction/me" });
   });
 
+  on("invoice.correction", async ({ invoiceId, what, buyerUserId }) => {
+    if (await deskManual("invoices", "invoice.review")) {
+      await notify(await usersWithPerm("crm.invoices.approve"), { type: "invoice_edited", title: "A buyer asks to correct an invoice", body: String(what).slice(0, 140), link: `/crm/invoices/${invoiceId}` });
+      return;
+    }
+    void assign("invoices", { task: "invoice.review", title: "Correct an invoice", note: `A buyer (buyer_user_id ${buyerUserId}) asks to correct invoice_id ${invoiceId}: "${what}". Read it with review_invoice. If it is a spelling, phone, e-mail or address fix, call correct_invoice, then tell_buyer_through_sales that it is done. If it would change who is buying, call escalate_to_chief, kind "other", and do not change it.` });
+  });
+
   // ---------- CRM desk ----------
   on("leads.imported", async ({ leadIds, importedBy }) => {
     if (!(await on_("crm", "crm.leads"))) return;
@@ -178,6 +186,13 @@ export function registerWorkforce() {
     const moved = await db().update(s.leads).set({ ownerUserId: sora.id, updatedAt: new Date() }).where(and(inArray(s.leads.id, ids), eq(s.leads.status, "new"))).returning({ id: s.leads.id });
     await audit(db(), { actorUserId: yuki.userId, actorKind: "fte", action: "lead.assign_imported", summary: `${yuki.name} gave ${moved.length} imported lead(s) to ${sora.name}` });
     await sayInRoom("crm", `${moved.length} imported lead(s) checked for duplicates and given to ${sora.name}. Imported by ${String(importedBy ?? "someone")}.`);
+    // the first message to each, a few at a time; the desk's daily budget is what limits a very long list
+    if (workforceOn()) {
+      const rows = await db().select({ id: s.leads.id, name: s.leads.customerName, person: s.leads.contactPerson, email: s.leads.email, country: s.leads.countryCode }).from(s.leads).where(inArray(s.leads.id, ids));
+      for (let i = 0; i < rows.length; i += 5) {
+        void assign("crm", { task: "crm.leads", title: "Write to imported leads", note: `New imported leads, not yet contacted: ${JSON.stringify(rows.slice(i, i + 5))}. Call first_contact_lead once for each.` });
+      }
+    }
   });
   on("contact.message", async ({ messageId }) => {
     if (!workforceOn()) return;

@@ -169,10 +169,12 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
   };
 
   const call = async (media: "audio" | "video") => {
-    if (!conv || !agent) return;
+    if (!conv) return;
+    const fte = conv.holder === "fte";
+    if (!fte && !agent) return;
     setError(null);
     try {
-      await startCall(conv.id, media, agent.name);
+      await startCall(conv.id, media, fte ? site.ftEName : agent!.name, { fte });
     } catch (e) {
       setError(e instanceof Error && !(e as { status?: number }).status ? e.message : errText(e));
     }
@@ -274,10 +276,16 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, paddingBottom: lift }}>
       {conv?.holder === "fte" ? (
-        <Pressable accessibilityLabel="Talk to a person" onPress={() => void openPeople()} style={st.personBar}>
-          <Ionicons name="person-outline" size={16} color={col.brand} />
-          <T style={{ color: col.brand, fontWeight: "700", fontSize: 13 }}>Talk to a person</T>
-        </Pressable>
+        <View style={{ flexDirection: "row" }}>
+          <Pressable accessibilityLabel={`Call ${site.ftEName}`} onPress={() => void call("audio")} style={[st.personBar, { flex: 1 }]}>
+            <Ionicons name="call-outline" size={16} color={C.violet} />
+            <T style={{ color: C.violet, fontWeight: "700", fontSize: 13 }}>Call {site.ftEName}</T>
+          </Pressable>
+          <Pressable accessibilityLabel="Talk to a person" onPress={() => void openPeople()} style={[st.personBar, { flex: 1 }]}>
+            <Ionicons name="person-outline" size={16} color={col.brand} />
+            <T style={{ color: col.brand, fontWeight: "700", fontSize: 13 }}>Talk to a person</T>
+          </Pressable>
+        </View>
       ) : null}
       {conv?.holder === "human" ? (
         <Pressable accessibilityLabel={`Back to ${site.ftEName}`} onPress={() => void backToFte()} style={st.personBar}>

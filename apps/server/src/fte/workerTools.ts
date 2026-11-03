@@ -8,9 +8,10 @@ import { PROGRESS_STAGES, UNIT_FOLDERS } from "@autofte/shared";
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { audit } from "../services/audit";
-import { approveInvoice, editInvoice, findOrCreateLead, getInvoiceFull, rejectInvoice, requestInvoice, type Actor } from "../services/crm";
+import { addLeadNote, approveInvoice, correctConsignee, editInvoice, findOrCreateLead, getInvoiceFull, rejectInvoice, requestInvoice, type Actor } from "../services/crm";
 import { emit, eventsMuted } from "../services/events";
-import { getFile } from "../services/files";
+import { getFile, saveFile } from "../services/files";
+import { invoicePdf } from "../services/invoiceDocs";
 import { invoiceRubric, policyPrice } from "../services/invoiceCheck";
 import { recordDecision } from "../services/ledger";
 import { sendMail } from "../services/mail";
@@ -119,6 +120,24 @@ async function buyerConversation(userId: string | null | undefined) {
 
 // ---------- Mei: the invoice desk ----------
 const INVOICE_TOOLS: ToolDef[] = [
+  {
+    name: "correct_invoice",
+    description: "Put right a name, phone, e-mail or address on an invoice, when the buyer asks. A new PDF follows if it already had one. It cannot change a price or a car.",
+    input: { invoice_id: idArg, consignee_name: z.string().min(2).max(120).optional(), consignee_phone: z.string().min(6).max(30).optional(), consignee_email: z.string().email().max(120).optional(), consignee_address: z.string().min(3).max(200).optional(), why: z.string().min(3).max(300) },
+    async run(a, ctx) {
+      const id = String(a.invoice_id);
+      const inv = await correctConsignee(id, { consigneeName: a.consignee_name as string, consigneePhone: a.consignee_phone as string, consigneeEmail: a.consignee_email as string, consigneeAddress: a.consignee_address as string }, String(a.why), actorOf(ctx));
+      let newPdf = false;
+      if (inv.finalPdfFileId) {
+        const full = await getInvoiceFull(id);
+        const f = await saveFile(await invoicePdf(full!), { kind: "invoices", mime: "application/pdf", originalName: `${inv.number}.pdf`, ownerUserId: ctx.principalUserId });
+        await db().update(s.invoices).set({ finalPdfFileId: f.id }).where(eq(s.invoices.id, id));
+        newPdf = true;
+      }
+      await recordDecision({ workerKey: "invoices", task: "invoice.review", entity: "invoice", entityId: id, decision: "corrected", reason: String(a.why) });
+      return { corrected: true, number: inv.number, new_pdf: newPdf };
+    },
+  },
   {
     name: "review_invoice",
     description: "Read an invoice request and run the rubric on it: consignee, prices, stock, the accepted quote, your limit. Read this first, always.",
@@ -344,6 +363,21 @@ const AUCTION_TOOLS: ToolDef[] = [
 
 // ---------- Yuki: the CRM desk ----------
 const CRM_TOOLS: ToolDef[] = [
+  {
+    name: "first_contact_lead",
+    description: "Write the first message to a new imported lead. It goes by e-mail if the lead has an address and the company has a mail server; otherwise it stays on the lead for a person. Never state a price.",
+    input: { lead_id: idArg, subject: z.string().min(3).max(120), message: z.string().min(20).max(1500) },
+    async run(a, ctx) {
+      const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, String(a.lead_id))).limit(1);
+      if (!lead) throw new ToolError("No such lead");
+      if (lead.status !== "new") return { already_in_hand: true };
+      const sent = lead.email ? await sendMail({ to: lead.email, subject: String(a.subject), text: String(a.message) }).catch(() => false) : false;
+      const how = sent ? "sent by e-mail" : lead.email ? "not sent: no mail server, kept here" : "no e-mail on the lead: a person can phone";
+      await addLeadNote(lead.id, `First message (${how}): ${a.message}`, actorOf(ctx));
+      await db().update(s.leads).set({ status: "in_progress", updatedAt: new Date() }).where(eq(s.leads.id, lead.id));
+      return { done: true, sent_by_email: sent };
+    },
+  },
   {
     name: "get_contact_message",
     description: "A message from the website's contact form.",

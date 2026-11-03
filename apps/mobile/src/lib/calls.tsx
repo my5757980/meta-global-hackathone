@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api } from "./api";
 import { useAuth } from "./auth";
 import { holdLive, onLive, startLive } from "./live";
+import { FteCallScreen } from "./fteCall";
 import { C } from "./site";
 import { askCallPermissions, callSound, mediaDevices, RTCPeerConnection, RTCView, streamProp } from "./webrtc";
 import { T } from "../ui";
@@ -23,6 +24,7 @@ interface Call {
   phase: Phase;
   note?: string;
   startedAt?: number;
+  fte?: { conversationId: string; greeting: string }; // the AI employee answered: no peer connection, she takes turns
 }
 interface Ring {
   callId: string;
@@ -32,7 +34,7 @@ interface Ring {
 type Signal = Ring & { type: string; data?: unknown; status?: string };
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const Ctx = createContext<{ startCall: (conversationId: string, media: Media, peerName: string) => Promise<void> }>({ startCall: async () => {} });
+const Ctx = createContext<{ startCall: (conversationId: string, media: Media, peerName: string, opts?: { fte?: boolean }) => Promise<void> }>({ startCall: async () => {} });
 export const useCalls = () => useContext(Ctx);
 
 export function CallProvider({ children }: { children: ReactNode }) {
@@ -192,12 +194,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [call?.phase]);
 
   const startCall = useCallback(
-    async (conversationId: string, media: Media, peerName: string) => {
+    async (conversationId: string, media: Media, peerName: string, opts?: { fte?: boolean }) => {
       if (current.current) throw new Error("You are already in a call.");
-      await getMedia(media);
+      if (!opts?.fte) await getMedia(media); // she listens through the recorder, with no peer connection
       try {
-        const r = await api.post<{ callId: string; peer: { name: string } }>(`/api/chat/conversations/${conversationId}/calls`, { media });
+        const r = await api.post<{ callId: string; peer: { name: string }; fte?: boolean; greeting?: string }>(`/api/chat/conversations/${conversationId}/calls`, { media });
         holdLive(true);
+        if (r.fte) {
+          setCall({ id: r.callId, media: "audio", peerName: r.peer.name || peerName, role: "caller", phase: "active", startedAt: Date.now(), fte: { conversationId, greeting: r.greeting ?? "" } });
+          return;
+        }
         setCall({ id: r.callId, media, peerName: r.peer.name || peerName, role: "caller", phase: "ringing" });
         callSound.calling(media);
       } catch (e) {
@@ -250,7 +256,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={value}>
       {children}
-      {call ? <CallScreen call={call} now={now} remote={remote} mine={mine} muted={muted} camOff={camOff} speaker={speaker} onAccept={() => void accept()} onDecline={decline} onHangUp={hangUp} onMute={toggleMute} onCam={toggleCam} onSpeaker={toggleSpeaker} /> : null}
+      {call?.fte && call.phase === "active" ? (
+        <Modal visible animationType="fade" statusBarTranslucent onRequestClose={hangUp}>
+          <FteCallScreen conversationId={call.fte.conversationId} name={call.peerName} greeting={call.fte.greeting} onHangUp={hangUp} onEnded={(note) => { void signal(call.id, "end"); endShown(note); }} />
+        </Modal>
+      ) : call ? (
+        <CallScreen call={call} now={now} remote={remote} mine={mine} muted={muted} camOff={camOff} speaker={speaker} onAccept={() => void accept()} onDecline={decline} onHangUp={hangUp} onMute={toggleMute} onCam={toggleCam} onSpeaker={toggleSpeaker} />
+      ) : null}
     </Ctx.Provider>
   );
 }

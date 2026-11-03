@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { useLiveEvent } from "../lib/sse";
 import { notifyDesktop } from "../lib/desktopNotify";
 import { Avatar, clsx } from "../ui";
+import { FteCallPanel } from "./FteCall";
 
 /**
  * Voice and video calls, browser to browser (WebRTC). The server rings the other side and relays the
@@ -19,6 +20,7 @@ interface Call {
   phase: "ringing" | "incoming" | "connecting" | "active" | "ended";
   note?: string;
   startedAt?: number;
+  fte?: { conversationId: string; greeting: string }; // the AI employee answered: no peer connection, she takes turns
 }
 type SignalEvent = { type: string; callId: string; data?: unknown; media?: Media; from?: { id: string; name: string }; status?: string; seconds?: number };
 
@@ -146,7 +148,13 @@ export function CallLayer() {
         throw new Error(media === "video" ? "Camera or microphone not available — allow access to call" : "Microphone not available — allow access to call");
       }
       try {
-        const r = await api.post<{ callId: string; peer: { name: string } }>(`/api/chat/conversations/${conversationId}/calls`, { media });
+        const r = await api.post<{ callId: string; peer: { name: string }; fte?: boolean; greeting?: string }>(`/api/chat/conversations/${conversationId}/calls`, { media });
+        if (r.fte) {
+          local.current?.getTracks().forEach((t) => t.stop()); // she listens through her own recorder
+          local.current = null;
+          setCall({ id: r.callId, media: "audio", peerName: r.peer.name || peerName, role: "caller", phase: "active", startedAt: Date.now(), fte: { conversationId, greeting: r.greeting ?? "" } });
+          return;
+        }
         setCall({ id: r.callId, media, peerName: r.peer.name || peerName, role: "caller", phase: "ringing" });
         ringer.current = tone("back");
       } catch (e) {
@@ -277,6 +285,10 @@ export function CallLayer() {
             ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`
             : (call.note ?? "Call ended");
   const video = call.media === "video" && (call.phase === "active" || call.phase === "connecting");
+
+  if (call.fte && call.phase === "active") {
+    return <FteCallPanel conversationId={call.fte.conversationId} name={call.peerName} greeting={call.fte.greeting} onHangUp={hangUp} onEnded={(note) => { void signal(call.id, "end"); endShown(note); }} />;
+  }
 
   return (
     <div className={clsx("fixed z-[70]", video ? "inset-0 bg-slate-950" : "right-4 bottom-4 left-4 sm:left-auto sm:w-80")} role="dialog" aria-label="Call">

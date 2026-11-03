@@ -142,9 +142,9 @@ export default function FteConsole() {
                     <span className="text-sm font-semibold text-slate-900">{r.workerName ?? "—"}</span>
                     {r.customer && <span className="text-sm text-slate-600">with {r.customer}</span>}
                     <Badge tone={r.trigger === "message" ? "blue" : "violet"}>{r.trigger === "message" ? "buyer message" : r.trigger === "event" ? "proactive" : r.trigger}</Badge>
-                    <span className="flex min-w-0 flex-1 flex-wrap gap-1">
+                    <span className="flex min-w-0 flex-1 basis-full flex-wrap gap-1 sm:basis-0">
                       {r.toolCalls.map((t, i) => (
-                        <span key={i} className={`rounded-md px-1.5 py-0.5 font-mono text-[11px] ${t.ok ? "bg-slate-100 text-slate-700" : "bg-rose-50 text-rose-700"}`}>
+                        <span key={i} className={`max-w-full rounded-md px-1.5 py-0.5 font-mono text-[11px] [overflow-wrap:anywhere] ${t.ok ? "bg-slate-100 text-slate-700" : "bg-rose-50 text-rose-700"}`}>
                           {t.name}
                         </span>
                       ))}
@@ -609,7 +609,7 @@ function Evals({ canRun }: { canRun: boolean }) {
                       <li key={x.id}>
                         <button onClick={() => setOpen(x)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left hover:bg-slate-50">
                           {x.pass ? <Check className="size-4 shrink-0 text-emerald-600" /> : <X className="size-4 shrink-0 text-rose-600" />}
-                          <span className="min-w-0 flex-1 text-sm font-semibold text-slate-900">{x.title}</span>
+                          <span className="min-w-0 flex-1 basis-[calc(100%-2rem)] text-sm font-semibold text-slate-900 sm:basis-0">{x.title}</span>
                           <Badge tone="gray">{d.categories[x.category] ?? x.category}</Badge>
                           {x.safety && <Badge tone="violet">safety</Badge>}
                           {!!x.guards?.length && <Badge tone="amber">code guard</Badge>}

@@ -9,6 +9,7 @@ import { useLiveEvent, useLiveStream } from "../lib/sse";
 import { Avatar, Button, Field, Input, Spinner } from "../ui";
 import { Composer, MessageList, useConversation, type ChatMsg } from "./ChatThread";
 import { CallButtons } from "./calls";
+import { CallFte } from "./FteCall";
 
 type OpenListener = (text?: string) => void;
 let openListener: OpenListener | null = null;
@@ -125,6 +126,11 @@ export function ChatPanel({ draft, onClose, full }: { draft?: string; onClose?: 
             )}
             <MessageList messages={messages} meId={me.id} typing={typing} receipts={receipts} />
           </div>
+          {conv.holder === "fte" && (
+            <div className="flex justify-center bg-violet-50/60 px-3 py-1 text-xs">
+              <CallFte conversationId={conv.id} />
+            </div>
+          )}
           {conv.holder === "fte" && <TalkToPerson onDone={reload} />}
           {conv.holder === "human" && (
             <div className="flex flex-wrap items-center justify-center gap-2 bg-amber-50 px-3 py-1 text-[11px] text-amber-800">

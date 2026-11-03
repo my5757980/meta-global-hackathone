@@ -476,6 +476,34 @@ const BASE_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "ask_invoice_correction",
+    description: "The buyer asks to correct the name, phone, e-mail or address on one of their invoices. This sends it to the invoice desk, who correct it and send the new PDF. Prices are never changed this way.",
+    input: { invoice_number: z.string().min(3).max(30), what_to_change: z.string().min(5).max(400).describe("Exactly what the buyer wants changed, with the new spelling") },
+    async run(a, ctx) {
+      if (!ctx.buyerUserId) throw new ToolError("No buyer in this conversation");
+      const [inv] = await db().select({ id: s.invoices.id, status: s.invoices.status, buyer: s.leads.customerUserId }).from(s.invoices).innerJoin(s.leads, eq(s.leads.id, s.invoices.leadId)).where(eq(s.invoices.number, String(a.invoice_number).trim().toUpperCase())).limit(1);
+      if (!inv || inv.buyer !== ctx.buyerUserId) throw new ToolError("This buyer has no such invoice");
+      await emit("invoice.correction", { invoiceId: inv.id, what: String(a.what_to_change), buyerUserId: ctx.buyerUserId });
+      return { sent_to_invoice_desk: true, message: "Tell the buyer the invoice desk is correcting it, and the new PDF will come here." };
+    },
+  },
+  {
+    name: "update_lead_status",
+    description: "Mark the buyer's lead: in_progress when they are really talking about a car, closed when they say they no longer want to buy.",
+    input: { lead_id: z.string().min(8).max(40), status: z.enum(["in_progress", "closed"]), why: z.string().min(3).max(200) },
+    async run(a, ctx) {
+      const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, String(a.lead_id))).limit(1);
+      if (!lead) throw new ToolError("Unknown lead_id");
+      if (ctx.buyerUserId && lead.customerUserId && lead.customerUserId !== ctx.buyerUserId) throw new ToolError("That lead is not this buyer's");
+      if (!["new", "in_progress"].includes(lead.status)) return { unchanged: true, status: lead.status, message: "It has an invoice, so it stays as it is." };
+      await db().transaction(async (tx) => {
+        await tx.update(s.leads).set({ status: String(a.status), updatedAt: new Date() }).where(eq(s.leads.id, lead.id));
+        await audit(tx, { actorUserId: ctx.principalUserId, actorKind: ctx.principalKind, action: "lead.status", entity: "lead", entityId: lead.id, summary: `${ctx.principalName} set ${lead.customerName} to ${a.status}: ${a.why}`, conversationId: ctx.conversationId, fteRunId: ctx.runId });
+      });
+      return { ok: true };
+    },
+  },
+  {
     name: "continue_web_order",
     description: "The buyer told you the port for their website order, which the website desk was waiting for. This hands the order back to that desk with the port. Get the port_id from list_ports first.",
     input: { order_no: z.string().min(3).max(40), port_id: z.string().min(2).max(80) },

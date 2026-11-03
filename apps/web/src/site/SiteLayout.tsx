@@ -100,9 +100,6 @@ function TopBar() {
             </span>
           </div>
           <div className="flex items-center gap-4 whitespace-nowrap">
-            <span className="hidden items-center gap-1.5 2xl:flex">
-              <Bot className="size-3.5" /> {site?.ftEName ?? "Sora"}, our AI sales executive, answers 24/7 · Built with Muse Spark Open
-            </span>
             {CLOCKS.map(([city, zone], i) => (
               <span key={city} className={clsx(i > 1 && "hidden lg:inline")}>
                 {city} <strong className="font-semibold text-white">{timeIn(now, zone)}</strong>

@@ -11,6 +11,7 @@ import { iceServers, pendingCallFor, signalCall, startCall } from "../services/c
 import { isOnline } from "../services/sse";
 import { saveFile } from "../services/files";
 import { triggerSora } from "../fte/agent";
+import { ON_A_CALL } from "../fte/prompts";
 import { transcribeMessage } from "../fte/voice";
 import { audit } from "../services/audit";
 import { notify, usersWithPerm } from "../services/notify";
@@ -245,7 +246,7 @@ chatRouter.get(
   }),
 );
 
-const sendSchema = z.object({ body: z.string().max(8000).default(""), kind: z.enum(["text", "image", "voice"]).default("text"), fileIds: z.array(z.string()).max(20).default([]) });
+const sendSchema = z.object({ body: z.string().max(8000).default(""), kind: z.enum(["text", "image", "voice"]).default("text"), fileIds: z.array(z.string()).max(20).default([]), onCall: z.boolean().optional() });
 
 chatRouter.post(
   "/conversations/:id/messages",
@@ -267,7 +268,7 @@ chatRouter.post(
     if (body.kind === "voice") void transcribeMessage(msg.id); // start hearing it at once (also useful to staff)
     if (!isStaff(u) && conv.kind === "customer") {
       const [fresh] = await db().select({ holder: s.chatConversations.holder }).from(s.chatConversations).where(eq(s.chatConversations.id, conv.id)).limit(1);
-      if (fresh?.holder === "fte") triggerSora(conv.id, { kind: "message" });
+      if (fresh?.holder === "fte") triggerSora(conv.id, { kind: "message", note: body.onCall ? ON_A_CALL : undefined });
     }
     return msg;
   }),

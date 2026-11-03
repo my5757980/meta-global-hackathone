@@ -286,6 +286,21 @@ export async function markInvoiceSent(id: string, actor: Actor) {
   });
 }
 
+/** A name, phone, e-mail or address put right, even after sending. Prices and cars are not touched here. */
+export async function correctConsignee(id: string, f: { consigneeName?: string; consigneePhone?: string; consigneeEmail?: string; consigneeAddress?: string }, why: string, actor: Actor) {
+  return db().transaction(async (tx) => {
+    const [inv] = await tx.select().from(s.invoices).where(eq(s.invoices.id, id)).limit(1);
+    if (!inv) throw notFound("Invoice not found");
+    if (!["pending", "approved", "sent"].includes(inv.status)) throw conflict(`A ${inv.status} invoice can no longer be changed`);
+    const set = Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined && v !== ""));
+    if (!Object.keys(set).length) throw bad("Nothing to change");
+    await tx.update(s.invoices).set(set).where(eq(s.invoices.id, id));
+    const changes = Object.entries(set).map(([k, v]) => `${k.replace("consignee", "").toLowerCase()} "${(inv as unknown as Record<string, unknown>)[k] ?? ""}" to "${v}"`).join(", ");
+    await audit(tx, { actorUserId: actor.userId, actorKind: actor.kind, action: "invoice.corrected", entity: "invoice", entityId: id, fteRunId: actor.fteRunId, summary: `Corrected invoice ${inv.number}: ${changes} (${why})` });
+    return inv;
+  });
+}
+
 /** Manager's correction: an invoice with no money and no units on it can be removed; the stock and the lead go back. */
 export async function deleteInvoice(id: string, actor: Actor) {
   return db().transaction(async (tx) => {
