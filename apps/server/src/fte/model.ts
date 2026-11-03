@@ -43,25 +43,80 @@ function retryable(e: unknown): boolean {
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
-export async function chat(opts: { messages: ChatCompletionMessageParam[]; tools?: ChatCompletionTool[]; effort?: Effort; maxTokens?: number; json?: boolean; timeoutMs?: number }): Promise<ChatResult> {
+interface ChatOpts {
+  messages: ChatCompletionMessageParam[];
+  tools?: ChatCompletionTool[];
+  effort?: Effort;
+  maxTokens?: number;
+  json?: boolean;
+  timeoutMs?: number;
+  hedgeMs?: number;
+}
+
+const createOnce = (p: Provider, opts: ChatOpts, signal: AbortSignal) =>
+  p.client.chat.completions.create(
+    {
+      model: p.model,
+      messages: opts.messages,
+      ...(opts.tools?.length ? { tools: opts.tools, tool_choice: "auto" as const } : {}),
+      max_tokens: opts.maxTokens ?? 1800,
+      ...(opts.json ? { response_format: { type: "json_object" as const } } : {}),
+      // Muse Spark Open always reasons; "low" keeps chat replies fast.
+      ...({ reasoning_effort: opts.effort ?? "low" } as Record<string, unknown>),
+    },
+    { timeout: opts.timeoutMs ?? 45_000, signal },
+  );
+
+/**
+ * A call usually answers in seconds, but now and then one hangs on the provider's side for over a minute. So if there is no
+ * answer soon, a second identical call starts, the first answer wins, and the other is cancelled. Nobody waits on a hung call.
+ */
+function hedged(p: Provider, opts: ChatOpts) {
+  type R = Awaited<ReturnType<typeof createOnce>>;
+  return new Promise<R>((resolve, reject) => {
+    const calls: AbortController[] = [];
+    let settled = false;
+    let running = 0;
+    let timer: NodeJS.Timeout | undefined;
+    const start = () => {
+      const c = new AbortController();
+      calls.push(c);
+      running++;
+      createOnce(p, opts, c.signal).then(
+        (r) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          calls.forEach((x) => x.abort());
+          resolve(r);
+        },
+        (e) => {
+          running--;
+          if (settled) return;
+          // the only call failed outright (a rate limit, say): the retry loop decides. With a second one out, wait for it.
+          if (running === 0) {
+            settled = true;
+            clearTimeout(timer);
+            reject(e);
+          }
+        },
+      );
+    };
+    start();
+    timer = setTimeout(() => {
+      if (!settled) start();
+    }, opts.hedgeMs ?? 15_000);
+  });
+}
+
+export async function chat(opts: ChatOpts): Promise<ChatResult> {
   if (!providers.length) throw new Error("No Meta model provider configured (set BASETEN_API_KEY in .env)");
   let lastErr: unknown;
   for (const p of providers) {
     for (let attempt = 0; attempt < 4; attempt++) {
       const t0 = Date.now();
       try {
-        const r = await p.client.chat.completions.create(
-          {
-            model: p.model,
-            messages: opts.messages,
-            ...(opts.tools?.length ? { tools: opts.tools, tool_choice: "auto" as const } : {}),
-            max_tokens: opts.maxTokens ?? 1800,
-            ...(opts.json ? { response_format: { type: "json_object" as const } } : {}),
-            // Muse Spark Open always reasons; "low" keeps chat replies fast.
-            ...({ reasoning_effort: opts.effort ?? "low" } as Record<string, unknown>),
-          },
-          { timeout: opts.timeoutMs ?? 45_000 }, // a call that hangs is cut and tried again, rather than making a buyer wait
-        );
+        const r = await hedged(p, opts);
         const choice = r.choices[0]!;
         countTokens((r.usage?.prompt_tokens ?? 0) + (r.usage?.completion_tokens ?? 0));
         return {

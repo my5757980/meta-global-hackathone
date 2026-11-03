@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { clearPermCache } from "../auth/session";
 import { db, runMigrations } from "../db/client";
 import { env, filesDir } from "../env";
+import { forgetSale } from "../fte/demoSale";
 import { seedAll } from "../seed";
 import { clearSettingsCache } from "./settings";
 
@@ -24,6 +25,7 @@ export async function resetDemo(): Promise<number> {
     await seedAll(db(), () => {});
     clearSettingsCache();
     clearPermCache();
+    forgetSale();
     lastReset = Date.now();
     return Math.round((lastReset - t0) / 1000);
   } finally {

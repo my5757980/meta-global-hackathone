@@ -50,6 +50,7 @@ async function readPicture<T>(fileId: string, prompt: string, unreadable: T): Pr
     messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: `data:${f.mime};base64,${readFileSync(f.abs).toString("base64")}` } }] as never }],
     effort: "low",
     maxTokens: 1500,
+    hedgeMs: 12_000,
   });
   console.log(`[picture] read ${f.originalName ?? fileId} in ${(r.ms / 1000).toFixed(1)} s`);
   const text = r.message.content ?? "";

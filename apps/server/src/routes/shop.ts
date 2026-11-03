@@ -9,6 +9,7 @@ import { bad, forbidden, h, notFound, parse } from "../lib/http";
 import { requireAuth } from "../auth/session";
 import { audit } from "../services/audit";
 import { emit } from "../services/events";
+import { deskManual } from "../fte/workforce";
 import { ensureCustomerConversation, postMessage } from "../services/chat";
 import { notify, usersWithPerm } from "../services/notify";
 import { listVehicles } from "../services/website";
@@ -173,7 +174,7 @@ shopRouter.post(
       body: provider ? `Order ${orderNo} received: ${ready.map((v) => `${v.title} (${v.stockNo})`).join(", ")} — ${formatUsd(total)} FOB, waiting for your online payment.` : `Order request ${orderNo} received: ${ready.map((v) => `${v.title} (${v.stockNo})`).join(", ")} — ${formatUsd(total)} FOB. A colleague will confirm availability and send the invoice with bank details.`,
       meta: { webOrderId: order.id, orderNo },
     }).catch((e) => console.error("[checkout] chat note failed", e));
-    await notify(await usersWithPerm("website.orders.manage"), { type: "order", title: `New order request ${orderNo}`, body: `${u.name} · ${ready.length} car(s) · ${formatUsd(total)}`, link: "/admin/orders" });
+    if (await deskManual("website", "website.order")) await notify(await usersWithPerm("website.orders.manage"), { type: "order", title: `New order request ${orderNo}`, body: `${u.name} · ${ready.length} car(s) · ${formatUsd(total)}`, link: "/admin/orders" });
     return { orderId: order.id, orderNo, totalUsd: total, items: ready.length, payOnline: !!provider };
   }),
 );
@@ -223,7 +224,7 @@ shopRouter.post(
       await emit("web_order.created", { orderId: o.id }, { tx });
     });
     await postMessage({ conversationId: conv.id, senderUserId: null, kind: "system", body: `Payment of ${formatUsd(c.amountUsd)} received for order ${o.orderNo}. Your invoice is being prepared.`, meta: { webOrderId: o.id, orderNo: o.orderNo } }).catch((e) => console.error("[capture] chat note failed", e));
-    await notify(await usersWithPerm("website.orders.manage"), { type: "order", title: `Order ${o.orderNo} paid online`, body: `${u.name} · ${formatUsd(c.amountUsd)}`, link: "/admin/orders" });
+    if (await deskManual("website", "website.order")) await notify(await usersWithPerm("website.orders.manage"), { type: "order", title: `Order ${o.orderNo} paid online`, body: `${u.name} · ${formatUsd(c.amountUsd)}`, link: "/admin/orders" });
     return { paid: true };
   }),
 );

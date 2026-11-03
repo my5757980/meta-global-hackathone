@@ -397,7 +397,7 @@ const WEBSITE_TOOLS: ToolDef[] = [
   {
     name: "order_to_invoice",
     description: "Turn a website order into an invoice request at the price engine's price to the buyer's port. The invoice desk then checks it. If the port is unknown, have the sales FTE ask the buyer first.",
-    input: { order_id: idArg, port_id: idArg },
+    input: { order_id: idArg, port_id: z.string().min(2).max(80) },
     async run(a, ctx) {
       const orderId = String(a.order_id);
       const [o] = await db().select({ o: s.webOrders, buyer: s.users }).from(s.webOrders).innerJoin(s.users, eq(s.users.id, s.webOrders.userId)).where(eq(s.webOrders.id, orderId)).limit(1);
@@ -459,13 +459,13 @@ const SHARED_TOOLS: ToolDef[] = [
   },
   {
     name: "tell_buyer_through_sales",
-    description: "Have the sales FTE, who holds the conversation, tell the buyer something. Say exactly what they must hear. Back-office FTEs never write to a buyer directly.",
+    description: "Have the sales FTE, who holds the conversation, tell the buyer something. Say exactly what they must hear, in plain words: invoice numbers yes, internal ids never. Back-office FTEs never write to a buyer directly.",
     input: { buyer_user_id: idArg, note: z.string().min(5).max(500) },
     async run(a, ctx) {
       const conv = await buyerConversation(String(a.buyer_user_id));
       if (!conv) return { told: false, message: "This buyer has no chat." };
       const { triggerSora } = await import("./agent");
-      triggerSora(conv, { kind: "event", note: `${ctx.principalName} (${ctx.workerKey} desk) asks you to tell the buyer, in one short polite message: ${a.note}` });
+      triggerSora(conv, { kind: "event", note: `${ctx.principalName} (${ctx.workerKey} desk) asks you to tell the buyer, in one short polite message, with no internal ids: ${a.note}` });
       return { told: true };
     },
   },

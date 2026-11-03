@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import type { WorkerKey } from "@autofte/shared";
 import { db } from "../db/client";
 import * as s from "../db/schema";
+import { env } from "../env";
+import { modelConfigured } from "./model";
 
 /**
  * The roster: every seat in the business is held by its own Digital FTE. A role card says what it owns, what it does
@@ -143,6 +145,13 @@ export async function workerUser(key: WorkerKey) {
 export async function workerRow(key: WorkerKey) {
   const [row] = await db().select().from(s.fteWorkers).where(eq(s.fteWorkers.key, key)).limit(1);
   return row ?? null;
+}
+
+/** True when people do this job: then, and only then, they are told each time one comes in. An owner's attention is not free. */
+export async function deskManual(key: WorkerKey, task: string) {
+  if (!env.WORKFORCE_ENABLED || !env.FTE_ENABLED || !modelConfigured()) return true;
+  const row = await workerRow(key);
+  return !row?.enabled || (await levelOf(key, task)) === 0;
 }
 
 /** The task's autonomy level right now. */

@@ -59,6 +59,7 @@ export async function readSheet(lotId: string, opts: { fresh?: boolean } = {}): 
     effort: "medium",
     maxTokens: 3500,
     timeoutMs: 150_000,
+    hedgeMs: 70_000, // reading a whole sheet honestly takes a while
   });
   const text = r.message.content ?? "";
   const json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);

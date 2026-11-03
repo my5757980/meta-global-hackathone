@@ -12,6 +12,7 @@ import { carSvg } from "./carArt";
 import { colorHex } from "../seed/catalog";
 import type { Actor } from "./crm";
 import { emit } from "./events";
+import { resvgFonts } from "./fonts";
 import { saveFile } from "./files";
 import { now, pricingPolicy } from "./settings";
 
@@ -134,7 +135,7 @@ export function documentPng(title: string, rows: [string, string][]): Buffer {
     .join("");
   const h = 340 + rows.length * 46;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="${h}" viewBox="0 0 1000 ${h}"><rect width="1000" height="${h}" fill="#fbfaf6"/><rect x="30" y="30" width="940" height="${h - 60}" fill="none" stroke="#1a2b6d" stroke-width="3"/><text x="500" y="110" font-size="38" font-weight="bold" text-anchor="middle" fill="#1a2b6d" font-family="Arial, Helvetica, sans-serif">${esc(title)}</text><text x="500" y="160" font-size="20" text-anchor="middle" fill="#a33" font-family="Arial, Helvetica, sans-serif">SAMPLE, PRINTED BY THE DEMO COMPANY</text><line x1="70" y1="190" x2="930" y2="190" stroke="#999"/>${lines}</svg>`;
-  return Buffer.from(new Resvg(svg, { fitTo: { mode: "width", value: 1000 }, font: { loadSystemFonts: true, defaultFontFamily: "Arial" } }).render().asPng());
+  return Buffer.from(new Resvg(svg, { fitTo: { mode: "width", value: 1000 }, font: resvgFonts }).render().asPng());
 }
 
 /** A bank transfer slip for the demo: the picture a buyer would photograph. */

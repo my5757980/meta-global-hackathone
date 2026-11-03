@@ -11,6 +11,7 @@ import { catalogFacets, getVehicleBySlugOrId, listVehicles, relatedVehicles, sug
 import { notify, usersWithPerm } from "../services/notify";
 import { usdJpy } from "../services/fx";
 import { emit } from "../services/events";
+import { deskManual } from "../fte/workforce";
 import { BODY_PHOTOS } from "../seed/photos";
 
 export const publicRouter = Router();
@@ -148,7 +149,7 @@ publicRouter.post(
     );
     const [msg] = await db().insert(s.contactMessages).values(body).returning({ id: s.contactMessages.id });
     await emit("contact.message", { messageId: msg!.id });
-    await notify(await usersWithPerm("website.content.manage"), { type: "contact", title: `New contact message from ${body.name}`, body: body.subject ?? body.message.slice(0, 80), link: "/admin/messages" });
+    if (await deskManual("crm", "crm.contact")) await notify(await usersWithPerm("website.content.manage"), { type: "contact", title: `New contact message from ${body.name}`, body: body.subject ?? body.message.slice(0, 80), link: "/admin/messages" });
     return { ok: true };
   }),
 );

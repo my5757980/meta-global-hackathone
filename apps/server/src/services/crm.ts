@@ -5,6 +5,7 @@ import { hashPassword, randomPassword } from "../auth/passwords";
 import { bad, conflict, notFound } from "../lib/http";
 import { audit } from "./audit";
 import { emit } from "./events";
+import { deskManual } from "../fte/workforce";
 import { notify, usersWithPerm } from "./notify";
 import { siteSettings } from "./settings";
 
@@ -150,7 +151,7 @@ export async function requestInvoice(input: InvoiceRequestInput, actor: Actor) {
   if (input.vehicles.length > 50) throw bad("At most 50 vehicles on one invoice");
   // read everything the transaction needs first: PGlite has one connection, so a db() call inside tx would wait forever
   const site = await siteSettings();
-  const supervisors = await usersWithPerm("crm.invoices.approve");
+  const supervisors = (await deskManual("invoices", "invoice.review")) ? await usersWithPerm("crm.invoices.approve") : [];
   return db().transaction(async (tx) => {
     const [lead] = await tx.select().from(s.leads).where(eq(s.leads.id, input.leadId)).limit(1);
     if (!lead) throw notFound("Lead not found");

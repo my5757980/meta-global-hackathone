@@ -14,7 +14,7 @@ import { envelope, now } from "../services/settings";
 import { chat, modelConfigured } from "./model";
 import { assign, reflexOn, sayInRoom, workforceOn } from "./workerRun";
 import { recordPaymentRow } from "./workerTools";
-import { levelOf, WORKERS, workerUser } from "./workforce";
+import { deskManual, levelOf, WORKERS, workerUser } from "./workforce";
 
 async function actorFor(key: WorkerKey): Promise<Actor | null> {
   const u = await workerUser(key);
@@ -50,7 +50,10 @@ export function registerWorkforce() {
 
   // ---------- payments ----------
   on("payment.slip", async ({ fileId, buyerUserId, invoiceId }) => {
-    if (!workforceOn()) return;
+    if (await deskManual("accounts", "payment.record")) {
+      await notify(await usersWithPerm("crm.payments.record"), { type: "payment", title: "A buyer sent a payment slip", body: "It is in their chat. Check it and record the payment on the invoice.", link: invoiceId ? `/crm/invoices/${invoiceId}` : "/desk" });
+      return;
+    }
     void assign("accounts", { task: "payment.record", title: "Read a payment slip", note: `A buyer sent a payment slip. file_id ${fileId}, buyer_user_id ${buyerUserId}${invoiceId ? `, on invoice_id ${invoiceId}` : ", no invoice named"}. Read it, find the invoice, and record it or pass it up.` });
   });
 
@@ -78,7 +81,8 @@ export function registerWorkforce() {
       }
     }
     await markSold(cars.map((c) => c.vehicleId).filter(Boolean) as string[]);
-    await sayInRoom("operations", `Payment on invoice ${cars[0] ? cars[0].unitLabel : id}: units and stages are up to date.`);
+    const [number] = await db().select({ n: s.invoices.number }).from(s.invoices).where(eq(s.invoices.id, id)).limit(1);
+    await sayInRoom("operations", `Payment in on invoice ${number?.n ?? id}: units, costing and stages are up to date${balance > 0.01 ? `, balance $${balance.toLocaleString("en-US")}` : ", fully paid"}.`);
   });
 
   // a signal from the yard or the shipping line (in demo mode, played on the demo clock)
@@ -146,6 +150,22 @@ export function registerWorkforce() {
       moved++;
     }
     if (moved) await sayInRoom("auction", `Sale day settled: ${moved} order(s) moved.`);
+  });
+
+  // an auction car's order follows its shipping: no judgement in that
+  on("progress.updated", async ({ invoiceVehicleId, stage }) => {
+    if (!(await on_("auction", "auction.order"))) return;
+    const next: Record<string, string> = { "First Payment Received": "paid", Shipped: "shipped", "Delivered to port": "delivered" };
+    const status = next[String(stage)];
+    if (!status) return;
+    const [row] = await db().select({ lotId: s.invoiceVehicles.auctionLotId, buyer: s.leads.customerUserId }).from(s.invoiceVehicles).innerJoin(s.invoices, eq(s.invoices.id, s.invoiceVehicles.invoiceId)).innerJoin(s.leads, eq(s.leads.id, s.invoices.leadId)).where(eq(s.invoiceVehicles.id, String(invoiceVehicleId))).limit(1);
+    if (!row?.lotId || !row.buyer) return;
+    const kaito = await actorFor("auction");
+    const [o] = await db().select().from(s.auctionOrders).where(and(eq(s.auctionOrders.lotId, row.lotId), eq(s.auctionOrders.userId, row.buyer))).limit(1);
+    if (!o || !kaito || o.status === "cancelled" || o.status === status) return;
+    await db().update(s.auctionOrders).set({ status, updatedAt: new Date() }).where(eq(s.auctionOrders.id, o.id));
+    await audit(db(), { actorUserId: kaito.userId, actorKind: "fte", action: "order.status", entity: "order", entityId: o.id, summary: `${kaito.name} moved ${o.orderNo} to ${status}: the car reached "${stage}"` });
+    await notify([row.buyer], { type: "order", title: `Order ${o.orderNo} is ${status}`, body: String(stage), link: "/auction/me" });
   });
 
   // ---------- CRM desk ----------

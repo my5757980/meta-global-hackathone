@@ -34,6 +34,9 @@ export interface DemoSale {
 
 let sale: DemoSale | null = null;
 export const currentSale = () => sale;
+export const forgetSale = () => {
+  sale = null;
+};
 
 const NAMES = [["Amani Otieno", "Otieno Auto Traders"], ["Neema Mushi", "Mushi Motors"], ["Grace Banda", "Banda Car Imports"], ["Brian Kamau", "Kamau Fleet Services"]] as const;
 const WAIT_MS = 300_000;

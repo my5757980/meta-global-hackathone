@@ -107,6 +107,7 @@ flowchart LR
   or removed later breaks the chain and the console shows it. The owner can overrule a decision, and the chief reads that.
 - **Reflexes use no model.** Steps that need no judgement are plain code on the event bus: the final PDF after an approval, the
   unit and costing after a payment, an order following its bid. The model is used where there is something to read or judge.
+- **A hung call holds nobody up.** A model call usually answers in seconds, but one now and then hangs for over a minute. If there is no answer soon, a second identical call starts and the first answer wins (`fte/model.ts`).
 - **Work in the open.** Each desk says what it did in a team room the owner can read, keeps to a daily token budget, and
   retries a failed job once before asking for a person. Tomo writes a daily report: done, missed, needs you.
 - **Skills.** Know-how lives in `skills/*/SKILL.md`. Sora loads hers on demand; a desk's skill is its job description.
@@ -146,12 +147,13 @@ fallback. "Listen" in the chat uses the browser's own speech, not a model.
 
 | Part | What it does |
 | --- | --- |
-| **Website** | Home (19 editable sections), world clocks and the yen rate, shop with suggestions, filters and price range, car cards with save and add to cart, car pages with gallery and video, wishlist, cart, checkout, guides, FAQ, forgotten password by link, newsletter sign-up; customer account with invoices, shipping progress and documents |
+| **Website** | Home (19 editable sections), world clocks and the yen rate, shop with suggestions, filters and price range, car cards with save and add to cart, car pages with gallery and video, wishlist, cart, checkout with an order request or paying online, guides, FAQ, forgotten password by link, newsletter sign-up; customer account with invoices, sending a bank slip, shipping progress and documents |
 | **CRM** | Leads (filters, Excel import, assign by country, transfer, statuses), Customers view with invoiced, paid and balance, invoice request, Supervisor edit and approval, final PDF before sending, PDF and Excel on three letterheads, payments, units with six document folders and costing, shipping progress, reports in Excel and Word, users and roles, full backup workbook |
 | **Auction** | Lots across fictional halls with rendered sheets, Excel import of your own lots, a list that refreshes itself, bids and orders, past prices by hall, engine and date, enquiries, an admin side with every lot, a client-to-paid-order funnel, who did what, and a measured working signal |
 | **Live chat** | One thread on the site, desk and app: pictures, voice notes, one, two and blue ticks, links, emoji, talk to a person, take over and hand back, team DMs and groups, presence, voice and video calls; staff drill down agent then customers |
 | **Website admin** | Vehicles, home sections, pages, guides, FAQ, brands and models, customers (one-time passwords in bulk, CRM customers with no e-mail), orders, messages, newsletter list, media library, branding, roles and permissions |
-| **Android app** | Home, shop with every filter, car pages, cart, checkout, account, forgotten and changed passwords, the same chat with Sora and the team, voice and video calls, push notifications (`apps/mobile`, Expo) |
+| **Android app** | The whole website (home with every section, shop with every filter, car pages, cart, checkout and paying online, account, guides, FAQ, newsletter, forgotten and changed passwords, sending a bank slip) and the same chat with Sora and the team, voice and video calls, push notifications. No CRM and no auction screens (`apps/mobile`, Expo) |
+| **Digital workforce console** | The roster with each FTE's role card and autonomy dials, what needs the owner with the chief of staff's opinion, the signed decision ledger with overrule, daily reports, the team room, every run and tool call, limits, evals, and a button to watch one whole sale |
 
 The app is on the [Releases](../../releases) page. On first launch it asks for the server's address, for example
 `http://192.168.1.20:8787` after `npm run build && npm start` on a laptop on the same Wi-Fi. To build it yourself:
@@ -165,6 +167,7 @@ Other commands: `npm run build && npm start` (one process serves the site, API a
 - All data is fictional. Import rules per country are demo data, and the screen says so.
 - PayPal at checkout needs your keys (`PAYPAL_CLIENT_ID`, `PAYPAL_SECRET` in `.env`). Without them, demo mode has a stand-in page that moves no money and says so. The PayPal path was tested against a local fake of its API, not against PayPal itself. Most buyers pay by bank transfer, and Ren records it from the slip.
 - The bank, the yard and the shipping line are simulated in demo mode: slips and documents are printed by the server and marked as demo, and yard signals play on the demo clock. What the FTEs do with them is real. A real company would connect its own feeds.
+- A bank slip must be a picture (JPG, PNG or WebP), not a PDF.
 - An FTE cannot be on a voice call. Voice and video calls in the chat ring a person, and a buyer who asks for a person gets one.
 - A person, or the owner, still does what no FTE owns here: refunds, disputes, legal matters, setting the limits, importing auction lists, and writing the site's pages.
 - Reset links go by e-mail only if you set `SMTP_URL`. Without it, demo mode shows the link on the page, and outside demo mode a person issues a one-time password.

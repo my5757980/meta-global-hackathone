@@ -14,6 +14,7 @@ import { carImageUrl, carSvg } from "../services/carArt";
 import { renderPdf } from "../services/pdf";
 import { audit } from "../services/audit";
 import { emit } from "../services/events";
+import { deskManual } from "../fte/workforce";
 import { notify, usersWithPerm } from "../services/notify";
 import { colorHex } from "../seed/catalog";
 import { photoFor, photoPath } from "../seed/photos";
@@ -205,7 +206,7 @@ auctionRouter.post(
     const [o] = await db().insert(s.auctionOrders).values({ orderNo: `ORD-${year}-${String(100001 + n).padStart(6, "0")}`, lotId: l.id, userId: u.id, priceJpy: l.avgPriceJpy, note: (req.body?.note as string) ?? null }).returning();
     await audit(db(), { actorUserId: u.id, actorKind: "human", action: "order.created", entity: "lot", entityId: l.id, summary: `${u.name} placed order ${o!.orderNo} on lot ${l.lotNo}` });
     await emit("auction.order.created", { orderId: o!.id });
-    await notify(await usersWithPerm("auction.orders.manage"), { type: "order", title: `New order ${o!.orderNo}`, body: `${u.name} · lot ${l.lotNo} ${l.make} ${l.model}`, link: `/auction/admin/orders` });
+    if (await deskManual("auction", "auction.order")) await notify(await usersWithPerm("auction.orders.manage"), { type: "order", title: `New order ${o!.orderNo}`, body: `${u.name} · lot ${l.lotNo} ${l.make} ${l.model}`, link: `/auction/admin/orders` });
     return o;
   }),
 );
@@ -220,7 +221,7 @@ auctionRouter.post(
     const year = new Date().getUTCFullYear();
     const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(s.auctionEnquiries)) as [{ n: number }];
     const [e] = await db().insert(s.auctionEnquiries).values({ enqNo: `INQ-${year}-${String(200001 + n).padStart(6, "0")}`, lotId: l.id, userId: u.id, message: b.message }).returning();
-    await notify(await usersWithPerm("auction.enquiries.reply"), { type: "enquiry", title: `Enquiry ${e!.enqNo}`, body: b.message.slice(0, 120), link: `/auction/admin/enquiries` });
+    if (await deskManual("auction", "auction.enquiry")) await notify(await usersWithPerm("auction.enquiries.reply"), { type: "enquiry", title: `Enquiry ${e!.enqNo}`, body: b.message.slice(0, 120), link: `/auction/admin/enquiries` });
     await emit("enquiry.created", { enquiryId: e!.id });
     return e;
   }),

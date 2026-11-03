@@ -4,6 +4,7 @@
  * rendered to PNG with resvg. Sora reads THE IMAGE with Muse Spark Open's vision — the database
  * truth is used only to score that reading in the evals.
  */
+import { resvgFonts } from "./fonts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
@@ -146,7 +147,7 @@ export function sheetPng(l: SheetLot): Buffer {
   const p = sheetPath(l.id);
   if (existsSync(p)) return readFileSync(p);
   mkdirSync(sheetsDir, { recursive: true });
-  const png = new Resvg(sheetSvg(l), { fitTo: { mode: "width", value: 1000 }, font: { loadSystemFonts: true, defaultFontFamily: "Arial" } }).render().asPng();
+  const png = new Resvg(sheetSvg(l), { fitTo: { mode: "width", value: 1000 }, font: resvgFonts }).render().asPng();
   writeFileSync(p, png);
   return png;
 }
