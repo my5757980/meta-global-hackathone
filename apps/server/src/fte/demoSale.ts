@@ -38,6 +38,7 @@ export const forgetSale = () => {
   sale = null;
 };
 
+const SEAT_WORDS: Record<string, string> = { sales: "sales", invoices: "invoices", accounts: "accounts", operations: "operations", auction: "auction desk", crm: "CRM", website: "website", chief: "chief of staff" };
 const NAMES = [["Amani Otieno", "Otieno Auto Traders"], ["Neema Mushi", "Mushi Motors"], ["Grace Banda", "Banda Car Imports"], ["Brian Kamau", "Kamau Fleet Services"]] as const;
 const WAIT_MS = 300_000;
 
@@ -166,11 +167,15 @@ export async function saleTimeline(sl: DemoSale) {
     ids.push(...units.map((u) => u.id));
   }
   const rows = ids.length
-    ? await db().select({ at: s.auditLog.createdAt, summary: s.auditLog.summary, who: s.users.name, whoKind: s.users.kind }).from(s.auditLog).leftJoin(s.users, eq(s.users.id, s.auditLog.actorUserId)).where(inArray(s.auditLog.entityId, ids)).orderBy(asc(s.auditLog.createdAt))
+    ? await db().select({ at: s.auditLog.createdAt, summary: s.auditLog.summary, who: s.users.name, whoKind: s.users.kind, userId: s.auditLog.actorUserId }).from(s.auditLog).leftJoin(s.users, eq(s.users.id, s.auditLog.actorUserId)).where(inArray(s.auditLog.entityId, ids)).orderBy(asc(s.auditLog.createdAt))
     : [];
-  const said = sl.conversationId ? await db().select({ at: s.chatMessages.createdAt, body: s.chatMessages.body, who: s.users.name }).from(s.chatMessages).innerJoin(s.users, eq(s.users.id, s.chatMessages.senderUserId)).where(and(eq(s.chatMessages.conversationId, sl.conversationId), eq(s.users.kind, "fte"))).orderBy(asc(s.chatMessages.createdAt)) : [];
-  const actions = rows.map((r) => ({ at: new Date(r.at).toISOString(), who: r.who ?? "System", kind: r.whoKind === "fte" ? ("fte" as const) : r.whoKind === "staff" ? ("person" as const) : ("system" as const), text: r.summary }));
-  const words = said.filter((m) => m.body?.trim()).map((m) => ({ at: new Date(m.at).toISOString(), who: m.who, kind: "fte-chat" as const, text: `Tells the buyer: ${m.body.trim().replace(/\s+/g, " ").slice(0, 200)}` }));
+  // each FTE named with its seat, so someone watching can follow who does what
+  const seats = await db().select({ key: s.fteWorkers.key, userId: s.fteWorkers.userId }).from(s.fteWorkers);
+  const seatOf = new Map(seats.map((x) => [x.userId, SEAT_WORDS[x.key] ?? x.key]));
+  const named = (who: string, userId: string | null) => (userId && seatOf.has(userId) ? `${who}, ${seatOf.get(userId)}` : who);
+  const said = sl.conversationId ? await db().select({ at: s.chatMessages.createdAt, body: s.chatMessages.body, who: s.users.name, userId: s.chatMessages.senderUserId }).from(s.chatMessages).innerJoin(s.users, eq(s.users.id, s.chatMessages.senderUserId)).where(and(eq(s.chatMessages.conversationId, sl.conversationId), eq(s.users.kind, "fte"))).orderBy(asc(s.chatMessages.createdAt)) : [];
+  const actions = rows.map((r) => ({ at: new Date(r.at).toISOString(), who: named(r.who ?? "System", r.userId), kind: r.whoKind === "fte" ? ("fte" as const) : r.whoKind === "staff" ? ("person" as const) : ("system" as const), text: r.who && r.summary.startsWith(`${r.who} `) ? r.summary.slice(r.who.length + 1) : r.summary }));
+  const words = said.filter((m) => m.body?.trim()).map((m) => ({ at: new Date(m.at).toISOString(), who: named(m.who, m.userId), kind: "fte-chat" as const, text: `tells the buyer: ${m.body.trim().replace(/\*+/g, "").replace(/\s+/g, " ").slice(0, 200)}` }));
   const timeline = [...sl.steps, ...actions, ...words].sort((a, b) => a.at.localeCompare(b.at));
   return { timeline, fteSteps: actions.filter((x) => x.kind === "fte").length, personSteps: actions.filter((x) => x.kind === "person").length };
 }

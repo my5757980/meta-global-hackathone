@@ -9,7 +9,7 @@ import { db } from "../db/client";
 import * as s from "../db/schema";
 import { audit } from "../services/audit";
 import { approveInvoice, editInvoice, findOrCreateLead, getInvoiceFull, rejectInvoice, requestInvoice, type Actor } from "../services/crm";
-import { emit } from "../services/events";
+import { emit, eventsMuted } from "../services/events";
 import { getFile } from "../services/files";
 import { invoiceRubric, policyPrice } from "../services/invoiceCheck";
 import { recordDecision } from "../services/ledger";
@@ -29,7 +29,7 @@ const clean = (x?: string | null) => (x ?? "").toLowerCase().replace(/[^a-z0-9]/
 
 /** At L1 the action waits for a person: the proposal is queued and nothing changes yet. */
 async function proposal(ctx: ToolCtx, kind: string, reason: string, payload: Record<string, unknown>) {
-  const [ap] = await db().insert(s.approvals).values({ kind, requestedBy: ctx.principalUserId, payload: { ...payload, from: ctx.workerKey }, reason }).returning();
+  const [ap] = await db().insert(s.approvals).values({ kind, requestedBy: ctx.principalUserId, conversationId: ctx.conversationId ?? null, payload: { ...payload, from: ctx.workerKey }, reason }).returning();
   await notify(await usersWithPerm("fte.approvals.decide"), { type: "approval", title: `${ctx.principalName} proposes: ${reason}`.slice(0, 120), body: "Waiting for your yes or no", link: "/fte" });
   return { queued_for_review: true, approval_id: ap!.id, message: "At this autonomy level a person approves each action. It has been queued. Stop here." };
 }
@@ -40,7 +40,7 @@ async function queueForChief(ctx: ToolCtx, kind: "invoice" | "payment" | "other"
     const [same] = await db().select({ id: s.approvals.id }).from(s.approvals).where(and(eq(s.approvals.kind, kind), eq(s.approvals.status, "pending"), sql`${s.approvals.payload}->>'entityId' = ${entityId}`)).limit(1);
     if (same) return { already_waiting: true, approval_id: same.id };
   }
-  const [ap] = await db().insert(s.approvals).values({ kind, requestedBy: ctx.principalUserId, leadId: leadId ?? null, payload: { ...payload, from: ctx.workerKey }, reason }).returning();
+  const [ap] = await db().insert(s.approvals).values({ kind, requestedBy: ctx.principalUserId, conversationId: ctx.conversationId ?? null, leadId: leadId ?? null, payload: { ...payload, from: ctx.workerKey }, reason }).returning();
   await audit(db(), { actorUserId: ctx.principalUserId, actorKind: "fte", action: "approval.requested", entity: "approval", entityId: ap!.id, fteRunId: ctx.runId, summary: `${ctx.principalName} passed this up: ${reason}` });
   await emit("approval.requested", { approvalId: ap!.id });
   return { passed_to_chief: true, approval_id: ap!.id, message: "The chief of staff has it now. Stop here." };
@@ -464,6 +464,7 @@ const SHARED_TOOLS: ToolDef[] = [
     async run(a, ctx) {
       const conv = await buyerConversation(String(a.buyer_user_id));
       if (!conv) return { told: false, message: "This buyer has no chat." };
+      if (eventsMuted()) return { told: true }; // an eval run: the test buyer needs no message
       const { triggerSora } = await import("./agent");
       triggerSora(conv, { kind: "event", note: `${ctx.principalName} (${ctx.workerKey} desk) asks you to tell the buyer, in one short polite message, with no internal ids: ${a.note}` });
       return { told: true };

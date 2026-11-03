@@ -16,6 +16,7 @@ let muted = new Set<string>();
 export const muteEvents = (types: string[]) => {
   muted = new Set(types);
 };
+export const eventsMuted = () => muted.size > 0;
 
 export function on(type: string, fn: Handler) {
   const list = handlers.get(type) ?? [];
