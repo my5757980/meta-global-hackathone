@@ -39,6 +39,7 @@ const AuctionStatistics = lazy(() => auc().then((m) => ({ default: m.AuctionStat
 const AuctionStatDetail = lazy(() => auc().then((m) => ({ default: m.AuctionStatDetail })));
 const AuctionMe = lazy(() => auc().then((m) => ({ default: m.AuctionMe })));
 const AuctionAdmin = lazy(() => import("./auction/AuctionAdmin").then((m) => ({ default: m.AuctionAdmin })));
+const AuctionEnquiryPage = lazy(() => import("./auction/AuctionAdmin").then((m) => ({ default: m.AuctionEnquiryPage })));
 const Account = lazy(() => import("./account/Account"));
 const AccountInvoices = lazy(() => import("./account/AccountInvoices"));
 const AccountInvoice = lazy(() => import("./account/AccountInvoice"));
@@ -145,6 +146,7 @@ const router = createBrowserRouter([
       { path: "/crm/users", element: page(<UsersPage />) },
       { path: "/desk", element: page(<Desk />) },
       { path: "/auction/admin", element: page(<AuctionAdmin />) },
+      { path: "/auction/admin/enquiries/:id", element: page(<AuctionEnquiryPage />) },
       { path: "/fte", element: page(<FteConsole />) },
       { path: "/admin", element: page(<AdminOverview />) },
       { path: "/admin/vehicles", element: page(<AdminVehicles />) },

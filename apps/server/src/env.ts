@@ -38,6 +38,7 @@ const schema = z.object({
     .string()
     .default("true")
     .transform((v) => v !== "false"),
+  DEMO_FEED_MINUTES: z.coerce.number().min(0).default(15), // 0 = no new demo lots arrive
   WORKFORCE_ENABLED: z
     .string()
     .default("true")

@@ -9,6 +9,7 @@ import { errorMiddleware, h, HttpError } from "./lib/http";
 import { loadUser, requireAuth } from "./auth/session";
 import { openStream } from "./services/sse";
 import { startScheduler } from "./services/events";
+import { startDemoFeed } from "./services/demoFeed";
 import { publicRouter, mediaRouter } from "./routes/public";
 import { authRouter } from "./routes/auth";
 import { chatRouter } from "./routes/chat";
@@ -104,6 +105,7 @@ async function main() {
   server.keepAliveTimeout = 75_000;
   server.headersTimeout = 80_000;
   startScheduler();
+  startDemoFeed();
   // auction days end on the (demo) clock: settle them now and every minute
   const { settleAuctions } = await import("./services/auction");
   const settle = () => void settleAuctions().catch((e) => console.error("[auction settle]", e));

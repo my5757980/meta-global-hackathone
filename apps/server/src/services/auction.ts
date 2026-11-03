@@ -15,40 +15,92 @@ export interface LotFilters {
   grade?: string;
   color?: string;
   transmission?: string;
+  saleDates?: string[];
+  modelCodes?: string[];
+  halls?: string[];
+  grades?: string[];
+  colors?: string[];
+  transmissions?: string[];
   yearMin?: number;
   yearMax?: number;
+  mileageMin?: number;
   mileageMax?: number;
+  ccMin?: number;
+  ccMax?: number;
   priceMax?: number;
   lotNos?: number[];
+  chassisModel?: string; // part of a model code
+  chassisNo?: string; // a whole chassis number finds every lot of its model: the sheets carry the code, not the number
   status?: "upcoming" | "concluded" | "all";
-  sort?: "lot" | "price_asc" | "price_desc" | "year_desc" | "mileage_asc";
+  sort?: LotSort;
   limit?: number;
   offset?: number;
 }
+
+export type LotSort = "lot" | "price_asc" | "price_desc" | "year_desc" | "mileage_asc" | "lot_asc" | "lot_desc" | "date_asc" | "date_desc" | "year_new" | "year_old" | "cc_low" | "cc_high" | "mileage" | "mileage_high" | "cond_low" | "cond_high" | "price_low" | "price_high";
 
 export async function today(): Promise<string> {
   return (await clockNow()).toISOString().slice(0, 10);
 }
 
+const oneOf = (col: Parameters<typeof eq>[0], vals: string[] | undefined, skip: boolean, anyCase = false): SQL | undefined => {
+  if (skip || !vals?.length) return undefined;
+  return anyCase ? sql`lower(${col}) in (${sql.join(vals.map((v) => sql`${v.toLowerCase()}`), sql`, `)})` : inArray(col, vals);
+};
+
 function where(f: LotFilters, t: string, skip?: keyof LotFilters): SQL | undefined {
   const w: (SQL | undefined)[] = [];
   if (f.status === "concluded") w.push(sql`(${s.auctionLots.status} <> 'upcoming' or ${s.auctionLots.saleDate} < ${t})`);
   else if (f.status !== "all") w.push(and(eq(s.auctionLots.status, "upcoming"), gte(s.auctionLots.saleDate, t)));
-  if (f.saleDate && skip !== "saleDate") w.push(eq(s.auctionLots.saleDate, f.saleDate));
+  w.push(oneOf(s.auctionLots.saleDate, f.saleDates ?? (f.saleDate ? [f.saleDate] : undefined), skip === "saleDates"));
   if (f.make && skip !== "make") w.push(ilike(s.auctionLots.make, f.make));
   if (f.model && skip !== "model") w.push(ilike(s.auctionLots.model, f.model));
-  if (f.modelCode && skip !== "modelCode") w.push(ilike(s.auctionLots.modelCode, f.modelCode));
-  if (f.hall && skip !== "hall") w.push(eq(s.auctionLots.hallId, f.hall));
-  if (f.grade && skip !== "grade") w.push(eq(s.auctionLots.grade, f.grade));
-  if (f.color && skip !== "color") w.push(ilike(s.auctionLots.color, f.color));
-  if (f.transmission && skip !== "transmission") w.push(ilike(s.auctionLots.transmission, f.transmission));
-  if (f.yearMin) w.push(gte(s.auctionLots.year, f.yearMin));
-  if (f.yearMax) w.push(lte(s.auctionLots.year, f.yearMax));
-  if (f.mileageMax) w.push(lte(s.auctionLots.mileageKm, f.mileageMax));
+  w.push(oneOf(s.auctionLots.modelCode, f.modelCodes ?? (f.modelCode ? [f.modelCode] : undefined), skip === "modelCodes", true));
+  w.push(oneOf(s.auctionLots.hallId, f.halls ?? (f.hall ? [f.hall] : undefined), skip === "halls"));
+  w.push(oneOf(s.auctionLots.grade, f.grades ?? (f.grade ? [f.grade] : undefined), skip === "grades"));
+  w.push(oneOf(s.auctionLots.color, f.colors ?? (f.color ? [f.color] : undefined), skip === "colors", true));
+  w.push(oneOf(s.auctionLots.transmission, f.transmissions ?? (f.transmission ? [f.transmission] : undefined), skip === "transmissions", true));
+  if (skip !== "yearMin") {
+    if (f.yearMin) w.push(gte(s.auctionLots.year, f.yearMin));
+    if (f.yearMax) w.push(lte(s.auctionLots.year, f.yearMax));
+    if (f.mileageMin) w.push(gte(s.auctionLots.mileageKm, f.mileageMin));
+    if (f.mileageMax) w.push(lte(s.auctionLots.mileageKm, f.mileageMax));
+    if (f.ccMin) w.push(gte(s.auctionLots.engineCc, f.ccMin));
+    if (f.ccMax) w.push(lte(s.auctionLots.engineCc, f.ccMax));
+  }
   if (f.priceMax) w.push(lte(s.auctionLots.startPriceJpy, f.priceMax));
   if (f.lotNos?.length) w.push(inArray(s.auctionLots.lotNo, f.lotNos));
+  if (f.chassisModel) w.push(ilike(s.auctionLots.modelCode, `%${f.chassisModel}%`));
+  if (f.chassisNo) {
+    const dash = f.chassisNo.trim().toUpperCase();
+    const code = dash.includes("-") ? dash.split("-")[0]! : (/^([A-Z0-9]*[A-Z])\d{4,8}$/.exec(dash)?.[1] ?? dash);
+    w.push(ilike(s.auctionLots.modelCode, `${code}%`));
+  }
   return and(...w);
 }
+
+const GRADE_NUM = sql`case when ${s.auctionLots.grade} ~ '^[0-9.]+$' then ${s.auctionLots.grade}::numeric else -1 end`;
+const ORDERS: Record<LotSort, SQL[]> = {
+  lot: [asc(s.auctionLots.saleDate), asc(s.auctionLots.lotNo)],
+  lot_asc: [asc(s.auctionLots.lotNo)],
+  lot_desc: [desc(s.auctionLots.lotNo)],
+  date_asc: [asc(s.auctionLots.saleDate), asc(s.auctionLots.saleTime), asc(s.auctionLots.lotNo)],
+  date_desc: [desc(s.auctionLots.saleDate), asc(s.auctionLots.lotNo)],
+  year_new: [desc(s.auctionLots.year)],
+  year_desc: [desc(s.auctionLots.year)],
+  year_old: [asc(s.auctionLots.year)],
+  cc_low: [asc(s.auctionLots.engineCc)],
+  cc_high: [desc(s.auctionLots.engineCc)],
+  mileage: [asc(s.auctionLots.mileageKm)],
+  mileage_asc: [asc(s.auctionLots.mileageKm)],
+  mileage_high: [desc(s.auctionLots.mileageKm)],
+  cond_low: [asc(GRADE_NUM)],
+  cond_high: [desc(GRADE_NUM)],
+  price_low: [asc(s.auctionLots.startPriceJpy)],
+  price_asc: [asc(s.auctionLots.startPriceJpy)],
+  price_high: [desc(s.auctionLots.startPriceJpy)],
+  price_desc: [desc(s.auctionLots.startPriceJpy)],
+};
 
 const lotCols = {
   id: s.auctionLots.id,
@@ -78,16 +130,19 @@ const lotCols = {
   photoCount: s.auctionLots.photoCount,
   photoUrls: s.auctionLots.photoUrls,
   sheetUrl: s.auctionLots.sheetUrl,
+  saleTime: s.auctionLots.saleTime,
+  engineHp: s.auctionLots.engineHp,
+  modelGrade: s.auctionLots.modelGrade,
+  feed: s.auctionLots.feed,
 };
 
 export async function listLots(f: LotFilters) {
   const t = await today();
   const w = where(f, t);
-  const order =
-    f.sort === "price_asc" ? [asc(s.auctionLots.startPriceJpy)] : f.sort === "price_desc" ? [desc(s.auctionLots.startPriceJpy)] : f.sort === "year_desc" ? [desc(s.auctionLots.year)] : f.sort === "mileage_asc" ? [asc(s.auctionLots.mileageKm)] : [asc(s.auctionLots.saleDate), asc(s.auctionLots.lotNo)];
-  const items = await db().select(lotCols).from(s.auctionLots).innerJoin(s.auctionHalls, eq(s.auctionHalls.id, s.auctionLots.hallId)).where(w).orderBy(...order).limit(f.limit ?? 30).offset(f.offset ?? 0);
-  const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(s.auctionLots).where(w)) as [{ n: number }];
-  return { items, total: n };
+  const order = ORDERS[f.sort ?? "lot"] ?? ORDERS.lot;
+  const items = await db().select(lotCols).from(s.auctionLots).innerJoin(s.auctionHalls, eq(s.auctionHalls.id, s.auctionLots.hallId)).where(w).orderBy(...order, asc(s.auctionLots.saleDate), asc(s.auctionLots.lotNo), asc(s.auctionLots.id)).limit(f.limit ?? 30).offset(f.offset ?? 0);
+  const [{ n, b }] = (await db().select({ n: sql<number>`count(*)::int`, b: sql<number>`count(*) filter (where ${s.auctionLots.feed} = 'B')::int` }).from(s.auctionLots).where(w)) as [{ n: number; b: number }];
+  return { items, total: n, totalA: n - b, totalB: b };
 }
 
 /** Facet counts that narrow as you choose: each facet is counted with every OTHER filter applied. */
@@ -97,15 +152,17 @@ export async function lotFacets(f: LotFilters) {
     const rows = await db().select({ v: sql<string>`${col as SQL}`, n: sql<number>`count(*)::int` }).from(s.auctionLots).where(where(f, t, key)).groupBy(sql`1`).orderBy(sql`2 desc`).limit(60);
     return rows;
   };
-  const [saleDates, makes, models, codes, halls, grades, colors, gearboxes] = await Promise.all([
-    count(sql`${s.auctionLots.saleDate}::text`, "saleDate"),
+  const [saleDates, makes, models, codes, halls, grades, colors, gearboxes, range] = await Promise.all([
+    count(sql`${s.auctionLots.saleDate}::text`, "saleDates"),
     count(s.auctionLots.make, "make"),
     f.make ? count(s.auctionLots.model, "model") : Promise.resolve([]),
-    f.model ? count(s.auctionLots.modelCode, "modelCode") : Promise.resolve([]),
-    count(s.auctionLots.hallId, "hall"),
-    count(s.auctionLots.grade, "grade"),
-    count(s.auctionLots.color, "color"),
-    count(s.auctionLots.transmission, "transmission"),
+    f.make || f.model ? count(s.auctionLots.modelCode, "modelCodes") : Promise.resolve([]),
+    count(s.auctionLots.hallId, "halls"),
+    count(s.auctionLots.grade, "grades"),
+    count(s.auctionLots.color, "colors"),
+    count(s.auctionLots.transmission, "transmissions"),
+    // measured with the ranges' own filters off, or the ends collapse onto whatever was last asked for
+    db().select({ yearMin: sql<number>`min(${s.auctionLots.year})::int`, yearMax: sql<number>`max(${s.auctionLots.year})::int`, mileageMax: sql<number>`max(${s.auctionLots.mileageKm})::int`, ccMax: sql<number>`max(${s.auctionLots.engineCc})::int` }).from(s.auctionLots).where(where(f, t, "yearMin")),
   ]);
   const hallNames = await db().select().from(s.auctionHalls);
   return {
@@ -117,6 +174,7 @@ export async function lotFacets(f: LotFilters) {
     grades,
     colors,
     transmissions: gearboxes,
+    bounds: range[0] ?? { yearMin: 2000, yearMax: new Date().getUTCFullYear(), mileageMax: 300000, ccMax: 6000 },
   };
 }
 
@@ -144,15 +202,36 @@ export async function priceHistory(make: string, model: string, year?: number) {
   return { window: { from, to: newest }, count: agg.n, soldCount: agg.sold, avgSoldJpy: Math.round(agg.avg / 1000) * 1000, minSoldJpy: agg.min, maxSoldJpy: agg.max, recent: rows };
 }
 
-export async function placeBid(userId: string, lotId: string, amountJpy: number, note?: string | null, actorKind: "human" | "fte" = "human", ctx?: { conversationId?: string | null; fteRunId?: string | null }) {
+export const BID_STATES = ["placed", "under review", "accepted", "won", "rejected", "lost"] as const;
+export const LIVE_BID_STATES = ["placed", "under review", "accepted"];
+
+async function newBidNo(tx: Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0], year: number): Promise<string> {
+  for (let i = 0; i < 8; i++) {
+    const no = `BID-${year}-${String(Math.floor(Math.random() * 999999) + 1).padStart(6, "0")}`;
+    const [hit] = await tx.select({ id: s.auctionBids.id }).from(s.auctionBids).where(eq(s.auctionBids.bidNo, no)).limit(1);
+    if (!hit) return no;
+  }
+  return `BID-${year}-${Date.now()}`;
+}
+
+/**
+ * A person's bid may be any amount: under the start price or far above it, and the auction desk judges it.
+ * A Digital FTE bidding for a buyer stays inside the company's rule (start price, steps of 1,000) and its bid is already judged.
+ */
+export async function placeBid(userId: string, lotId: string, amountJpy: number, note?: string | null, actorKind: "human" | "fte" = "human", ctx?: { conversationId?: string | null; fteRunId?: string | null }, extra?: { overBidJpy?: number | null; message?: string | null }) {
   const l = await getLot(lotId);
   if (!l) throw notFound("Lot not found");
   if (l.status !== "upcoming" || l.saleDate < (await today())) throw conflict("This lot has already been auctioned — bidding is closed");
-  if (amountJpy < l.startPriceJpy) throw bad(`The bid must be at least the start price ¥${l.startPriceJpy.toLocaleString("en-US")}`);
-  if (amountJpy % 1000 !== 0) throw bad("Bids go in steps of ¥1,000");
+  if (!(amountJpy > 0)) throw bad("Enter a bid above zero");
+  if (amountJpy >= 10_000_000_000) throw bad("That amount is too large to record. Please check the number");
+  if (actorKind === "fte") {
+    if (amountJpy < l.startPriceJpy) throw bad(`The bid must be at least the start price ¥${l.startPriceJpy.toLocaleString("en-US")}`);
+    if (amountJpy % 1000 !== 0) throw bad("Bids go in steps of ¥1,000");
+  }
   return db().transaction(async (tx) => {
-    const [b] = await tx.insert(s.auctionBids).values({ lotId, userId, amountJpy, note: note ?? null }).returning();
-    await audit(tx, { actorUserId: userId, actorKind, action: "bid.placed", entity: "lot", entityId: lotId, summary: `Bid ¥${amountJpy.toLocaleString("en-US")} on lot ${l.lotNo} (${l.hall}, ${l.saleDate}) — ${l.year} ${l.make} ${l.model}${note ? ` · ${note}` : ""}`, conversationId: ctx?.conversationId, fteRunId: ctx?.fteRunId });
+    const bidNo = await newBidNo(tx, new Date().getUTCFullYear());
+    const [b] = await tx.insert(s.auctionBids).values({ lotId, userId, bidNo, amountJpy, note: note ?? null, overBidJpy: extra?.overBidJpy ?? null, message: extra?.message ?? null, status: actorKind === "fte" ? "accepted" : "placed" }).returning();
+    await audit(tx, { actorUserId: userId, actorKind, action: "bid.placed", entity: "lot", entityId: lotId, summary: `Bid ${bidNo} ¥${amountJpy.toLocaleString("en-US")} on lot ${l.lotNo} (${l.hall}, ${l.saleDate}) — ${l.year} ${l.make} ${l.model}${note ? ` · ${note}` : ""}`, conversationId: ctx?.conversationId, fteRunId: ctx?.fteRunId });
     return b!;
   });
 }
@@ -180,7 +259,7 @@ export async function settleAuctions(): Promise<number> {
   const bids = await db()
     .select()
     .from(s.auctionBids)
-    .where(and(inArray(s.auctionBids.lotId, due.map((l) => l.id)), inArray(s.auctionBids.status, ["placed", "under review", "accepted"])))
+    .where(and(inArray(s.auctionBids.lotId, due.map((l) => l.id)), inArray(s.auctionBids.status, LIVE_BID_STATES)))
     .orderBy(desc(s.auctionBids.amountJpy), asc(s.auctionBids.createdAt));
   const byLot = new Map<string, typeof bids>();
   for (const b of bids) byLot.set(b.lotId, [...(byLot.get(b.lotId) ?? []), b]);

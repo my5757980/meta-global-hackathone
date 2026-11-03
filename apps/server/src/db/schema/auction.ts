@@ -134,6 +134,8 @@ export const auctionResults = pgTable(
     transmission: text().notNull(),
     startPriceJpy: integer().notNull(),
     finalPriceJpy: integer().notNull(), // sold price, or highest bid when unsold
+    modelGrade: text(),
+    equipment: text(),
     sold: integer().notNull(), // 1 sold, 0 unsold
   },
   (t) => [

@@ -3,7 +3,10 @@ import { asc, desc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
 import * as s from "../db/schema";
-import { h, HttpError, notFound, parse } from "../lib/http";
+import { bad, h, HttpError, notFound, parse } from "../lib/http";
+import { env } from "../env";
+import { chat, modelConfigured } from "../fte/model";
+import { tooMany } from "../services/publicDemo";
 import { carSvg } from "../services/carArt";
 import { getFile } from "../services/files";
 import { siteSettings } from "../services/settings";
@@ -15,6 +18,42 @@ import { deskManual } from "../fte/workforce";
 import { BODY_PHOTOS } from "../seed/photos";
 
 export const publicRouter = Router();
+
+const LANG_NAMES: Record<string, string> = { ja: "Japanese", "zh-CN": "Simplified Chinese", ur: "Urdu", ar: "Arabic", ru: "Russian", es: "Spanish", fr: "French" };
+const translated = new Map<string, string>();
+
+/** The language picker: page labels, translated by the same open model the FTEs run on, each string kept once it is done. */
+publicRouter.post(
+  "/translate",
+  h(async (req) => {
+    const b = parse(z.object({ lang: z.string().max(8), texts: z.array(z.string().max(200)).max(60) }), req.body);
+    const name = LANG_NAMES[b.lang];
+    if (!name) throw bad("That language is not offered");
+    const missing = [...new Set(b.texts.filter((t) => !translated.has(`${b.lang}|${t}`)))];
+    if (missing.length && modelConfigured()) {
+      if (env.PUBLIC_DEMO && tooMany(`translate:${req.ip}`, 30, 10 * 60_000)) throw new HttpError(429, "This is a shared public demo: please wait a little before changing language again");
+      const r = await chat({
+        messages: [
+          { role: "system", content: `You translate the labels of a Japanese used-car auction website into ${name}. Reply with a JSON array of strings only, the same length and order as the input. Keep numbers, lot numbers, car makes, model names and chassis codes as they are. No notes.` },
+          { role: "user", content: JSON.stringify(missing) },
+        ],
+        effort: "low",
+        maxTokens: 3000,
+      });
+      const text = String(r.message.content ?? "");
+      const found = /\[[\s\S]*\]/.exec(text);
+      try {
+        const arr = found ? (JSON.parse(found[0]) as unknown[]) : [];
+        missing.forEach((t, i) => {
+          if (typeof arr[i] === "string" && arr[i]) translated.set(`${b.lang}|${t}`, arr[i] as string);
+        });
+      } catch {
+        /* an unreadable answer: those words stay in English */
+      }
+    }
+    return { texts: b.texts.map((t) => translated.get(`${b.lang}|${t}`) ?? t) };
+  }),
+);
 
 publicRouter.get(
   "/site",

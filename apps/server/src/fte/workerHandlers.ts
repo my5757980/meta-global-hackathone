@@ -124,6 +124,15 @@ export function registerWorkforce() {
   });
 
   // ---------- auction desk ----------
+  on("auction.bid.placed", async ({ bidId }) => {
+    if (!workforceOn() || (await deskManual("auction", "auction.bid"))) return;
+    void assign("auction", { task: "auction.bid", title: "Review a bid", note: `A person placed a bid: bid_id ${bidId}. Read it with review_bid, weigh it against the lot and past prices, then call decide_bid once.` });
+  });
+  // a feed stopped or came back: the room hears it, and whoever runs the auction if it stopped
+  on("feed.changed", async ({ key, paused }) => {
+    if (!(await on_("auction", "auction.enquiry"))) return;
+    await sayInRoom("auction", paused ? `Demo feed ${String(key)} is paused. New lots from it have stopped until someone restarts it.` : `Demo feed ${String(key)} is running again.`);
+  });
   on("enquiry.created", async ({ enquiryId }) => {
     if (!workforceOn()) return;
     void assign("auction", { task: "auction.enquiry", title: "Answer an enquiry", note: `A buyer asked about a lot: enquiry_id ${enquiryId}. Read it, look at the lot, and answer.` });

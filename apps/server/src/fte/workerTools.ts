@@ -17,6 +17,8 @@ import { recordDecision } from "../services/ledger";
 import { sendMail } from "../services/mail";
 import { notify, usersWithPerm } from "../services/notify";
 import { addProgress, setWebOrderStatus, stagesDone } from "../services/ops";
+import { priceHistory } from "../services/auction";
+import { chassisLookup, chassisParts, fobEstimate, ourStock } from "../services/auctionExtras";
 import { envelope, now, pricingPolicy, siteSettings } from "../services/settings";
 import { ToolError } from "./errors";
 import { docReadingOf, readDocument, readSlip, slipReadingOf } from "./pictureReader";
@@ -310,6 +312,44 @@ const OPS_TOOLS: ToolDef[] = [
 const ORDER_STEPS: Record<string, string[]> = { pending: ["approved", "cancelled"], approved: ["confirmed", "cancelled"], confirmed: ["paid", "cancelled"], paid: ["shipped"], shipped: ["delivered"] };
 const AUCTION_TOOLS: ToolDef[] = [
   {
+    name: "review_bid",
+    description: "A bid a person placed: the amount against the start price and recent prices of this model, the bidder's own message, and your limit. It marks the bid as under review.",
+    input: { bid_id: idArg },
+    async run(a) {
+      const [b] = await db().select({ b: s.auctionBids, l: s.auctionLots, who: s.users.name, kind: s.users.kind }).from(s.auctionBids).innerJoin(s.auctionLots, eq(s.auctionLots.id, s.auctionBids.lotId)).innerJoin(s.users, eq(s.users.id, s.auctionBids.userId)).where(eq(s.auctionBids.id, String(a.bid_id))).limit(1);
+      if (!b) throw new ToolError("No such bid");
+      if (b.b.status === "placed") await db().update(s.auctionBids).set({ status: "under review" }).where(eq(s.auctionBids.id, b.b.id));
+      const h = await priceHistory(b.l.make, b.l.model, b.l.year);
+      const env0 = await envelope();
+      return { bid_no: b.b.bidNo, status: b.b.status === "placed" ? "under review" : b.b.status, bidder: b.who, bidder_is_staff: b.kind !== "customer", amount_jpy: b.b.amountJpy, over_bid_jpy: b.b.overBidJpy, message: b.b.message, lot: { lot_id: b.l.id, lot_no: b.l.lotNo, car: `${b.l.year} ${b.l.make} ${b.l.model}`, grade: b.l.grade, start_price_jpy: b.l.startPriceJpy, recent_average_jpy: b.l.avgPriceJpy, sale_date: b.l.saleDate, sale_status: b.l.status }, past_prices: { sold: h.soldCount, average_jpy: h.avgSoldJpy, lowest_jpy: h.minSoldJpy, highest_jpy: h.maxSoldJpy }, your_limit_jpy: env0.maxBidJpy };
+    },
+  },
+  {
+    name: "decide_bid",
+    description: "Accept a bid (it goes on the day's sheet for the auction) or reject it. The note is what the bidder reads: say the reason plainly, never mention your limit. A bid above your limit cannot be accepted here: escalate it to the Chief of Staff.",
+    input: { bid_id: idArg, decision: z.enum(["accepted", "rejected"]), note: z.string().min(5).max(200) },
+    async run(a, ctx) {
+      const [b] = await db().select({ b: s.auctionBids, l: s.auctionLots }).from(s.auctionBids).innerJoin(s.auctionLots, eq(s.auctionLots.id, s.auctionBids.lotId)).where(eq(s.auctionBids.id, String(a.bid_id))).limit(1);
+      if (!b) throw new ToolError("No such bid");
+      if (!["placed", "under review"].includes(b.b.status)) return { already_decided: true, status: b.b.status };
+      if (a.decision === "accepted") {
+        if (b.l.status !== "upcoming" || b.l.saleDate < (await now()).toISOString().slice(0, 10)) throw new ToolError("This lot's sale is over, so the bid cannot be accepted. Reject it and say so.");
+        const env0 = await envelope();
+        if (b.b.amountJpy > env0.maxBidJpy) {
+          const [ok] = await db().select({ id: s.approvals.id }).from(s.approvals).where(and(eq(s.approvals.kind, "bid"), eq(s.approvals.status, "approved"), eq(s.approvals.lotId, b.l.id), sql`(${s.approvals.payload}->>'amountJpy')::int >= ${b.b.amountJpy}`)).limit(1);
+          if (!ok) return { needs_chief: true, message: `¥${b.b.amountJpy.toLocaleString("en-US")} is above your limit of ¥${env0.maxBidJpy.toLocaleString("en-US")}. Call escalate_to_chief with this bid.` };
+        }
+      }
+      await db().transaction(async (tx) => {
+        await tx.update(s.auctionBids).set({ status: String(a.decision), note: String(a.note) }).where(eq(s.auctionBids.id, b.b.id));
+        await audit(tx, { actorUserId: ctx.principalUserId, actorKind: "fte", action: "bid.status", entity: "bid", entityId: b.b.id, fteRunId: ctx.runId, summary: `${ctx.principalName} ${a.decision} bid ${b.b.bidNo ?? ""} of ¥${b.b.amountJpy.toLocaleString("en-US")} on lot ${b.l.lotNo}: ${a.note}` });
+        await recordDecision({ workerKey: "auction", task: "auction.bid", entity: "bid", entityId: b.b.id, decision: String(a.decision), reason: String(a.note) }, tx);
+      });
+      await notify([b.b.userId], { type: "bid", title: `Bid ${b.b.bidNo ?? ""} ${a.decision}`, body: String(a.note).slice(0, 140), link: "/auction/me" });
+      return { decided: true, status: a.decision };
+    },
+  },
+  {
     name: "get_auction_enquiry",
     description: "A buyer's enquiry about a lot: the question and the lot's id.",
     input: { enquiry_id: idArg },
@@ -362,6 +402,26 @@ const AUCTION_TOOLS: ToolDef[] = [
 ];
 
 // ---------- Yuki: the CRM desk ----------
+const LOT_FACT_TOOLS: ToolDef[] = [
+  {
+    name: "estimate_fob",
+    description: "The company's FOB estimate for a bid on an auction lot, in yen: transport, clearance, inspection, L/C, vanning, radiation, handling. An estimate, not a quote to a port: say so.",
+    input: { bid_jpy: z.number().int().positive(), truck: z.boolean().optional(), inspection: z.enum(["None", "JAAI", "JEVIC"]).optional(), lc: z.boolean().optional(), vanning: z.boolean().optional() },
+    async run(a) {
+      return fobEstimate({ bidJpy: Number(a.bid_jpy), kind: a.truck ? "truck" : "car", inspection: a.inspection as string | undefined, lc: !!a.lc, vanning: !!a.vanning });
+    },
+  },
+  {
+    name: "chassis_lookup",
+    description: "From a chassis number: year and month of manufacture, model name, grade code, seats, and our own lots of that model on sale now. Demo figures: say they are from the demo register.",
+    input: { chassis: z.string().min(2).max(40) },
+    async run(a) {
+      const p = chassisParts(String(a.chassis));
+      return { answer: await chassisLookup(p.code, p.number), our_lots: (await ourStock(p.code, 6)).map((l) => ({ lot_id: l.id, lot_no: l.lotNo, sale_date: l.saleDate, hall: l.hall, year: l.year, grade: l.grade, start_price_jpy: l.startPriceJpy })) };
+    },
+  },
+];
+
 const CRM_TOOLS: ToolDef[] = [
   {
     name: "reassign_lead",
@@ -607,4 +667,4 @@ const CHIEF_TOOLS: ToolDef[] = [
   },
 ];
 
-export const WORKER_TOOLS: ToolDef[] = [...INVOICE_TOOLS, ...ACCOUNTS_TOOLS, ...OPS_TOOLS, ...AUCTION_TOOLS, ...CRM_TOOLS, ...WEBSITE_TOOLS, ...SHARED_TOOLS, ...CHIEF_TOOLS];
+export const WORKER_TOOLS: ToolDef[] = [...INVOICE_TOOLS, ...ACCOUNTS_TOOLS, ...OPS_TOOLS, ...AUCTION_TOOLS, ...LOT_FACT_TOOLS, ...CRM_TOOLS, ...WEBSITE_TOOLS, ...SHARED_TOOLS, ...CHIEF_TOOLS];
