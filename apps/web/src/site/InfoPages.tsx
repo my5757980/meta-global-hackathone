@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Building2, ChevronRight, ClipboardCheck, Car, FileText, Gavel, Headphones, Landmark, Mail, MapPin, Phone, Ship } from "lucide-react";
+import { Building2, Check, ChevronRight, ClipboardCheck, Copy, Car, FileText, Gavel, Headphones, Landmark, Mail, MapPin, Phone, Ship } from "lucide-react";
 import { api } from "../lib/api";
 import { date, miniMarkdown } from "../lib/format";
 import { useFte, useSite } from "../lib/site";
@@ -121,50 +121,123 @@ export function PartnersView() {
   );
 }
 
+function CopyValue({ label, value }: { label: string; value: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-1.5">
+      <dt className="shrink-0 text-slate-500">{label}</dt>
+      <dd className="flex min-w-0 items-center gap-1.5 text-right font-semibold text-slate-900">
+        <span className="min-w-0 break-words">{value}</span>
+        <button
+          type="button"
+          aria-label={`Copy ${label}`}
+          className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          onClick={() => {
+            void navigator.clipboard?.writeText(value);
+            setDone(true);
+            setTimeout(() => setDone(false), 1500);
+          }}
+        >
+          {done ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
+        </button>
+      </dd>
+    </div>
+  );
+}
+
 export function BankView() {
   const site = useSite();
+  const steps = [
+    ["Match the invoice", "Check the amount, the currency and the account name on your invoice."],
+    ["Use the account we name", "Pay the account for your office exactly as your invoice says."],
+    ["Send the slip", "Upload the bank slip on your invoice or in the chat. Our accounts desk reads it at once."],
+  ];
   return (
-    <PageShell title="Bank details" subtitle="Pay only by bank transfer to our company account. We never ask for payment to a personal account.">
-      <Card className="max-w-xl">
-        <p className="flex items-center gap-2 font-semibold text-slate-900">
-          <Landmark className="size-5 text-brand-600" /> Company account (demo)
-        </p>
-        <dl className="mt-4 space-y-2 text-sm">
-          {site &&
-            ([
-              ["Bank", site.bank.bankName],
-              ["Branch", site.bank.branch],
-              ["SWIFT", site.bank.swift],
-              ["Account name", site.bank.accountName],
-              ["Account no.", site.bank.accountNo],
-            ] as const).map(([k, v]) => (
-              <div key={k} className="flex justify-between gap-4 border-b border-slate-100 pb-2">
-                <dt className="text-slate-500">{k}</dt>
-                <dd className="text-right font-semibold text-slate-900">{v}</dd>
-              </div>
-            ))}
-        </dl>
-        <p className="mt-4 text-xs text-slate-500">Use your invoice number as the payment reference.</p>
-      </Card>
+    <PageShell title="Bank details" subtitle="Pay only by bank transfer to a company account. We never ask for payment to a personal account.">
+      <div className="mb-4 grid gap-3 md:grid-cols-3">
+        {steps.map(([t2, d], i) => (
+          <Card key={t2}>
+            <p className="text-xs font-bold text-brand-700">Step {i + 1}</p>
+            <p className="font-semibold text-slate-900">{t2}</p>
+            <p className="mt-1 text-sm text-slate-600">{d}</p>
+          </Card>
+        ))}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3">
+        {site?.bankAccounts.map((a2) => (
+          <Card key={a2.label}>
+            <p className="flex items-center gap-2 font-semibold text-slate-900">
+              <Landmark className="size-5 text-brand-600" /> {a2.label} account (demo)
+            </p>
+            <dl className="mt-3 text-sm">
+              <CopyValue label="Bank" value={a2.bankName} />
+              <CopyValue label="Branch" value={a2.branch} />
+              <CopyValue label="SWIFT" value={a2.swift} />
+              <CopyValue label="Account name" value={a2.accountName} />
+              <CopyValue label="Account no." value={a2.accountNo} />
+              {a2.address && <CopyValue label="Address" value={a2.address} />}
+            </dl>
+          </Card>
+        ))}
+      </div>
+      <p className="mt-4 text-sm text-slate-600">Use your invoice number as the payment reference. Not sure? Ask us at {site?.email} or {site?.phone} before you send anything.</p>
     </PageShell>
   );
 }
 
+interface BlogRow {
+  slug: string;
+  title: string;
+  excerpt: string;
+  coverUrl: string;
+  publishedAt: string;
+}
+
+function RecentPosts({ posts, skip }: { posts?: BlogRow[]; skip?: string }) {
+  return (
+    <Card>
+      <p className="mb-2 font-semibold text-slate-900">Recent posts</p>
+      <ul className="space-y-2 text-sm">
+        {posts?.filter((b) => b.slug !== skip).slice(0, 5).map((b) => (
+          <li key={b.slug}>
+            <Link to={`/blog/${b.slug}`} className="font-medium text-slate-700 hover:text-brand-700">{b.title}</Link>
+            <span className="block text-xs text-slate-500">{date(b.publishedAt)}</span>
+          </li>
+        ))}
+      </ul>
+      <Link to="/contact" className="mt-3 block rounded-xl bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-700">Need help importing? Ask us →</Link>
+    </Card>
+  );
+}
+
 export function BlogView() {
-  const q = useQuery({ queryKey: ["blog"], queryFn: () => api.get<{ slug: string; title: string; excerpt: string; coverUrl: string; publishedAt: string }[]>("/api/public/blog") });
+  const q = useQuery({ queryKey: ["blog"], queryFn: () => api.get<BlogRow[]>("/api/public/blog") });
+  const [term, setTerm] = useState("");
+  const needle = term.trim().toLowerCase();
+  const rows = q.data?.filter((b) => !needle || b.title.toLowerCase().includes(needle) || b.excerpt.toLowerCase().includes(needle));
   return (
     <PageShell title="Guides" subtitle="Practical guides for importing a car from Japan.">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {q.data?.map((b) => (
-          <Link key={b.slug} to={`/blog/${b.slug}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md">
-            {b.coverUrl ? <img src={b.coverUrl} alt="" className="aspect-video w-full object-cover" loading="lazy" /> : null}
-            <div className="p-4">
-              <p className="text-xs text-slate-500">{date(b.publishedAt)}</p>
-              <p className="mt-1 font-semibold text-slate-900">{b.title}</p>
-              <p className="mt-1 text-sm text-slate-600">{b.excerpt}</p>
-            </div>
-          </Link>
-        ))}
+      <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
+        <div className="min-w-0">
+          <div className="mb-4 max-w-md">
+            <Input aria-label="Search guides" placeholder="Search guides" value={term} onChange={(e) => setTerm(e.target.value)} />
+          </div>
+          {rows && !rows.length && <Empty title="No guides found" text="Try another word." />}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {rows?.map((b) => (
+              <Link key={b.slug} to={`/blog/${b.slug}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md">
+                {b.coverUrl ? <img src={b.coverUrl} alt="" className="aspect-video w-full object-cover" loading="lazy" /> : null}
+                <div className="p-4">
+                  <p className="text-xs text-slate-500">{date(b.publishedAt)}</p>
+                  <p className="mt-1 font-semibold text-slate-900">{b.title}</p>
+                  <p className="mt-1 text-sm text-slate-600">{b.excerpt}</p>
+                  <p className="mt-2 text-sm font-semibold text-brand-700">Read more →</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+        <aside><RecentPosts posts={q.data} /></aside>
       </div>
     </PageShell>
   );
@@ -172,14 +245,19 @@ export function BlogView() {
 
 export function BlogPostView() {
   const { slug } = useParams();
-  const q = useQuery({ queryKey: ["blog", slug], queryFn: () => api.get<{ title: string; body: string; coverUrl: string; publishedAt: string }>(`/api/public/blog/${slug}`) });
+  const q = useQuery({ queryKey: ["blog", slug], queryFn: () => api.get<{ title: string; body: string; coverUrl: string; publishedAt: string }>(`/api/public/blog/${slug}`), retry: false });
+  const all = useQuery({ queryKey: ["blog"], queryFn: () => api.get<BlogRow[]>("/api/public/blog") });
   if (q.isError) return <div className="container-page py-16"><Empty title="Article not found" /></div>;
   return (
     <PageShell title={q.data?.title ?? "…"} subtitle={q.data ? date(q.data.publishedAt) : undefined}>
-      <Card className="prose-lite max-w-3xl text-slate-700">
-        {q.data?.coverUrl && <img src={q.data.coverUrl} alt="" className="mb-4 w-full rounded-xl" />}
-        <div dangerouslySetInnerHTML={{ __html: miniMarkdown(q.data?.body ?? "") }} />
-      </Card>
+      <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
+        <Card className="prose-lite min-w-0 text-slate-700">
+          {q.data?.coverUrl && <img src={q.data.coverUrl} alt="" className="mb-4 w-full rounded-xl" />}
+          <div dangerouslySetInnerHTML={{ __html: miniMarkdown(q.data?.body ?? "") }} />
+          <Link to="/blog" className="mt-4 inline-block text-sm font-semibold text-brand-700">← Back to guides</Link>
+        </Card>
+        <aside><RecentPosts posts={all.data} skip={slug} /></aside>
+      </div>
     </PageShell>
   );
 }

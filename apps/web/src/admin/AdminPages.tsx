@@ -139,6 +139,93 @@ function ResetDemo() {
 }
 
 /* ============================ Overview ============================ */
+function AdminDashboard() {
+  const { can } = useAuth();
+  const q = useQuery({ queryKey: ["admin/dashboard"], queryFn: () => api.get<{ orders: { n: number; paid: number; paidOrders: number }; vehicles: { n: number; published: number }; customers: number; blogs: { n: number; published: number }; pages: number; contactLeads: number; newsletter: number; activity: { month: string; orders: number }[]; recentOrders: { id: string; orderNo: string; customer: string; totalUsd: number; paidUsd: number | null; status: string; createdAt: string }[]; latestCustomers: { id: string; name: string; email: string; createdAt: string }[] }>("/api/admin/dashboard") });
+  if (!q.data) return <Skeleton className="mb-6 h-40" />;
+  const d = q.data;
+  const max = Math.max(1, ...d.activity.map((a) => a.orders));
+  const tile = (label: string, value: React.ReactNode, hint?: string) => (
+    <Card>
+      <p className="text-xs font-semibold text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
+      {hint && <p className="text-xs text-slate-500">{hint}</p>}
+    </Card>
+  );
+  return (
+    <div className="mb-6 space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {can("website.vehicles.manage") && <Link to="/admin/vehicles" className="inline-flex h-9 items-center rounded-xl bg-white px-3 text-sm font-semibold shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">Add vehicle</Link>}
+        {can("website.orders.manage") && <Link to="/admin/orders" className="inline-flex h-9 items-center rounded-xl bg-white px-3 text-sm font-semibold shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">View orders</Link>}
+        {can("website.content.manage") && <Link to="/admin/content" className="inline-flex h-9 items-center rounded-xl bg-white px-3 text-sm font-semibold shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">Add a guide</Link>}
+      </div>
+      <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4">
+        {tile("Orders", d.orders.n)}
+        {tile("Vehicles", d.vehicles.n)}
+        {tile("Customers", d.customers)}
+        {tile("Guides", d.blogs.n)}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+        <Card>
+          <p className="mb-3 font-semibold text-slate-900">Order activity, last 6 months</p>
+          <div className="space-y-1.5">
+            {d.activity.map((a) => (
+              <div key={a.month} className="flex items-center gap-2 text-sm" title={`${a.month}: ${a.orders} orders`}>
+                <span className="w-16 shrink-0 text-slate-600">{a.month}</span>
+                <span className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-r bg-brand-500" style={{ width: `${(a.orders / max) * 100}%` }} /></span>
+                <span className="w-8 shrink-0 text-right font-semibold">{a.orders}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+        <Card>
+          <p className="mb-2 font-semibold text-slate-900">Business snapshot</p>
+          <dl className="space-y-1 text-sm">
+            {([["Paid amount", formatUsd(d.orders.paid)], ["Paid and completed orders", d.orders.paidOrders], ["Published vehicles", d.vehicles.published], ["Published guides", d.blogs.published], ["Pages", d.pages], ["Contact leads", d.contactLeads], ["Newsletter subscribers", d.newsletter]] as [string, React.ReactNode][]).map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-3 border-b border-slate-100 py-1">
+                <dt className="text-slate-500">{k}</dt>
+                <dd className="font-semibold text-slate-900">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </Card>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <div className="mb-2 flex items-center justify-between gap-2"><p className="font-semibold text-slate-900">Recent orders</p><Link to="/admin/orders" className="text-sm font-semibold text-brand-700">View all</Link></div>
+          {d.recentOrders.length ? (
+            <ul className="divide-y divide-slate-100 text-sm">
+              {d.recentOrders.map((o) => (
+                <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
+                  <span className="min-w-0"><strong>{o.orderNo}</strong> <span className="text-slate-500">{o.customer}</span></span>
+                  <span className="flex items-center gap-2 whitespace-nowrap">{formatUsd(o.totalUsd)} <StatusBadge status={o.status} /></span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-slate-500">No orders yet.</p>
+          )}
+        </Card>
+        <Card>
+          <div className="mb-2 flex items-center justify-between gap-2"><p className="font-semibold text-slate-900">Latest customers</p><Link to="/admin/customers" className="text-sm font-semibold text-brand-700">View all</Link></div>
+          {d.latestCustomers.length ? (
+            <ul className="divide-y divide-slate-100 text-sm">
+              {d.latestCustomers.map((c) => (
+                <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
+                  <Link to={`/admin/customers/${c.id}`} className="min-w-0 font-medium text-brand-700">{c.name}<span className="block text-xs font-normal text-slate-500">{c.email}</span></Link>
+                  <span className="text-xs whitespace-nowrap text-slate-500">{ago(c.createdAt)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-slate-500">No customers yet.</p>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export function AdminOverview() {
   const { can, demoMode } = useAuth();
   const cards = [
@@ -156,6 +243,7 @@ export function AdminOverview() {
   return (
     <div>
       <PageHeader title="Website admin" subtitle="Everything the public site shows — edited here, live in seconds." actions={<Button variant="secondary" onClick={() => window.open("/", "_blank")}>Open site <ExternalLink className="size-4" /></Button>} />
+      <AdminDashboard />
       {cards.length === 0 ? (
         <Denied />
       ) : (
@@ -309,6 +397,7 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
     shortDesc: "", description: "", videoUrl: "", seoTitle: "", seoDescription: "", seoKeywords: "",
     featured: false, published: true, status: "available", sort: "0", homeSections: [], features: "", tags: "", images: "",
   };
+  const [specRows, setSpecRows] = useState<{ name: string; value: string }[]>([]);
   const [f, setF] = useState<Form>(blank);
   const [loading, setLoading] = useState(!!id);
   const [saving, setSaving] = useState(false);
@@ -322,6 +411,7 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
       .then((v) => {
         if (!live) return;
         const str = (x: unknown) => (x === null || x === undefined ? "" : String(x));
+        setSpecRows(Array.isArray(v.specRows) ? (v.specRows as { name: string; value: string }[]) : []);
         setF({
           title: str(v.title), brandId: str(v.brandId), modelId: str(v.modelId), modelCode: str(v.modelCode), grade: str(v.grade), chassisNo: str(v.chassisNo),
           year: str(v.year), month: str(v.month), priceUsd: str(v.priceUsd), discountPriceUsd: str(v.discountPriceUsd), costJpy: str(v.costJpy), mileageKm: str(v.mileageKm),
@@ -358,7 +448,7 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
       shortDesc: String(f.shortDesc).trim() || null, description: String(f.description).trim() || null, videoUrl: String(f.videoUrl).trim() || null,
       seoTitle: String(f.seoTitle).trim() || null, seoDescription: String(f.seoDescription).trim() || null, seoKeywords: String(f.seoKeywords).trim() || null,
       featured: f.featured, published: f.published, status: f.status, sort: num(f.sort) ?? 0,
-      homeSections: f.homeSections, features: toList(String(f.features)), tags: toList(String(f.tags)), images,
+      homeSections: f.homeSections, features: toList(String(f.features)), specRows: specRows.filter((r) => r.name.trim() && r.value.trim()), tags: toList(String(f.tags)), images,
     };
     if (!String(f.color).trim()) return onError(new ApiError(400, "Give the colour"));
     setSaving(true);
@@ -440,6 +530,19 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Features" hint="comma separated"><Input value={String(f.features)} onChange={(e) => set("features", e.target.value)} placeholder="Sunroof, Leather, 360 camera" /></Field>
                 <Field label="Tags" hint="comma separated"><Input value={String(f.tags)} onChange={(e) => set("tags", e.target.value)} /></Field>
+              </div>
+              <div>
+                <p className="mb-1 text-sm font-medium text-slate-700">Vehicle specifications <span className="font-normal text-slate-400">(any extra name and value)</span></p>
+                <div className="space-y-2">
+                  {specRows.map((r, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                      <Input aria-label={`Specification ${i + 1} name`} placeholder="Attribute name" value={r.name} onChange={(e) => setSpecRows(specRows.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))} />
+                      <Input aria-label={`Specification ${i + 1} value`} placeholder="Attribute value" value={r.value} onChange={(e) => setSpecRows(specRows.map((x, k) => (k === i ? { ...x, value: e.target.value } : x)))} />
+                      <Button variant="ghost" onClick={() => setSpecRows(specRows.filter((_, k) => k !== i))}>Remove</Button>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="secondary" size="sm" className="mt-2" onClick={() => setSpecRows([...specRows, { name: "", value: "" }])}>Add more</Button>
               </div>
             </div>
           </section>
@@ -693,6 +796,7 @@ export function AdminSettings() {
   useEffect(() => { if (q.data) setF(q.data); }, [q.data]);
   if (!can("website.settings.manage")) return <Denied />;
   const bank = (f.bank as Record<string, string>) ?? {};
+  const accounts = (f.bankAccounts as { label: string; bankName: string; branch: string; swift: string; accountName: string; accountNo: string; address?: string }[] | undefined) ?? [];
   const t = (k: string) => String(f[k] ?? "");
   const setBank = (k: string, v: string) => setF({ ...f, bank: { ...bank, [k]: v } });
   const submit = async () => {
@@ -747,6 +851,24 @@ export function AdminSettings() {
               <Field label="Account name"><Input value={bank.accountName ?? ""} onChange={(e) => setBank("accountName", e.target.value)} /></Field>
               <Field label="Account no"><Input value={bank.accountNo ?? ""} onChange={(e) => setBank("accountNo", e.target.value)} /></Field>
             </div>
+          </Card>
+          <Card>
+            <p className="mb-3 text-sm font-semibold text-slate-700">Bank accounts by office <span className="font-normal text-slate-400">(the Bank details page)</span></p>
+            <div className="space-y-4">
+              {accounts.map((a, i) => (
+                <div key={i} className="rounded-xl border border-slate-200 p-3">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {(["label", "bankName", "branch", "swift", "accountName", "accountNo", "address"] as const).map((k) => (
+                      <Field key={k} label={{ label: "Office", bankName: "Bank", branch: "Branch", swift: "SWIFT", accountName: "Account name", accountNo: "Account no", address: "Address" }[k]}>
+                        <Input value={a[k] ?? ""} onChange={(e) => setF({ ...f, bankAccounts: accounts.map((x, n) => (n === i ? { ...x, [k]: e.target.value } : x)) })} />
+                      </Field>
+                    ))}
+                  </div>
+                  <Button variant="ghost" size="sm" className="mt-2" onClick={() => setF({ ...f, bankAccounts: accounts.filter((_, n) => n !== i) })}>Remove this account</Button>
+                </div>
+              ))}
+            </div>
+            <Button variant="secondary" size="sm" className="mt-3" onClick={() => setF({ ...f, bankAccounts: [...accounts, { label: "", bankName: "", branch: "", swift: "", accountName: "", accountNo: "", address: "" }] })}>Add an account</Button>
           </Card>
           <div className="flex justify-end"><Button loading={saving} onClick={submit}><Save className="size-4" /> Save branding</Button></div>
         </div>
@@ -817,6 +939,10 @@ interface AdminOrderRow {
   orderNo: string;
   status: string;
   paidAt: string | null;
+  paidUsd: number | null;
+  payNowUsd: number | null;
+  payPercent: number | null;
+  paymentMethod: string;
   totalUsd: number;
   notes: string | null;
   createdAt: string;
@@ -824,6 +950,10 @@ interface AdminOrderRow {
   customer: { id: string; name: string; email: string | null; phone: string | null; countryCode: string | null };
 }
 interface AdminOrderDetail extends Omit<AdminOrderRow, "items" | "customer"> {
+  paymentRef: string | null;
+  countryCode: string | null;
+  city: string | null;
+  port: string | null;
   customer: AdminOrderRow["customer"] & { company: string | null };
   items: { id: string; vehicleId: string | null; title: string; priceUsd: number; slug: string | null; status: string | null }[];
 }
@@ -835,6 +965,7 @@ export function AdminOrders() {
   const flash = useFlash();
   const [tab, setTab] = useState<string>("");
   const [open, setOpen] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const q = useQuery({
     queryKey: ["admin/orders", tab],
     queryFn: () => api.get<{ items: AdminOrderRow[]; counts: Record<string, number> }>("/api/admin/orders" + qs({ status: tab })),
@@ -845,8 +976,9 @@ export function AdminOrders() {
   const all = Object.values(counts).reduce((a, b) => a + b, 0);
   return (
     <div>
-      <PageHeader title="Website orders" subtitle="Order requests sent from the website and the app cart. Confirm availability, then send the invoice from the CRM." />
+      <PageHeader title="Website orders" subtitle="Order requests sent from the website and the app cart. Confirm availability, then send the invoice from the CRM." actions={<Button onClick={() => setAdding(true)}>Add order</Button>} />
       {flash.node}
+      {adding && <AddOrderModal onClose={() => setAdding(false)} onDone={(no) => { setAdding(false); flash.ok(`Order ${no} added.`); void qc.invalidateQueries({ queryKey: ["admin/orders"] }); }} />}
       <div className="mb-4">
         <Tabs value={tab} onChange={setTab} items={[{ value: "", label: "All", count: all }, ...WEB_ORDER_STATUSES.map((s) => ({ value: s as string, label: cap(s), count: counts[s] ?? 0 }))]} />
       </div>
@@ -855,7 +987,7 @@ export function AdminOrders() {
       ) : !q.data?.items.length ? (
         <Empty icon={<Package className="size-8" />} title="No orders here" text="Orders appear when a buyer checks out their cart." />
       ) : (
-        <Table head={["Order", "Customer", "Cars", "Total", "Status", "Received"]}>
+        <Table head={["Order", "Customer", "Cars", "Total", "Paid", "Remaining", "Status", "Received"]}>
           {q.data.items.map((o) => (
             <tr key={o.id} onClick={() => setOpen(o.id)} className="cursor-pointer hover:bg-slate-50">
               <td className="px-4 py-3 font-semibold text-slate-900">{o.orderNo}</td>
@@ -868,6 +1000,8 @@ export function AdminOrders() {
                 {formatUsd(o.totalUsd)}
                 {o.paidAt && <span className="block text-xs font-medium text-emerald-700">Paid online</span>}
               </td>
+              <td className="px-4 py-3 whitespace-nowrap">{o.paidUsd != null ? formatUsd(Number(o.paidUsd)) : o.paidAt ? formatUsd(o.totalUsd) : "—"}</td>
+              <td className="px-4 py-3 whitespace-nowrap">{formatUsd(Math.max(0, o.totalUsd - Number(o.paidUsd ?? (o.paidAt ? o.totalUsd : 0))))}</td>
               <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
               <td className="px-4 py-3 text-slate-500">{ago(o.createdAt)}</td>
             </tr>
@@ -889,20 +1023,71 @@ export function AdminOrders() {
   );
 }
 
+function AddOrderModal({ onClose, onDone }: { onClose: () => void; onDone: (orderNo: string) => void }) {
+  const [f, setF] = useState({ customerEmail: "", stockNo: "", paidUsd: "", paymentMethod: "Order request", status: "pending", notes: "" });
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Add an order"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button
+            loading={busy}
+            onClick={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                const r = await api.post<{ orderNo: string }>("/api/admin/orders", { ...f, paidUsd: Number(f.paidUsd) || 0, notes: f.notes || undefined });
+                onDone(r.orderNo);
+              } catch (e) {
+                setErr((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Save order
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Customer e-mail"><Input type="email" value={f.customerEmail} onChange={set("customerEmail")} /></Field>
+        <Field label="Stock number"><Input value={f.stockNo} onChange={set("stockNo")} placeholder="HK-10003" /></Field>
+        <Field label="Paid amount (USD)"><Input type="number" min={0} value={f.paidUsd} onChange={set("paidUsd")} /></Field>
+        <Field label="Payment method"><Input value={f.paymentMethod} onChange={set("paymentMethod")} /></Field>
+        <Field label="Status">
+          <Select value={f.status} onChange={set("status")}>
+            {WEB_ORDER_STATUSES.map((s) => <option key={s} value={s}>{cap(s)}</option>)}
+          </Select>
+        </Field>
+        <Field label="Notes"><Input value={f.notes} onChange={set("notes")} /></Field>
+      </div>
+      {err && <p className="mt-2 text-sm text-rose-600">{err}</p>}
+    </Modal>
+  );
+}
+
 function OrderModal({ id, onClose, onSaved, onError }: { id: string; onClose: () => void; onSaved: (msg: string) => void; onError: (e: unknown) => void }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["admin/order", id], queryFn: () => api.get<AdminOrderDetail>(`/api/admin/orders/${id}`) });
   const [status, setStatus] = useState<string | null>(null);
+  const [paid, setPaid] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const o = q.data;
   const current = status ?? o?.status ?? "pending";
   const save = async () => {
-    if (!o || current === o.status) return;
+    if (!o) return;
     setSaving(true);
     try {
-      await api.patch(`/api/admin/orders/${id}`, { status: current });
+      await api.patch(`/api/admin/orders/${id}`, { status: current, ...(paid !== null ? { paidUsd: Number(paid) || 0 } : {}) });
       await qc.invalidateQueries({ queryKey: ["admin/order", id] });
-      onSaved(`${o.orderNo} is now ${current}. The buyer sees it in their account and in the chat.`);
+      onSaved(current === o.status ? `${o.orderNo} saved.` : `${o.orderNo} is now ${current}. The buyer sees it in their account and in the chat.`);
       onClose();
     } catch (e) {
       onError(e);
@@ -920,8 +1105,8 @@ function OrderModal({ id, onClose, onSaved, onError }: { id: string; onClose: ()
         o && (
           <>
             <Button variant="secondary" onClick={onClose}>Close</Button>
-            <Button loading={saving} disabled={current === o.status} onClick={save}>
-              <Save className="size-4" /> Update status
+            <Button loading={saving} disabled={current === o.status && paid === null} onClick={save}>
+              <Save className="size-4" /> Save
             </Button>
           </>
         )
@@ -949,6 +1134,25 @@ function OrderModal({ id, onClose, onSaved, onError }: { id: string; onClose: ()
               <p className="mt-2 text-xs text-slate-500">
                 Received {ago(o.createdAt)} · {o.items.length} car{o.items.length === 1 ? "" : "s"} · {formatUsd(o.totalUsd)}
               </p>
+            </Card>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Card padded={false} className="p-3 text-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Payment</p>
+              <dl className="mt-1 space-y-1">
+                <div className="flex justify-between gap-3"><dt className="text-slate-500">Method</dt><dd>{o.paymentMethod}</dd></div>
+                {o.payPercent != null && <div className="flex justify-between gap-3"><dt className="text-slate-500">Asked to pay now</dt><dd>{o.payPercent}% · {formatUsd(Number(o.payNowUsd ?? 0))}</dd></div>}
+                {o.paymentRef && <div className="flex justify-between gap-3"><dt className="text-slate-500">Payment id</dt><dd className="min-w-0 truncate">{o.paymentRef}</dd></div>}
+                <div className="flex justify-between gap-3"><dt className="text-slate-500">Remaining</dt><dd className="font-semibold">{formatUsd(Math.max(0, Number(o.totalUsd) - Number(paid ?? o.paidUsd ?? (o.paidAt ? o.totalUsd : 0))))}</dd></div>
+              </dl>
+              <div className="mt-2">
+                <Field label="Paid amount (USD)"><Input type="number" min={0} value={paid ?? String(o.paidUsd ?? (o.paidAt ? o.totalUsd : ""))} onChange={(e) => setPaid(e.target.value)} /></Field>
+              </div>
+            </Card>
+            <Card padded={false} className="p-3 text-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Where it goes</p>
+              <p className="mt-1 text-slate-700">{[o.city, o.countryCode].filter(Boolean).join(", ") || "Not given"}</p>
+              <p className="text-slate-700">Port: {o.port || "Not given"}</p>
             </Card>
           </div>
           {o.notes && (

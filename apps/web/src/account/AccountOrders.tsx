@@ -41,6 +41,7 @@ export default function AccountOrders() {
                 <div className="text-right">
                   <StatusBadge status={o.status} />
                   <p className="mt-1 font-bold text-brand-700">{usd(o.totalUsd)}</p>
+                  {o.paidUsd != null && Number(o.paidUsd) < Number(o.totalUsd) && <p className="text-xs text-slate-600">Paid {usd(o.paidUsd)} · remaining {usd(Number(o.totalUsd) - Number(o.paidUsd))}</p>}
                 </div>
               </div>
               <ul className="mt-3 space-y-1 text-sm">

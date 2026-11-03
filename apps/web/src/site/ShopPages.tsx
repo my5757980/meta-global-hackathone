@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, CheckCircle2, Heart, ShoppingCart, Trash2 } from "lucide-react";
@@ -7,7 +7,7 @@ import { useAuth } from "../lib/auth";
 import { usd } from "../lib/format";
 import { effectivePrice, isBuyer, useCart, useShopActions, useWishlist } from "../lib/shop";
 import { useFte } from "../lib/site";
-import { Badge, Button, Card, Empty, LinkButton, Skeleton, Textarea } from "../ui";
+import { Badge, Button, Card, Empty, Field, Input, LinkButton, Select, Skeleton, Textarea } from "../ui";
 import { VehicleCard } from "./VehicleCard";
 import { openChatWith } from "../chat/ChatWidget";
 
@@ -15,8 +15,7 @@ import { openChatWith } from "../chat/ChatWidget";
 function BuyerGate({ next, children }: { next: string; children: React.ReactNode }) {
   const { me, loading } = useAuth();
   if (loading) return <div className="container-page py-10"><Skeleton className="h-60" /></div>;
-  if (!me) return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
-  if (!isBuyer(me.kind)) return <div className="container-page py-10"><Empty title="Staff accounts do not shop" text="Sign in with a customer account to save cars and place an order request." /></div>;
+  if (me && !isBuyer(me.kind)) return <div className="container-page py-10"><Empty title="Staff accounts do not shop" text="Sign in with a customer account to save cars and place an order request." /></div>;
   return <>{children}</>;
 }
 
@@ -149,16 +148,28 @@ export function CheckoutView() {
   );
 }
 
+const PERCENTS = [10, 25, 50, 75, 100];
+
 function CheckoutInner() {
   const fte = useFte();
   const q = useCart();
   const qc = useQueryClient();
-  const [notes, setNotes] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [done, setDone] = useState<{ orderNo: string; totalUsd: number; items: number } | null>(null);
+  const { me, refresh } = useAuth();
   const nav = useNavigate();
   const options = useQuery({ queryKey: ["pay-options"], queryFn: () => api.get<{ provider: "paypal" | "demo" | null }>("/api/shop/pay-options") });
+  const countries = useQuery({ queryKey: ["countries"], queryFn: () => api.get<{ code: string; name: string; ports: { id: string; name: string }[] }[]>("/api/public/countries"), staleTime: 3600_000 });
+  const profile = useQuery({ queryKey: ["profile"], queryFn: () => api.get<{ name: string; email: string; phone: string; countryCode: string | null; city: string | null }>("/api/account/profile"), enabled: !!me && me.kind === "customer" });
+  const [f, setF] = useState({ name: "", email: "", phone: "", countryCode: "", city: "", port: "", notes: "", password: "", confirm: "" });
+  const [percent, setPercent] = useState(100);
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<{ orderNo: string; totalUsd: number; items: number; payNowUsd: number; remainingUsd: number } | null>(null);
+  useEffect(() => {
+    const p = profile.data;
+    if (p) setF((x) => ({ ...x, name: x.name || p.name || "", email: x.email || p.email || "", phone: x.phone || p.phone || "", countryCode: x.countryCode || p.countryCode || "", city: x.city || p.city || "" }));
+  }, [profile.data]);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
 
   if (done)
     return (
@@ -167,9 +178,9 @@ function CheckoutInner() {
           <CheckCircle2 className="mx-auto size-12 text-emerald-500" />
           <h1 className="mt-3 text-2xl font-bold text-slate-900">Order request sent</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Your order number is <span className="font-bold text-slate-900">{done.orderNo}</span> — {done.items} car{done.items === 1 ? "" : "s"}, {usd(done.totalUsd)} FOB.
+            Your order number is <span className="font-bold text-slate-900">{done.orderNo}</span>: {done.items} car{done.items === 1 ? "" : "s"}, {usd(done.totalUsd)} FOB.
           </p>
-          <p className="mt-3 text-sm text-slate-500">Nothing to pay yet. A colleague confirms the cars are still yours and sends the invoice with our bank details. You will see every step in your account and in the chat.</p>
+          <p className="mt-3 text-sm text-slate-500">Nothing to pay yet. Our team confirms the cars are still yours and sends the invoice with our bank details. You will see every step in your account and in the chat.</p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <LinkButton to="/account/orders">View my orders</LinkButton>
             <LinkButton to="/chat" variant="secondary"><Bot className="size-4" /> Chat with {fte}</LinkButton>
@@ -179,11 +190,47 @@ function CheckoutInner() {
     );
 
   const ready = q.data?.items.filter((v) => v.status === "available") ?? [];
+  const subtotal = ready.reduce((a, v) => a + effectivePrice(v), 0);
+  const floor = subtotal <= 3000 ? 25 : 0.01;
+  const typed = Number(amount) || 0;
+  const asked = typed > 0 && subtotal > 0 ? (typed / subtotal) * 100 : percent;
+  const effective = Math.min(100, Math.max(asked, floor));
+  const payNow = effective >= 100 ? subtotal : Math.round(subtotal * effective) / 100;
+  const remaining = Math.round((subtotal - payNow) * 100) / 100;
+  const raised = asked < floor;
+  const ports = countries.data?.find((c) => c.code === f.countryCode)?.ports ?? [];
   const submit = async (pay?: "online") => {
-    setBusy(true);
     setErr(null);
+    if (!me && f.password !== f.confirm) {
+      setErr("The two passwords are not the same");
+      return;
+    }
+    setBusy(true);
     try {
-      const r = await api.post<{ orderId: string; orderNo: string; totalUsd: number; items: number }>("/api/shop/checkout", { notes: notes.trim() || undefined, pay });
+      const body = {
+        notes: f.notes.trim() || undefined,
+        pay,
+        name: f.name || undefined,
+        email: f.email || undefined,
+        phone: f.phone || undefined,
+        countryCode: f.countryCode || undefined,
+        city: f.city.trim() || undefined,
+        port: f.port.trim() || undefined,
+        payPercent: typed > 0 ? undefined : percent,
+        payNowUsd: typed > 0 ? typed : undefined,
+        password: me ? undefined : f.password,
+        vehicleIds: me ? undefined : ready.map((v) => v.id),
+      };
+      const r = await api.post<{ orderId: string; orderNo: string; totalUsd: number; items: number; payNowUsd: number; remainingUsd: number }>("/api/shop/checkout", body);
+      if (!me) {
+        // the account now exists: what was in this browser is on it
+        try {
+          localStorage.removeItem("guest-cart");
+        } catch {
+          /* nothing stored */
+        }
+        await refresh();
+      }
       void qc.invalidateQueries({ queryKey: ["shop"] });
       void qc.invalidateQueries({ queryKey: ["my-orders"] });
       if (pay) {
@@ -199,9 +246,11 @@ function CheckoutInner() {
       setBusy(false);
     }
   };
+  const canSend = !!(f.name.trim() && f.email.trim() && f.phone.trim() && f.countryCode && (me || f.password.length >= 8));
   return (
     <div className="container-page py-8">
-      <h1 className="mb-5 text-2xl font-bold text-slate-900">Checkout</h1>
+      <h1 className="mb-1 text-2xl font-bold text-slate-900">Checkout</h1>
+      <p className="mb-5 text-sm text-slate-500">Tell us where to reach you and how much you pay now.</p>
       {q.isLoading ? (
         <Skeleton className="h-60" />
       ) : !ready.length ? (
@@ -209,34 +258,68 @@ function CheckoutInner() {
       ) : (
         <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
           <Card>
-            <p className="mb-3 text-sm font-semibold text-slate-700">Cars in this order request</p>
+            <p className="mb-3 text-sm font-semibold text-slate-700">Buyer details</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Full name"><Input required value={f.name} onChange={set("name")} autoComplete="name" /></Field>
+              <Field label="E-mail"><Input required type="email" value={f.email} onChange={set("email")} disabled={!!me && me.kind === "customer"} autoComplete="email" /></Field>
+              <Field label="Phone / WhatsApp"><Input required value={f.phone} onChange={set("phone")} autoComplete="tel" /></Field>
+              <Field label="Destination country">
+                <Select value={f.countryCode} onChange={set("countryCode")}>
+                  <option value="">Choose a country</option>
+                  {countries.data?.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+                </Select>
+              </Field>
+              <Field label="City"><Input value={f.city} onChange={set("city")} autoComplete="address-level2" /></Field>
+              <Field label="Preferred port">
+                <Input value={f.port} onChange={set("port")} list="checkout-ports" placeholder="Mombasa, Kingston, Karachi" />
+                <datalist id="checkout-ports">{ports.map((p) => <option key={p.id} value={p.name} />)}</datalist>
+              </Field>
+              <Field label="Payment percentage">
+                <Select value={String(percent)} onChange={(e) => { setPercent(Number(e.target.value)); setAmount(""); }}>
+                  {PERCENTS.map((n) => <option key={n} value={n}>{n}%</option>)}
+                </Select>
+              </Field>
+              <Field label="Pay now amount (USD)" hint="Or type your own amount">
+                <Input type="number" min={1} step="any" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={String(payNow)} />
+              </Field>
+              {!me && (
+                <>
+                  <Field label="Account password" hint="8 or more characters. Your account is made with this order."><Input type="password" minLength={8} value={f.password} onChange={set("password")} autoComplete="new-password" /></Field>
+                  <Field label="Confirm password"><Input type="password" minLength={8} value={f.confirm} onChange={set("confirm")} autoComplete="new-password" /></Field>
+                </>
+              )}
+            </div>
+            {!me && <p className="mt-2 text-xs text-slate-500">Already have an account? <Link to="/login?next=%2Fcheckout" className="font-semibold text-brand-700">Sign in</Link> and your cart comes with you.</p>}
+            <label className="mt-4 block">
+              <span className="mb-1 block text-sm font-medium text-slate-700">Additional notes <span className="font-normal text-slate-400">(optional)</span></span>
+              <Textarea rows={3} maxLength={1000} value={f.notes} onChange={set("notes")} placeholder="Shipment timing, inspection needs, documents you need" />
+            </label>
+          </Card>
+          <Card className="h-fit">
+            <p className="mb-2 text-sm font-semibold text-slate-700">Order summary</p>
             <ul className="divide-y divide-slate-100">
               {ready.map((v) => (
-                <li key={v.id} className="flex items-center justify-between gap-3 py-2.5">
+                <li key={v.id} className="flex items-center justify-between gap-3 py-2">
                   <span className="min-w-0 text-sm text-slate-800"><span className="block truncate font-medium">{v.title}</span><span className="text-xs text-slate-500">{v.stockNo}</span></span>
                   <span className="shrink-0 font-semibold text-slate-900">{usd(effectivePrice(v))}</span>
                 </li>
               ))}
             </ul>
-            <label className="mt-4 block">
-              <span className="mb-1 block text-sm font-medium text-slate-700">Notes for our team <span className="font-normal text-slate-400">(optional)</span></span>
-              <Textarea rows={3} maxLength={1000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Destination port, RoRo or container, consignee name…" />
-            </label>
-          </Card>
-          <Card className="h-fit">
-            <p className="text-sm text-slate-500">Total (FOB Japan)</p>
-            <p className="mt-1 text-3xl font-extrabold text-brand-700">{usd(q.data!.totalUsd)}</p>
-            <p className="mt-2 text-xs text-slate-500">This sends an order request — no payment now. We confirm availability, then send the invoice with bank details for the advance.</p>
+            <dl className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-sm">
+              <div className="flex justify-between"><dt className="text-slate-500">Subtotal (FOB Japan)</dt><dd className="font-semibold" data-testid="subtotal">{usd(subtotal)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">Pay now ({Math.round(effective)}%)</dt><dd className="font-bold text-brand-700" data-testid="pay-now">{usd(payNow)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">Remaining</dt><dd className="font-semibold" data-testid="remaining">{usd(remaining)}</dd></div>
+            </dl>
+            {raised && <p className="mt-2 rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-800">For orders of $3,000 or less, the least you can pay now is 25%.</p>}
+            <p className="mt-2 text-xs text-slate-500">The final invoice can add freight, inspection, documents and destination charges once our team confirms your route.</p>
             {err && <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{err}</p>}
-            <Button size="lg" className="mt-4 w-full" loading={busy} onClick={() => void submit()}>Send order request</Button>
             {options.data?.provider && (
-              <>
-                <p className="mt-4 text-xs text-slate-500">Or pay the FOB total now. The freight to your port is added on the invoice.</p>
-                <Button size="lg" variant="secondary" className="mt-2 w-full" disabled={busy} onClick={() => void submit("online")}>
-                  {options.data.provider === "paypal" ? "Pay now with PayPal" : "Pay now online (demo)"}
-                </Button>
-              </>
+              <Button size="lg" className="mt-4 w-full" disabled={busy || !canSend} onClick={() => void submit("online")}>
+                {options.data.provider === "paypal" ? "Pay with PayPal or card" : "Pay online (demo)"}
+              </Button>
             )}
+            <Button size="lg" variant={options.data?.provider ? "secondary" : "primary"} className="mt-2 w-full" loading={busy} disabled={!canSend} onClick={() => void submit()}>Submit order for checking</Button>
+            <p className="mt-2 text-xs text-slate-500">Submitting sends the order with nothing to pay yet. We confirm the cars, then send the invoice with bank details.</p>
           </Card>
         </div>
       )}

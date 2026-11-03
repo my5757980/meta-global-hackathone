@@ -44,7 +44,7 @@ export function registerWorkforce() {
     const [paidOrder] = await db().select().from(s.webOrders).where(and(eq(s.webOrders.invoiceId, full.invoice.id), isNotNull(s.webOrders.paidAt))).limit(1);
     const ren = await actorFor("accounts");
     if (paidOrder?.paymentRef && ren && !full.payments.some((p) => p.slipReference === paidOrder.paymentRef) && (await levelOf("accounts", "payment.record")) > 0) {
-      await recordPaymentRow({ invoiceId: full.invoice.id, amountUsd: Math.min(Number(paidOrder.totalUsd), full.totals.balance), receivedDate: paidOrder.paidAt!.toISOString().slice(0, 10), reference: paidOrder.paymentRef, fileId: null }, ren, "accounts", "payment.record", `Paid online for order ${paidOrder.orderNo}: the payment provider confirmed it.`);
+      await recordPaymentRow({ invoiceId: full.invoice.id, amountUsd: Math.min(Number(paidOrder.paidUsd ?? paidOrder.totalUsd), full.totals.balance), receivedDate: paidOrder.paidAt!.toISOString().slice(0, 10), reference: paidOrder.paymentRef, fileId: null }, ren, "accounts", "payment.record", `Paid online for order ${paidOrder.orderNo}: the payment provider confirmed it.`);
     }
   });
 

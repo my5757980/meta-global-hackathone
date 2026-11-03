@@ -22,10 +22,6 @@ export function VehicleCard({ v }: { v: V }) {
   const inCart = !!cart.data?.items.some((x) => x.id === v.id);
   const saved = !!wish.data?.items.some((x) => x.id === v.id);
   const run = async (what: "cart" | "wish", fn: () => Promise<unknown>) => {
-    if (!me) {
-      nav(`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`);
-      return;
-    }
     setBusy(what);
     setErr(null);
     try {

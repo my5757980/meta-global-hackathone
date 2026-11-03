@@ -11,6 +11,7 @@ export interface Me {
   role: string | null;
   roleName: string | null;
   title: string | null;
+  avatarUrl?: string | null;
   countryCode: string | null;
   mustChangePassword?: boolean;
   hasRecoveryKey?: boolean;

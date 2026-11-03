@@ -6,7 +6,7 @@ import { api } from "../lib/api";
 import { useAuth, usePresencePing } from "../lib/auth";
 import { useLiveStream } from "../lib/sse";
 import { useBrandTheme, useSite } from "../lib/site";
-import { useShopCounts } from "../lib/shop";
+import { useGuestMerge, useShopCounts } from "../lib/shop";
 import { clsx } from "../ui";
 import { ChatWidget } from "../chat/ChatWidget";
 import { CallLayer } from "../chat/calls";
@@ -70,6 +70,59 @@ function useRate() {
   return useQuery({ queryKey: ["usd-jpy"], queryFn: () => api.get<{ usdJpy: number; date: string | null; source: string }>("/api/public/rate"), staleTime: 3600_000 });
 }
 
+/** Type dollars or yen and read the other, at the rate shown. */
+function CurrencyBox({ rate, title }: { rate: number; title: string }) {
+  const [open, setOpen] = useState(false);
+  const [usd, setUsd] = useState("1000");
+  const [jpy, setJpy] = useState(String(Math.round(1000 * rate)));
+  return (
+    <span className="relative">
+      <button type="button" title={title} aria-expanded={open} onClick={() => setOpen((o) => !o)} className="rounded bg-white/10 px-2 py-0.5 font-semibold text-white hover:bg-white/20">
+        USD/JPY {rate.toFixed(2)}
+      </button>
+      {open && (
+        <span className="absolute top-full right-0 z-50 mt-1 flex w-64 items-center gap-1.5 rounded-xl bg-white p-2 text-slate-800 shadow-lg ring-1 ring-slate-200">
+          <label className="flex min-w-0 flex-1 items-center gap-1 text-xs font-semibold">
+            USD
+            <input aria-label="US dollars" type="number" className="h-8 w-full min-w-0 rounded-lg border border-slate-200 px-1.5 text-sm font-normal" value={usd} onChange={(e) => { setUsd(e.target.value); setJpy(e.target.value ? String(Math.round(Number(e.target.value) * rate)) : ""); }} />
+          </label>
+          <span aria-hidden="true">=</span>
+          <label className="flex min-w-0 flex-1 items-center gap-1 text-xs font-semibold">
+            JPY
+            <input aria-label="Japanese yen" type="number" className="h-8 w-full min-w-0 rounded-lg border border-slate-200 px-1.5 text-sm font-normal" value={jpy} onChange={(e) => { setJpy(e.target.value); setUsd(e.target.value ? String(Math.round((Number(e.target.value) / rate) * 100) / 100) : ""); }} />
+          </label>
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Browse by brand, from the header. */
+function BrandMenu() {
+  const [open, setOpen] = useState(false);
+  const q = useQuery({ queryKey: ["catalog-facets"], queryFn: () => api.get<{ brands: { name: string; slug: string; logoUrl?: string | null }[] }>("/api/public/facets"), enabled: open, staleTime: 3600_000 });
+  return (
+    <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
+        Brand <ChevronDown className="size-4" />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 z-50 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+          <p className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">Browse by brand</p>
+          <div className="grid grid-cols-2 gap-1">
+            {q.data?.brands.slice(0, 16).map((b) => (
+              <Link key={b.slug} to={`/shop?brand=${encodeURIComponent(b.slug)}`} onClick={() => setOpen(false)} className="truncate rounded-lg px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                {b.name}
+              </Link>
+            ))}
+          </div>
+          <Link to="/shop" onClick={() => setOpen(false)} className="mt-2 block rounded-lg bg-slate-50 px-2 py-1.5 text-center text-sm font-semibold text-brand-700">View all brands</Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** World clocks and the yen rate, on every page. */
 function TopBar() {
   const site = useSite();
@@ -105,11 +158,7 @@ function TopBar() {
                 {city} <strong className="font-semibold text-white">{timeIn(now, zone)}</strong>
               </span>
             ))}
-            {rateText && (
-              <span title={rateTitle} className="rounded bg-white/10 px-2 py-0.5 font-semibold text-white">
-                {rateText}
-              </span>
-            )}
+            {rate && <CurrencyBox rate={rate.usdJpy} title={rateTitle} />}
           </div>
         </div>
       </div>
@@ -124,6 +173,7 @@ export function SiteLayout() {
   const nav = useNavigate();
   const loc = useLocation();
   const counts = useShopCounts();
+  useGuestMerge();
   useBrandTheme();
   useLiveStream(!!me);
   usePresencePing(!!me && me.kind === "staff");
@@ -142,7 +192,13 @@ export function SiteLayout() {
             <Logo name={site?.companyName} />
           </Link>
           <nav className="ml-4 hidden items-center gap-1 lg:flex">
-            {NAV.map((n) => (
+            {NAV.slice(0, 2).map((n) => (
+              <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => clsx("rounded-lg px-3 py-2 text-sm font-semibold transition", isActive ? "text-brand-700" : "text-slate-600 hover:text-slate-900")}>
+                {n.label}
+              </NavLink>
+            ))}
+            <BrandMenu />
+            {NAV.slice(2).map((n) => (
               <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => clsx("rounded-lg px-3 py-2 text-sm font-semibold transition", isActive ? "text-brand-700" : "text-slate-600 hover:text-slate-900")}>
                 {n.label}
               </NavLink>

@@ -218,7 +218,7 @@ export async function peopleForBuyers() {
   const rows = await db()
     .select({ id: s.users.id, name: s.users.name, title: s.users.title, roleId: s.users.roleId })
     .from(s.users)
-    .where(and(eq(s.users.kind, "staff"), eq(s.users.isActive, true)))
+    .where(and(eq(s.users.kind, "staff"), eq(s.users.isActive, true), eq(s.users.showInChat, true)))
     .orderBy(asc(s.users.name));
   const out: { id: string; name: string; title: string | null; online: boolean }[] = [];
   for (const r of rows) if ((await permsForRole(r.roleId)).has("chat.desk")) out.push({ id: r.id, name: r.name, title: r.title, online: isOnline(r.id) });

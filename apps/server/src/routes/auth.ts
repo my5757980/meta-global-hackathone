@@ -14,6 +14,33 @@ import { audit } from "../services/audit";
 import { mailConfigured, sendMail } from "../services/mail";
 import { siteSettings } from "../services/settings";
 
+/** A new customer account (or a chat visitor becoming one). Throws when the e-mail is taken. Returns the user's id. */
+export async function registerCustomer(body: { name: string; email: string; phone: string; password: string; countryCode?: string; company?: string }): Promise<string> {
+  const [exists] = await db().select({ id: s.users.id, kind: s.users.kind, phone: s.users.phone }).from(s.users).where(sql`lower(${s.users.email}) = ${body.email}`).limit(1);
+  if (exists && exists.kind !== "visitor") throw conflict("An account with this e-mail already exists — please sign in");
+  if (exists && !samePhone(exists.phone, body.phone)) throw conflict("This e-mail already has a conversation with us. Use the phone number you chatted with, or contact us.");
+  const [role] = await db().select().from(s.roles).where(eq(s.roles.slug, "customer")).limit(1);
+  const hash = await hashPassword(body.password);
+  let userId: string;
+  if (exists) {
+    // a visitor who chatted before becomes a customer: same person, same conversation
+    await db().update(s.users).set({ kind: "customer", name: body.name, phone: body.phone, passwordHash: hash, roleId: role!.id, countryCode: body.countryCode ?? null, company: body.company ?? null }).where(eq(s.users.id, exists.id));
+    userId = exists.id;
+  } else {
+    const [u] = await db().insert(s.users).values({ kind: "customer", name: body.name, email: body.email, phone: body.phone, passwordHash: hash, roleId: role!.id, countryCode: body.countryCode ?? null, company: body.company ?? null }).returning();
+    userId = u!.id;
+  }
+  // A CRM record with this e-mail is NOT handed over on a typed address: nobody has proved it is theirs.
+  // Whoever owns the record is told, and links it from Customers once they know it is the same person.
+  const matches = await db().select({ name: s.leads.customerName, owner: s.leads.ownerUserId }).from(s.leads).where(and(sql`lower(${s.leads.email}) = ${body.email}`, isNull(s.leads.customerUserId)));
+  if (matches.length) {
+    const owners = matches.map((m) => m.owner).filter((o): o is string => !!o);
+    const to = [...new Set([...owners, ...(await usersWithPerm("crm.invoices.approve"))])];
+    await notify(to, { type: "account_match", title: `${body.name} signed up with the e-mail of ${matches[0]!.name}`, body: "If it is really them, link the CRM record so they can see their invoices.", link: `/admin/customers/${userId}` });
+  }
+  return userId;
+}
+
 export const authRouter = Router();
 
 const DEMO_USERS: Record<string, string> = {
@@ -27,7 +54,7 @@ const DEMO_USERS: Record<string, string> = {
 
 function publicMe(u: Awaited<ReturnType<typeof loadAuthUser>>) {
   if (!u) return null;
-  return { id: u.id, kind: u.kind, name: u.name, email: u.email, phone: u.phone, role: u.roleSlug, roleName: u.roleName, title: u.title, countryCode: u.countryCode, mustChangePassword: u.mustChangePassword, hasRecoveryKey: u.hasRecoveryKey, perms: [...u.perms] };
+  return { avatarUrl: u.avatarUrl ?? null, id: u.id, kind: u.kind, name: u.name, email: u.email, phone: u.phone, role: u.roleSlug, roleName: u.roleName, title: u.title, countryCode: u.countryCode, mustChangePassword: u.mustChangePassword, hasRecoveryKey: u.hasRecoveryKey, perms: [...u.perms] };
 }
 
 /** The same phone, ignoring formatting and country prefix: all a returning chat guest has to prove who they are. */
@@ -59,7 +86,7 @@ authRouter.post(
 authRouter.post(
   "/login",
   h(async (req, res) => {
-    const body = parse(z.object({ login: z.string().trim().min(2).max(120), password: z.string().min(1).max(200) }), req.body);
+    const body = parse(z.object({ login: z.string().trim().min(2).max(120), password: z.string().min(1).max(200), remember: z.boolean().optional() }), req.body);
     const [u] = await db()
       .select()
       .from(s.users)
@@ -67,7 +94,7 @@ authRouter.post(
       .limit(1);
     if (!u || !(await verifyPassword(body.password, u.passwordHash))) throw new HttpError(401, "These credentials do not match our records.");
     if (!u.isActive) throw new HttpError(403, "This account is switched off. Please contact the company.");
-    const sess = await sessionFor(req, res, u.id);
+    const sess = await sessionFor(req, res, u.id, body.remember);
     return { user: publicMe(await loadAuthUser(u.id)), ...sess };
   }),
 );
@@ -86,28 +113,7 @@ authRouter.post(
       }),
       req.body,
     );
-    const [exists] = await db().select({ id: s.users.id, kind: s.users.kind, phone: s.users.phone }).from(s.users).where(sql`lower(${s.users.email}) = ${body.email}`).limit(1);
-    if (exists && exists.kind !== "visitor") throw conflict("An account with this e-mail already exists — please sign in");
-    if (exists && !samePhone(exists.phone, body.phone)) throw conflict("This e-mail already has a conversation with us. Use the phone number you chatted with, or contact us.");
-    const [role] = await db().select().from(s.roles).where(eq(s.roles.slug, "customer")).limit(1);
-    const hash = await hashPassword(body.password);
-    let userId: string;
-    if (exists) {
-      // a visitor who chatted before becomes a customer: same person, same conversation
-      await db().update(s.users).set({ kind: "customer", name: body.name, phone: body.phone, passwordHash: hash, roleId: role!.id, countryCode: body.countryCode ?? null, company: body.company ?? null }).where(eq(s.users.id, exists.id));
-      userId = exists.id;
-    } else {
-      const [u] = await db().insert(s.users).values({ kind: "customer", name: body.name, email: body.email, phone: body.phone, passwordHash: hash, roleId: role!.id, countryCode: body.countryCode ?? null, company: body.company ?? null }).returning();
-      userId = u!.id;
-    }
-    // A CRM record with this e-mail is NOT handed over on a typed address: nobody has proved it is theirs.
-    // Whoever owns the record is told, and links it from Customers once they know it is the same person.
-    const matches = await db().select({ name: s.leads.customerName, owner: s.leads.ownerUserId }).from(s.leads).where(and(sql`lower(${s.leads.email}) = ${body.email}`, isNull(s.leads.customerUserId)));
-    if (matches.length) {
-      const owners = matches.map((m) => m.owner).filter((o): o is string => !!o);
-      const to = [...new Set([...owners, ...(await usersWithPerm("crm.invoices.approve"))])];
-      await notify(to, { type: "account_match", title: `${body.name} signed up with the e-mail of ${matches[0]!.name}`, body: "If it is really them, link the CRM record so they can see their invoices.", link: `/admin/customers/${userId}` });
-    }
+    const userId = await registerCustomer(body);
     const sess = await sessionFor(req, res, userId);
     return { user: publicMe(await loadAuthUser(userId)), ...sess };
   }),

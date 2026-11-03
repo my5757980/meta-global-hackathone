@@ -106,7 +106,7 @@ export default function Login() {
   const qc = useQueryClient();
   const { refresh } = useAuth();
   const roles = useQuery({ queryKey: ["demo-roles"], queryFn: () => api.get<string[]>("/api/auth/demo-roles") });
-  const [f, setF] = useState({ login: "", password: "" });
+  const [f, setF] = useState({ login: "", password: "", remember: false });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [forgot, setForgot] = useState(false);
@@ -148,6 +148,9 @@ export default function Login() {
           <Field label="Password">
             <Input required type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} autoComplete="current-password" />
           </Field>
+          <label className="flex min-h-7 items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" className="accent-brand-600" checked={f.remember} onChange={(e) => setF({ ...f, remember: e.target.checked })} /> Remember me
+          </label>
           {err && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</p>}
           <Button type="submit" className="w-full" loading={busy === "login"}>
             Sign in

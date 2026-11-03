@@ -487,7 +487,7 @@ const WEBSITE_TOOLS: ToolDef[] = [
       if (!o) throw new ToolError("No such order");
       const items = await db().select({ vehicleId: s.webOrderItems.vehicleId, title: s.webOrderItems.title, priceUsd: s.webOrderItems.priceUsd, status: s.vehicles.status }).from(s.webOrderItems).leftJoin(s.vehicles, eq(s.vehicles.id, s.webOrderItems.vehicleId)).where(eq(s.webOrderItems.orderId, o.o.id));
       const [lead] = await db().select().from(s.leads).where(eq(s.leads.customerUserId, o.buyer.id)).orderBy(desc(s.leads.updatedAt)).limit(1);
-      return { order_no: o.o.orderNo, status: o.o.status, paid_online: !!o.o.paidAt, invoice_already_made: o.o.invoiceId, buyer: { user_id: o.buyer.id, name: o.buyer.name, company: o.buyer.company, phone: o.buyer.phone, email: o.buyer.email, country: o.buyer.countryCode }, known_port_id: lead?.portId ?? null, known_country: lead?.countryCode ?? o.buyer.countryCode ?? null, items, buyer_note: o.o.notes };
+      return { order_no: o.o.orderNo, status: o.o.status, paid_online: !!o.o.paidAt, paid_online_usd: o.o.paidUsd, pay_percent: o.o.payPercent, buyer_asked: { country: o.o.countryCode, city: o.o.city, port: o.o.port }, notes: o.o.notes, invoice_already_made: o.o.invoiceId, buyer: { user_id: o.buyer.id, name: o.buyer.name, company: o.buyer.company, phone: o.buyer.phone, email: o.buyer.email, country: o.buyer.countryCode }, known_port_id: lead?.portId ?? null, known_country: lead?.countryCode ?? o.buyer.countryCode ?? null, items, buyer_note: o.o.notes };
     },
   },
   {

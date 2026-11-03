@@ -257,7 +257,7 @@ function AgentDetail({ who, from, to, onClose }: { who: { id: string; name: stri
 export function UsersPage() {
   const qc = useQueryClient();
   const { me, can } = useAuth();
-  const q = useQuery({ queryKey: ["users"], queryFn: () => api.get<{ users: { id: string; name: string; email: string; kind: string; isActive: boolean; title: string; lastSeenAt: string | null; role: string; roleName: string; leads: number }[]; roles: { slug: string; name: string }[] }>("/api/crm/users") });
+  const q = useQuery({ queryKey: ["users"], queryFn: () => api.get<{ users: { id: string; name: string; email: string; kind: string; isActive: boolean; title: string; lastSeenAt: string | null; role: string; roleName: string; leads: number; showInChat: boolean }[]; roles: { slug: string; name: string }[] }>("/api/crm/users") });
   const [create, setCreate] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);
   const [transfer, setTransfer] = useState(false);
@@ -283,7 +283,7 @@ export function UsersPage() {
       {!q.data ? (
         <Skeleton className="h-60" />
       ) : (
-        <Table head={["Name", "Role", "Leads", "Last seen", "Status", ""]}>
+        <Table head={["Name", "Role", "Leads", "Last seen", "Show in the chat", "Status", ""]}>
           {q.data.users.map((u) => (
             <tr key={u.id}>
               <td className="px-4 py-3">
@@ -318,6 +318,22 @@ export function UsersPage() {
               </td>
               <td className="px-4 py-3">{u.leads}</td>
               <td className="px-4 py-3 text-xs">{ago(u.lastSeenAt)}</td>
+              <td className="px-4 py-3">
+                {u.kind === "staff" ? (
+                  <input
+                    type="checkbox"
+                    aria-label={`Show ${u.name} in the chat`}
+                    className="size-4 accent-brand-600"
+                    checked={u.showInChat}
+                    onChange={async (e) => {
+                      await api.put(`/api/crm/users/${u.id}`, { showInChat: e.target.checked });
+                      refresh();
+                    }}
+                  />
+                ) : (
+                  "—"
+                )}
+              </td>
               <td className="px-4 py-3">{u.isActive ? <Badge tone="green">Active</Badge> : <Badge tone="gray">Switched off</Badge>}</td>
               <td className="px-4 py-3">
                 {u.kind === "staff" && u.id !== me?.id && (

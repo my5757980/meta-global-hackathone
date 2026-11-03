@@ -149,7 +149,7 @@ export async function suggest(q: string) {
   if (!q || q.trim().length < 2) return [];
   const like = `%${q.trim()}%`;
   return db()
-    .select({ slug: vehicles.slug, title: vehicles.title, stockNo: vehicles.stockNo })
+    .select({ id: vehicles.id, slug: vehicles.slug, title: vehicles.title, stockNo: vehicles.stockNo, status: vehicles.status })
     .from(vehicles)
     .where(and(eq(vehicles.published, true), ne(vehicles.status, "sold"), or(ilike(vehicles.title, like), ilike(vehicles.stockNo, like), ilike(vehicles.modelCode, like))))
     .limit(8);

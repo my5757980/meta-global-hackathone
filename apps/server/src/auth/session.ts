@@ -19,6 +19,7 @@ export interface AuthUser {
   roleSlug: string | null;
   roleName: string | null;
   title: string | null;
+  avatarUrl: string | null;
   countryCode: string | null;
   mustChangePassword: boolean;
   hasRecoveryKey: boolean;
@@ -62,6 +63,7 @@ export async function loadAuthUser(userId: string): Promise<AuthUser | null> {
       roleSlug: roles.slug,
       roleName: roles.name,
       title: users.title,
+      avatarUrl: users.avatarUrl,
       countryCode: users.countryCode,
       mustChangePassword: users.mustChangePassword,
       recoveryKeyHash: users.recoveryKeyHash,
@@ -90,9 +92,9 @@ export const isAppClient = (req: Request) => req.headers["x-autofte-client"] ===
 const APP_TTL_MS = 1000 * 60 * 60 * 24 * 30; // a phone is not a browser tab: 30 days
 
 /** Start a session; an app client also receives the token in the response body. */
-export async function sessionFor(req: Request, res: Response, userId: string): Promise<{ sessionToken?: string }> {
+export async function sessionFor(req: Request, res: Response, userId: string, remember?: boolean): Promise<{ sessionToken?: string }> {
   const app = isAppClient(req);
-  const token = await createSession(res, userId, req.headers["user-agent"], app ? APP_TTL_MS : TTL_MS);
+  const token = await createSession(res, userId, req.headers["user-agent"], app || remember ? APP_TTL_MS : TTL_MS);
   await db().update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, userId)); // "never signed in" must mean exactly that
   return app ? { sessionToken: token } : {};
 }

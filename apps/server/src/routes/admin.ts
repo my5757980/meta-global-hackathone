@@ -5,7 +5,8 @@ import { BODY_TYPES, DRIVES, FUELS, SiteSettingsSchema, STEERINGS, TRANSMISSIONS
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, conflict, h, notFound, parse } from "../lib/http";
-import { requirePerm } from "../auth/session";
+import { can, requirePerm } from "../auth/session";
+import { newOrderNo } from "./shop";
 import { audit } from "../services/audit";
 import { emit } from "../services/events";
 import { ensureCustomerConversation, postMessage } from "../services/chat";
@@ -132,6 +133,7 @@ const vehicleBody = z.object({
   location: z.string().max(60).optional(),
   originCountry: z.string().max(60).optional(),
   features: z.array(z.string().max(80)).max(80).optional(),
+  specRows: z.array(z.object({ name: z.string().trim().min(1).max(60), value: z.string().trim().min(1).max(120) })).max(30).optional(),
   tags: z.array(z.string().max(40)).max(40).optional(),
   homeSections: z.array(z.string().max(40)).max(20).optional(),
   featured: z.boolean().optional(),
@@ -460,6 +462,52 @@ adminRouter.post(
 );
 
 // ---------- website orders (cart checkout requests) ----------
+/** The opening page of the website admin. An agent's customer numbers are their own. */
+adminRouter.get(
+  "/dashboard",
+  h(async (req) => {
+    const u = requirePerm(req, "website.admin");
+    const mine = !can(u, "website.customers.view_all");
+    const owned = sql`"users"."id" in (select customer_user_id from leads where owner_user_id = ${u.id} and customer_user_id is not null)`;
+    const [[orders], [vehicles], [customers], [blogs], [pages], [leadsN], [news], activity, recentOrders, latestCustomers] = await Promise.all([
+      db().select({ n: sql<number>`count(*)::int`, paid: sql<number>`coalesce(sum(coalesce(paid_usd, case when paid_at is not null then total_usd end)),0)::float`, paidOrders: sql<number>`count(*) filter (where status in ('paid','shipped','delivered','completed'))::int` }).from(s.webOrders),
+      db().select({ n: sql<number>`count(*)::int`, published: sql<number>`count(*) filter (where published)::int` }).from(s.vehicles),
+      db().select({ n: sql<number>`count(*)::int` }).from(s.users).where(and(eq(s.users.kind, "customer"), mine ? owned : undefined)),
+      db().select({ n: sql<number>`count(*)::int`, published: sql<number>`count(*) filter (where published_at is not null)::int` }).from(s.blogPosts),
+      db().select({ n: sql<number>`count(*)::int` }).from(s.pages),
+      db().select({ n: sql<number>`count(*)::int` }).from(s.contactMessages),
+      db().select({ n: sql<number>`count(*)::int` }).from(s.newsletterSubscribers),
+      db().execute(sql`with months as (select to_char(date_trunc('month', now()) - (g || ' month')::interval, 'YYYY-MM') as m from generate_series(0, 5) g)
+        select m.m as month, (select count(*)::int from web_orders o where to_char(o.created_at, 'YYYY-MM') = m.m) as orders from months m order by m.m`),
+      db().select({ id: s.webOrders.id, orderNo: s.webOrders.orderNo, customer: s.users.name, totalUsd: s.webOrders.totalUsd, paidUsd: s.webOrders.paidUsd, status: s.webOrders.status, createdAt: s.webOrders.createdAt }).from(s.webOrders).innerJoin(s.users, eq(s.users.id, s.webOrders.userId)).orderBy(desc(s.webOrders.createdAt)).limit(6),
+      db().select({ id: s.users.id, name: s.users.name, email: s.users.email, createdAt: s.users.createdAt }).from(s.users).where(and(eq(s.users.kind, "customer"), mine ? owned : undefined)).orderBy(desc(s.users.createdAt)).limit(6),
+    ]);
+    return { orders, vehicles, customers: customers?.n ?? 0, blogs, pages: pages?.n ?? 0, contactLeads: leadsN?.n ?? 0, newsletter: news?.n ?? 0, activity: (activity as unknown as { rows: { month: string; orders: number }[] }).rows, recentOrders, latestCustomers };
+  }),
+);
+
+/** An order staff took by phone or in person: the same row a checkout makes. */
+adminRouter.post(
+  "/orders",
+  h(async (req) => {
+    const u = requirePerm(req, "website.orders.manage");
+    const b = parse(z.object({ customerEmail: z.string().trim().toLowerCase().email(), stockNo: z.string().trim().min(2).max(40), paidUsd: z.coerce.number().min(0).default(0), status: z.enum(WEB_ORDER_STATUSES).default("pending"), paymentMethod: z.string().trim().max(60).default("Order request"), notes: z.string().trim().max(1000).optional() }), req.body);
+    const [c] = await db().select({ id: s.users.id, name: s.users.name }).from(s.users).where(and(sql`lower(${s.users.email}) = ${b.customerEmail}`, eq(s.users.kind, "customer"))).limit(1);
+    if (!c) throw notFound("No customer with that e-mail. Add them in Customers first");
+    const [v] = await db().select().from(s.vehicles).where(sql`lower(${s.vehicles.stockNo}) = lower(${b.stockNo})`).limit(1);
+    if (!v) throw notFound("No car with that stock number");
+    const price = Number(v.discountPriceUsd ?? v.priceUsd);
+    const orderNo = await newOrderNo();
+    const order = await db().transaction(async (tx) => {
+      const [o] = await tx.insert(s.webOrders).values({ orderNo, userId: c.id, status: b.status, paymentMethod: b.paymentMethod, totalUsd: price, paidUsd: b.paidUsd || null, notes: b.notes ?? null }).returning();
+      await tx.insert(s.webOrderItems).values({ orderId: o!.id, vehicleId: v.id, title: `${v.title} (${v.stockNo})`, priceUsd: price });
+      await audit(tx, { actorUserId: u.id, actorKind: "human", action: "web_order.created", entity: "web_order", entityId: o!.id, summary: `${u.name} added order ${orderNo} for ${c.name}: ${v.title}` });
+      return o!;
+    });
+    return { id: order.id, orderNo };
+  }),
+);
+
 adminRouter.get(
   "/orders",
   h(async (req) => {
@@ -470,6 +518,10 @@ adminRouter.get(
         id: s.webOrders.id,
         orderNo: s.webOrders.orderNo,
         paidAt: s.webOrders.paidAt,
+        paidUsd: s.webOrders.paidUsd,
+        payNowUsd: s.webOrders.payNowUsd,
+        payPercent: s.webOrders.payPercent,
+        paymentMethod: s.webOrders.paymentMethod,
         status: s.webOrders.status,
         totalUsd: s.webOrders.totalUsd,
         notes: s.webOrders.notes,
@@ -514,8 +566,13 @@ adminRouter.patch(
     const id = String(req.params.id);
     const [o] = await db().select().from(s.webOrders).where(eq(s.webOrders.id, id)).limit(1);
     if (!o) throw notFound("Order not found");
-    // staff change the status only; `notes` is what the BUYER wrote at checkout and stays theirs
-    const { status } = parse(z.object({ status: z.enum(WEB_ORDER_STATUSES) }), req.body);
+    // staff change the status and what was paid; `notes` is what the BUYER wrote at checkout and stays theirs
+    const b = parse(z.object({ status: z.enum(WEB_ORDER_STATUSES).optional(), paidUsd: z.coerce.number().min(0).optional(), paymentMethod: z.string().trim().max(60).optional() }), req.body);
+    if (b.paidUsd !== undefined || b.paymentMethod) {
+      await db().update(s.webOrders).set({ ...(b.paidUsd !== undefined ? { paidUsd: b.paidUsd } : {}), ...(b.paymentMethod ? { paymentMethod: b.paymentMethod } : {}) }).where(eq(s.webOrders.id, id));
+      await audit(db(), { actorUserId: u.id, actorKind: "human", action: "web_order.payment", entity: "web_order", entityId: id, summary: `Order ${o.orderNo}: paid ${b.paidUsd ?? o.paidUsd ?? 0} USD, ${b.paymentMethod ?? o.paymentMethod}` });
+    }
+    const status = b.status ?? o.status;
     if (status === o.status) return { ok: true };
     await db().transaction(async (tx) => {
       await tx.update(s.webOrders).set({ status }).where(eq(s.webOrders.id, id));

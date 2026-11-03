@@ -11,6 +11,8 @@ interface Order {
   id: string;
   orderNo: string;
   totalUsd: number;
+  payNowUsd: number | null;
+  paidUsd: number | null;
   status: string;
   paymentMethod: string;
   paidAt: string | null;

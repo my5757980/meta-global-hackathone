@@ -498,7 +498,7 @@ crmOps.get(
   h(async (req) => {
     requirePerm(req, "crm.users.manage");
     const rows = await db()
-      .select({ id: s.users.id, name: s.users.name, email: s.users.email, username: s.users.username, phone: s.users.phone, kind: s.users.kind, isActive: s.users.isActive, title: s.users.title, lastSeenAt: s.users.lastSeenAt, createdAt: s.users.createdAt, role: s.roles.slug, roleName: s.roles.name, leads: sql<number>`(select count(*)::int from leads l where l.owner_user_id = ${s.users.id})` })
+      .select({ id: s.users.id, name: s.users.name, email: s.users.email, username: s.users.username, phone: s.users.phone, kind: s.users.kind, isActive: s.users.isActive, showInChat: s.users.showInChat, title: s.users.title, lastSeenAt: s.users.lastSeenAt, createdAt: s.users.createdAt, role: s.roles.slug, roleName: s.roles.name, leads: sql<number>`(select count(*)::int from leads l where l.owner_user_id = ${s.users.id})` })
       .from(s.users)
       .leftJoin(s.roles, eq(s.roles.id, s.users.roleId))
       .where(inArray(s.users.kind, ["staff", "fte"]))
@@ -531,7 +531,7 @@ crmOps.put(
   "/users/:id",
   h(async (req) => {
     const u = requirePerm(req, "crm.users.manage");
-    const b = parse(z.object({ roleSlug: z.enum(["admin", "manager", "supervisor", "agent", "accounts"]).optional(), isActive: z.boolean().optional(), title: z.string().max(80).optional() }), req.body);
+    const b = parse(z.object({ roleSlug: z.enum(["admin", "manager", "supervisor", "agent", "accounts"]).optional(), isActive: z.boolean().optional(), title: z.string().max(80).optional(), showInChat: z.boolean().optional() }), req.body);
     const [target] = await db().select().from(s.users).where(eq(s.users.id, String(req.params.id))).limit(1);
     if (!target || target.kind !== "staff") throw notFound();
     if (target.id === u.id && b.isActive === false) throw bad("You cannot switch yourself off");
@@ -543,6 +543,7 @@ crmOps.put(
     }
     if (b.isActive !== undefined) patch.isActive = b.isActive;
     if (b.title !== undefined) patch.title = b.title;
+    if (b.showInChat !== undefined) patch.showInChat = b.showInChat;
     await db().update(s.users).set(patch).where(eq(s.users.id, target.id));
     if (b.isActive === false) {
       await db().delete(s.sessions).where(eq(s.sessions.userId, target.id)); // switched off = signed out everywhere

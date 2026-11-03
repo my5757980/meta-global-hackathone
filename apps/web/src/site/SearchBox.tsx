@@ -3,9 +3,13 @@ import { useNavigate } from "react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { api, qs } from "../lib/api";
+import { useAuth } from "../lib/auth";
+import { isBuyer, useShopActions } from "../lib/shop";
 import { clsx } from "../ui";
 
 interface Hit {
+  id: string;
+  status: string;
   slug: string;
   title: string;
   stockNo: string;
@@ -14,6 +18,9 @@ interface Hit {
 /** The car search. Suggestions appear while typing: one opens that car, Enter searches the whole stock. */
 export function SearchBox({ value = "", placeholder, onSearch, searchOnBlur, inputClassName, listClassName = "inset-x-0" }: { value?: string; placeholder: string; onSearch: (q: string) => void; searchOnBlur?: boolean; inputClassName?: string; listClassName?: string }) {
   const nav = useNavigate();
+  const { me } = useAuth();
+  const act = useShopActions();
+  const shops = !me || isBuyer(me.kind);
   const listId = useId();
   const [q, setQ] = useState(value);
   const [term, setTerm] = useState("");
@@ -84,12 +91,27 @@ export function SearchBox({ value = "", placeholder, onSearch, searchOnBlur, inp
       />
       <ul id={listId} role="listbox" aria-label="Suggestions" hidden={!items.length} className={clsx("absolute top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl", listClassName)}>
         {items.map((h, i) => (
-          <li key={h.slug} id={`${listId}-${i}`} role="option" aria-selected={i === at}>
+          <li key={h.slug} id={`${listId}-${i}`} role="option" aria-selected={i === at} className="flex items-center gap-1">
             {/* mouse down keeps the focus in the input, so the click still lands before the list closes */}
             <button type="button" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onClick={() => go(h)} className={clsx("flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-100", i === at && "bg-slate-100")}>
               <span className="min-w-0 font-medium text-slate-800">{h.title}</span>
               <span className="shrink-0 text-xs text-slate-400">{h.stockNo}</span>
             </button>
+            {shops && h.status === "available" && (
+              <button
+                type="button"
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={async () => {
+                  setOpen(false);
+                  await act.addToCart(h.id).catch(() => undefined);
+                  nav("/checkout");
+                }}
+                className="mr-1 shrink-0 rounded-lg bg-brand-50 px-2 py-1 text-xs font-semibold whitespace-nowrap text-brand-700 hover:bg-brand-100"
+              >
+                Buy now
+              </button>
+            )}
           </li>
         ))}
       </ul>

@@ -26,6 +26,7 @@ interface Vehicle extends V {
   heightMm: number;
   m3: number;
   features: string[];
+  specRows?: { name: string; value: string }[];
   description: string;
   shortDesc: string;
   images: string[];
@@ -115,6 +116,19 @@ export default function VehiclePage() {
               ))}
             </dl>
           </Card>
+          {!!v.specRows?.length && (
+            <Card>
+              <p className="mb-2 font-semibold text-slate-900">More specifications</p>
+              <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+                {v.specRows.map((r) => (
+                  <div key={r.name} className="flex justify-between gap-3 border-b border-slate-100 py-1">
+                    <dt className="text-slate-500">{r.name}</dt>
+                    <dd className="text-right font-medium text-slate-900">{r.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Card>
+          )}
           {v.features?.length > 0 && (
             <Card className="mt-4">
               <h2 className="text-lg font-semibold text-slate-900">Features</h2>
@@ -210,10 +224,6 @@ function ShopButtons({ v }: { v: { id: string; slug: string; status: string } })
   const inCart = !!cart.data?.items.some((i) => i.id === v.id);
   const saved = !!wish.data?.items.some((i) => i.id === v.id);
   const run = async (k: "cart" | "wish", fn: () => Promise<void>) => {
-    if (!me) {
-      nav(`/login?next=${encodeURIComponent(`/vehicles/${v.slug}`)}`);
-      return;
-    }
     setBusy(k);
     setErr(null);
     try {
@@ -226,6 +236,20 @@ function ShopButtons({ v }: { v: { id: string; slug: string; status: string } })
   };
   return (
     <>
+      {v.status === "available" && (
+        <Button
+          className="mt-2 w-full"
+          loading={busy === "cart"}
+          onClick={() =>
+            run("cart", async () => {
+              if (!inCart) await act.addToCart(v.id);
+              nav("/checkout");
+            })
+          }
+        >
+          Buy now
+        </Button>
+      )}
       <div className="mt-2 grid grid-cols-2 gap-2">
         {inCart ? (
           <LinkButton to="/cart" variant="secondary">

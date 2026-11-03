@@ -8,12 +8,13 @@ import { bad, forbidden, h, HttpError, notFound, parse } from "../lib/http";
 import { requireAuth, type AuthUser } from "../auth/session";
 import { env } from "../env";
 import { getInvoiceFull } from "../services/crm";
-import { getFile } from "../services/files";
+import { getFile, saveFile } from "../services/files";
 import { invoicePdf } from "../services/invoiceDocs";
 import { tooMany } from "../services/publicDemo";
 import { receiveSlip, sampleSlip } from "../services/slips";
 
 export const accountRouter = Router();
+const avatarUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024, files: 1 } });
 const slipUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
 
 /**
@@ -180,6 +181,41 @@ accountRouter.post(
 );
 
 /** A document of the customer's own vehicle — ownership checked through unit → invoice → lead. */
+/** A customer's own picture. Anyone signed in may see it: it stands beside their name in a chat. */
+accountRouter.post(
+  "/avatar",
+  avatarUpload.single("file"),
+  h(async (req) => {
+    const u = requireAuth(req);
+    const f = req.file;
+    if (!f) throw bad("Choose a picture");
+    if (!/^image\/(png|jpeg|webp)$/.test(f.mimetype)) throw bad("A profile picture must be PNG, JPG or WebP");
+    const saved = await saveFile(f.buffer, { kind: "avatars", mime: f.mimetype, originalName: f.originalname, ownerUserId: u.id });
+    const url = `/api/account/avatar/${saved.id}`;
+    await db().update(s.users).set({ avatarUrl: url }).where(eq(s.users.id, u.id));
+    return { avatarUrl: url };
+  }),
+);
+accountRouter.delete(
+  "/avatar",
+  h(async (req) => {
+    const u = requireAuth(req);
+    await db().update(s.users).set({ avatarUrl: null }).where(eq(s.users.id, u.id));
+    return { ok: true };
+  }),
+);
+accountRouter.get(
+  "/avatar/:fileId",
+  h(async (req, res) => {
+    requireAuth(req);
+    const f = await getFile(String(req.params.fileId));
+    if (!f || f.kind !== "avatars") throw notFound();
+    res.type(f.mime);
+    res.sendFile(f.abs, { dotfiles: "allow" });
+    return undefined;
+  }),
+);
+
 accountRouter.get(
   "/files/:fileId",
   h(async (req, res) => {

@@ -5,8 +5,11 @@ import { z } from "zod";
 import { formatUsd } from "@autofte/shared";
 import { db } from "../db/client";
 import * as s from "../db/schema";
-import { bad, forbidden, h, notFound, parse } from "../lib/http";
-import { requireAuth } from "../auth/session";
+import { bad, conflict, forbidden, h, notFound, parse } from "../lib/http";
+import { requireAuth, sessionFor } from "../auth/session";
+import { verifyPassword } from "../auth/passwords";
+import { registerCustomer } from "./auth";
+import { paymentBreakdown } from "../services/shopPay";
 import { audit } from "../services/audit";
 import { emit } from "../services/events";
 import { deskManual } from "../fte/workforce";
@@ -59,6 +62,28 @@ shopRouter.get(
       db().select({ n: sql<number>`count(*)::int` }).from(s.wishlistItems).where(eq(s.wishlistItems.userId, uid)),
     ]);
     return { cart: c?.n ?? 0, wishlist: w?.n ?? 0 };
+  }),
+);
+
+// ---------- a visitor's cart and saved cars live in their browser until they have an account ----------
+shopRouter.get(
+  "/guest-list",
+  h(async (req) => {
+    const ids = String(req.query.ids ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 40);
+    const items = await cardsFor(ids);
+    const ready = items.filter((v) => v.status === "available");
+    return { items, totalUsd: ready.reduce((a, v) => a + price(v), 0), readyCount: ready.length };
+  }),
+);
+
+shopRouter.post(
+  "/merge",
+  h(async (req) => {
+    const u = buyer(req);
+    const b = parse(z.object({ cart: z.array(z.string().min(1).max(40)).max(40).default([]), wishlist: z.array(z.string().min(1).max(40)).max(40).default([]) }), req.body);
+    for (const vehicleId of b.wishlist) await db().insert(s.wishlistItems).values({ userId: u.id, vehicleId }).onConflictDoNothing().catch(() => undefined);
+    for (const vehicleId of b.cart.slice(0, MAX_CART)) await db().insert(s.cartItems).values({ userId: u.id, vehicleId }).onConflictDoNothing().catch(() => undefined);
+    return { ok: true };
   }),
 );
 
@@ -131,7 +156,7 @@ shopRouter.delete(
 );
 
 // ---------- checkout → order request ----------
-async function newOrderNo(): Promise<string> {
+export async function newOrderNo(): Promise<string> {
   const year = new Date().getFullYear();
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I: read out over the phone
   for (let i = 0; i < 20; i++) {
@@ -143,21 +168,58 @@ async function newOrderNo(): Promise<string> {
   throw new Error("could not allocate an order number");
 }
 
+const checkoutSchema = z.object({
+  notes: z.string().trim().max(1000).optional(),
+  pay: z.enum(["online"]).optional(),
+  name: z.string().trim().min(2).max(80).optional(),
+  email: z.string().trim().toLowerCase().email().max(120).optional(),
+  phone: z.string().trim().min(6).max(30).optional(),
+  countryCode: z.string().length(2).optional(),
+  city: z.string().trim().max(80).optional(),
+  port: z.string().trim().max(120).optional(),
+  payPercent: z.coerce.number().min(0.01).max(100).optional(),
+  payNowUsd: z.coerce.number().positive().optional(),
+  password: z.string().min(8).max(200).optional(),
+  vehicleIds: z.array(z.string().min(1).max(40)).max(MAX_CART).optional(),
+});
+
 shopRouter.post(
   "/checkout",
-  h(async (req) => {
-    const u = buyer(req);
-    const { notes, pay } = parse(z.object({ notes: z.string().trim().max(1000).optional(), pay: z.enum(["online"]).optional() }), req.body ?? {});
+  h(async (req, res) => {
+    const b = parse(checkoutSchema, req.body ?? {});
+    let session: { sessionToken?: string } = {};
+    let u: { id: string; name: string };
+    if (req.user) {
+      u = buyer(req);
+    } else {
+      // no account yet: the checkout makes one, or signs the buyer in if the password is theirs
+      if (!b.name || !b.email || !b.phone || !b.countryCode || !b.password) throw bad("Fill in your name, e-mail, phone, country and a password of at least 8 characters");
+      if (!b.vehicleIds?.length) throw bad("Your cart is empty");
+      const [existing] = await db().select().from(s.users).where(sql`lower(${s.users.email}) = ${b.email}`).limit(1);
+      let id: string;
+      if (existing && existing.kind !== "visitor") {
+        if (existing.kind !== "customer" || !(await verifyPassword(b.password, existing.passwordHash))) throw conflict("An account with this e-mail already exists. Sign in first, or use its password here");
+        id = existing.id;
+      } else {
+        id = await registerCustomer({ name: b.name, email: b.email, phone: b.phone, password: b.password, countryCode: b.countryCode });
+      }
+      session = await sessionFor(req, res, id);
+      u = { id, name: b.name };
+      for (const vehicleId of b.vehicleIds) await db().insert(s.cartItems).values({ userId: id, vehicleId }).onConflictDoNothing().catch(() => undefined);
+    }
+    const { notes, pay } = b;
     const provider = pay ? payProvider() : null;
     if (pay && !provider) throw bad("Paying online is not set up here. Send an order request instead.");
     const cart = await cartFor(u.id);
     const ready = cart.items.filter((v) => v.status === "available");
     if (!ready.length) throw bad(cart.items.length ? "None of the cars in your cart is still available" : "Your cart is empty");
+    if (req.user && (b.city || b.countryCode)) await db().update(s.users).set({ ...(b.city ? { city: b.city } : {}), ...(b.countryCode ? { countryCode: b.countryCode } : {}) }).where(eq(s.users.id, u.id));
     const orderNo = await newOrderNo();
     const conv = await ensureCustomerConversation(u.id, "web");
     const total = ready.reduce((t, v) => t + price(v), 0);
+    const split = paymentBreakdown(total, b.payPercent, b.payNowUsd);
     const order = await db().transaction(async (tx) => {
-      const [o] = await tx.insert(s.webOrders).values({ orderNo, userId: u.id, status: "pending", paymentMethod: provider ? payMethodName(provider) : "Order request", totalUsd: total, notes: notes || null }).returning();
+      const [o] = await tx.insert(s.webOrders).values({ orderNo, userId: u.id, status: "pending", paymentMethod: provider ? payMethodName(provider) : "Order request", totalUsd: total, notes: notes || null, countryCode: b.countryCode ?? null, city: b.city || null, port: b.port || null, payPercent: Math.round(split.effectivePercent), payNowUsd: split.payNowUsd }).returning();
       await tx.insert(s.webOrderItems).values(ready.map((v) => ({ orderId: o!.id, vehicleId: v.id, title: `${v.title} (${v.stockNo})`, priceUsd: price(v) })));
       await tx.delete(s.cartItems).where(and(eq(s.cartItems.userId, u.id), inArray(s.cartItems.vehicleId, ready.map((v) => v.id))));
       await audit(tx, { actorUserId: u.id, actorKind: "human", action: "web_order.created", entity: "web_order", entityId: o!.id, summary: `Order request ${orderNo}: ${ready.length} car(s), ${formatUsd(total)}`, conversationId: conv.id });
@@ -175,7 +237,7 @@ shopRouter.post(
       meta: { webOrderId: order.id, orderNo },
     }).catch((e) => console.error("[checkout] chat note failed", e));
     if (await deskManual("website", "website.order")) await notify(await usersWithPerm("website.orders.manage"), { type: "order", title: `New order request ${orderNo}`, body: `${u.name} · ${ready.length} car(s) · ${formatUsd(total)}`, link: "/admin/orders" });
-    return { orderId: order.id, orderNo, totalUsd: total, items: ready.length, payOnline: !!provider };
+    return { orderId: order.id, orderNo, totalUsd: total, items: ready.length, payOnline: !!provider, payNowUsd: split.payNowUsd, remainingUsd: split.remainingUsd, payPercent: Math.round(split.effectivePercent), ...session };
   }),
 );
 
@@ -198,7 +260,7 @@ shopRouter.post(
     if (o.status === "cancelled") throw bad("This order was cancelled.");
     const site = await siteSettings();
     const back = `${env.PUBLIC_URL.replace(/\/$/, "")}/pay/${o.id}`;
-    const p = await createPayment({ orderNo: o.orderNo, amountUsd: Number(o.totalUsd), returnUrl: back, cancelUrl: back, brand: site.companyName }).catch((e) => {
+    const p = await createPayment({ orderNo: o.orderNo, amountUsd: Number(o.payNowUsd ?? o.totalUsd), returnUrl: back, cancelUrl: back, brand: site.companyName }).catch((e) => {
       throw bad((e as Error).message);
     });
     await db().update(s.webOrders).set({ paymentRef: p.ref, paymentMethod: payMethodName(provider) }).where(eq(s.webOrders.id, o.id));
@@ -215,11 +277,11 @@ shopRouter.post(
     if (!o) throw notFound("Order not found");
     if (o.paidAt) return { paid: true };
     if (!o.paymentRef) throw bad("Start the payment first.");
-    const c = await capturePayment(o.paymentRef, Number(o.totalUsd)).catch((e) => ({ completed: false, amountUsd: 0, detail: (e as Error).message }));
+    const c = await capturePayment(o.paymentRef, Number(o.payNowUsd ?? o.totalUsd)).catch((e) => ({ completed: false, amountUsd: 0, detail: (e as Error).message }));
     if (!c.completed) throw bad(`The payment did not go through: ${c.detail}`);
     const conv = await ensureCustomerConversation(u.id, "web");
     await db().transaction(async (tx) => {
-      await tx.update(s.webOrders).set({ paidAt: new Date(), status: "paid" }).where(eq(s.webOrders.id, o.id));
+      await tx.update(s.webOrders).set({ paidAt: new Date(), status: "paid", paidUsd: c.amountUsd }).where(eq(s.webOrders.id, o.id));
       await audit(tx, { actorUserId: u.id, actorKind: "human", action: "web_order.paid", entity: "web_order", entityId: o.id, summary: `Order ${o.orderNo} paid online: ${formatUsd(c.amountUsd)} (${o.paymentMethod}, ${o.paymentRef})`, conversationId: conv.id });
       await emit("web_order.created", { orderId: o.id }, { tx });
     });

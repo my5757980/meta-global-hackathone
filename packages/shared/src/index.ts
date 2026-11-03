@@ -234,6 +234,13 @@ export const SiteSettingsSchema = z.object({
       accountName: "Hikari Motors Co., Ltd. (demo)",
       accountNo: "000-0000000",
     }),
+  bankAccounts: z
+    .array(z.object({ label: z.string(), bankName: z.string(), branch: z.string(), swift: z.string(), accountName: z.string(), accountNo: z.string(), address: z.string().optional() }))
+    .default([
+      { label: "Japan", bankName: "Demo Bank of Japan", branch: "Yokohama Main Branch", swift: "DEMOJPJT", accountName: "Hikari Motors Co., Ltd. (demo)", accountNo: "000-0000000", address: "1-2-3 Minato, Yokohama, Japan" },
+      { label: "UAE", bankName: "Demo Gulf Bank", branch: "Dubai Trade Centre", swift: "DEMOAEAD", accountName: "Hikari Motors FZE (demo)", accountNo: "AE00 0000 0000 0000 0000 000", address: "Trade Centre, Dubai, UAE" },
+      { label: "USA", bankName: "Demo Bank of America", branch: "Minneapolis", swift: "DEMOUS33", accountName: "Hikari Motors USA LLC (demo)", accountNo: "0000000000", address: "Minneapolis, MN, USA" },
+    ]),
 });
 export type SiteSettings = z.infer<typeof SiteSettingsSchema>;
 

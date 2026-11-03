@@ -41,7 +41,7 @@ export function AccountShell({ title, back, children }: { title: string; back?: 
 }
 
 export default function Account() {
-  const { me, loading } = useAuth();
+  const { me, loading, refresh } = useAuth();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["profile"], queryFn: () => api.get<{ name: string; email: string; phone: string; company: string | null; countryCode: string | null; city: string | null; address: string | null; kind: string }>("/api/account/profile"), enabled: !!me });
   const [f, setF] = useState({ name: "", phone: "", company: "", city: "", address: "" });
@@ -62,6 +62,49 @@ export default function Account() {
         </Card>
       ) : (
         <Card>
+          <div className="mb-5 flex flex-wrap items-center gap-4 border-b border-slate-100 pb-5">
+            {me?.avatarUrl ? <img src={me.avatarUrl} alt="Your profile" className="size-20 rounded-full object-cover ring-1 ring-slate-200" /> : <span className="flex size-20 items-center justify-center rounded-full bg-slate-100 text-slate-400"><User className="size-8" /></span>}
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Profile picture</p>
+              <div className="mt-1 flex flex-wrap gap-2">
+                <label className="inline-flex h-9 cursor-pointer items-center rounded-xl bg-white px-3 text-sm font-semibold shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
+                  Choose a picture
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    aria-label="Profile picture"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!file) return;
+                      setMsg(null);
+                      const form = new FormData();
+                      form.append("file", file);
+                      try {
+                        await api.post("/api/account/avatar", form);
+                        await refresh();
+                        setMsg("Picture saved.");
+                      } catch (ex) {
+                        setMsg((ex as Error).message);
+                      }
+                    }}
+                  />
+                </label>
+                {me?.avatarUrl && (
+                  <Button
+                    variant="ghost"
+                    onClick={async () => {
+                      await api.del("/api/account/avatar");
+                      await refresh();
+                    }}
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
           <form
             className="grid gap-4 sm:grid-cols-2"
             onSubmit={async (e) => {
