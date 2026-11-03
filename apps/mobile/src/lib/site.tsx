@@ -15,6 +15,7 @@ const FALLBACK: Site = {
   email: "",
   address: "",
   bank: { bankName: "", branch: "", swift: "", accountName: "", accountNo: "" },
+  bankAccounts: [],
 };
 
 interface SiteCtx {

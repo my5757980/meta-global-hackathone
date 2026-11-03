@@ -5,25 +5,25 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { api, errText } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { absUrl } from "../lib/config";
+import { absUrl, setToken } from "../lib/config";
 import { useFetch } from "../lib/data";
 import { date, usd } from "../lib/format";
 import { useShop } from "../lib/shop";
 import { C, useColors, useSite } from "../lib/site";
 import { effectivePrice, type WebOrder } from "../lib/types";
-import { Button, Card, Empty, ErrorBox, Field, Input, Screen, Skeleton, StatusBadge, T, VehicleTile } from "../ui";
+import { Button, Card, Chip, Empty, ErrorBox, Field, Input, Screen, Skeleton, StatusBadge, T, VehicleTile } from "../ui";
 
 /** Signed out → sign in; staff → explain; buyer → the screen. */
-function useBuyerGate(what: string) {
+function useBuyerGate(what: string, guestOk = false) {
   const nav = useNavigation<any>();
   const { me, isBuyer } = useAuth();
-  if (!me)
+  if (!me && !guestOk)
     return (
       <Screen>
         <Empty icon="person-circle-outline" title={`Sign in to see your ${what}`} text="Use the same account as on the website." action={<Button title="Sign in or create account" onPress={() => nav.navigate("Auth", {})} />} />
       </Screen>
     );
-  if (!isBuyer)
+  if (me && !isBuyer)
     return (
       <Screen>
         <Empty icon="briefcase-outline" title="Staff accounts do not shop" text="Sign in with a customer account." />
@@ -47,7 +47,7 @@ export function CartScreen() {
       void refresh();
     }, [refresh]),
   );
-  const gate = useBuyerGate("cart");
+  const gate = useBuyerGate("cart", true);
   if (gate) return gate;
   const cart = shop.cart;
   const remove = async (id: string) => {
@@ -117,17 +117,24 @@ export function CartScreen() {
 }
 
 /* ============================== Checkout ============================== */
+const PERCENTS = [10, 25, 50, 75, 100];
+
 export function CheckoutScreen() {
   const nav = useNavigation<any>();
   const col = useColors();
   const { site } = useSite();
+  const { me, refresh: refreshMe } = useAuth();
   const shop = useShop();
-  const [notes, setNotes] = useState("");
+  const options = useFetch<{ provider: "paypal" | "demo" | null }>("/api/shop/pay-options");
+  const countries = useFetch<{ code: string; name: string; ports: { id: string; name: string }[] }[]>("/api/public/countries");
+  const [f, setF] = useState({ name: me?.name ?? "", email: me?.email ?? "", phone: me?.phone ?? "", countryCode: "", city: "", port: "", notes: "", password: "", confirm: "" });
+  const [percent, setPercent] = useState(100);
+  const [amount, setAmount] = useState("");
+  const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<{ orderNo: string; totalUsd: number; items: number } | null>(null);
-  const options = useFetch<{ provider: "paypal" | "demo" | null }>("/api/shop/pay-options");
-  const gate = useBuyerGate("cart");
+  const gate = useBuyerGate("cart", true);
   if (gate) return gate;
 
   if (done)
@@ -137,9 +144,9 @@ export function CheckoutScreen() {
           <Ionicons name="checkmark-circle" size={56} color={C.green} />
           <T style={{ fontSize: 22, fontWeight: "800", color: C.ink, marginTop: 8 }}>Order request sent</T>
           <T style={{ textAlign: "center", marginTop: 6, color: C.text }}>
-            Your order number is <T style={{ fontWeight: "800", color: C.ink }}>{done.orderNo}</T> — {done.items} car{done.items === 1 ? "" : "s"}, {usd(done.totalUsd)} FOB.
+            Your order number is <T style={{ fontWeight: "800", color: C.ink }}>{done.orderNo}</T>: {done.items} car{done.items === 1 ? "" : "s"}, {usd(done.totalUsd)}
           </T>
-          <T style={{ textAlign: "center", marginTop: 10, color: C.muted, fontSize: 13, lineHeight: 19 }}>Nothing to pay yet. A colleague confirms the cars are still yours and sends the invoice with our bank details. You will see every step in My orders and in the chat.</T>
+          <T style={{ textAlign: "center", marginTop: 10, color: C.muted, fontSize: 13, lineHeight: 19 }}>Nothing to pay yet. Our team confirms the cars are still yours and sends the invoice with bank details.</T>
           <Button title="View my orders" onPress={() => nav.replace("Orders")} style={{ marginTop: 16, alignSelf: "stretch" }} />
           <Button title={`Chat with ${site.ftEName}`} variant="secondary" icon="chatbubbles-outline" onPress={() => nav.navigate("ChatTab", { screen: "Chat", pop: true })} style={{ marginTop: 8, alignSelf: "stretch" }} />
         </Card>
@@ -147,11 +154,42 @@ export function CheckoutScreen() {
     );
 
   const ready = shop.cart?.items.filter((v) => v.status === "available") ?? [];
+  if (!ready.length) return <Screen><Empty icon="cart-outline" title="Nothing to check out" text="Your cart has no available cars." /></Screen>;
+  const subtotal = ready.reduce((a, v) => a + effectivePrice(v), 0);
+  const floor = subtotal <= 3000 ? 25 : 0.01;
+  const typed = Number(amount) || 0;
+  const asked = typed > 0 && subtotal > 0 ? (typed / subtotal) * 100 : percent;
+  const effective = Math.min(100, Math.max(asked, floor));
+  const payNow = effective >= 100 ? subtotal : Math.round(subtotal * effective) / 100;
+  const remaining = Math.round((subtotal - payNow) * 100) / 100;
+  const country = countries.data?.find((c) => c.code === f.countryCode);
+  const canSend = !!(f.name.trim() && f.email.trim() && f.phone.trim() && f.countryCode && (me || f.password.length >= 8));
   const submit = async (pay?: "online") => {
-    setBusy(true);
     setErr(null);
+    if (!me && f.password !== f.confirm) {
+      setErr("The two passwords are not the same");
+      return;
+    }
+    setBusy(true);
     try {
-      const r = await api.post<{ orderId: string; orderNo: string; totalUsd: number; items: number }>("/api/shop/checkout", { notes: notes.trim() || undefined, pay });
+      const r = await api.post<{ orderId: string; orderNo: string; totalUsd: number; items: number; sessionToken?: string }>("/api/shop/checkout", {
+        notes: f.notes.trim() || undefined,
+        pay,
+        name: f.name.trim(),
+        email: f.email.trim(),
+        phone: f.phone.trim(),
+        countryCode: f.countryCode,
+        city: f.city.trim() || undefined,
+        port: f.port.trim() || undefined,
+        payPercent: typed > 0 ? undefined : percent,
+        payNowUsd: typed > 0 ? typed : undefined,
+        password: me ? undefined : f.password,
+        vehicleIds: me ? undefined : ready.map((v) => v.id),
+      });
+      if (!me && r.sessionToken) {
+        await setToken(r.sessionToken);
+        await refreshMe();
+      }
       void shop.refresh();
       if (pay) {
         nav.replace("Pay", { id: r.orderId });
@@ -164,40 +202,69 @@ export function CheckoutScreen() {
       setBusy(false);
     }
   };
-  if (!ready.length) return <Screen><Empty icon="cart-outline" title="Nothing to check out" text="Your cart has no available cars." /></Screen>;
+  const set = (k: keyof typeof f) => (v: string) => setF({ ...f, [k]: v });
   return (
     <Screen>
       <Card>
-        <T style={{ fontWeight: "700", color: C.ink, marginBottom: 6 }}>Cars in this order request</T>
+        <T style={{ fontWeight: "700", color: C.ink, marginBottom: 6 }}>Buyer details</T>
+        <Field label="Full name"><Input value={f.name} onChangeText={set("name")} autoComplete="name" /></Field>
+        <Field label="E-mail"><Input value={f.email} onChangeText={set("email")} editable={!me} autoCapitalize="none" keyboardType="email-address" autoComplete="email" /></Field>
+        <Field label="Phone / WhatsApp"><Input value={f.phone} onChangeText={set("phone")} keyboardType="phone-pad" autoComplete="tel" /></Field>
+        <Field label="Destination country">
+          <Pressable accessibilityRole="button" accessibilityLabel="Choose a country" onPress={() => setPicking((p) => !p)} style={st.picker}>
+            <T style={{ flex: 1, color: country ? C.ink : C.muted }}>{country?.name ?? "Choose a country"}</T>
+            <Ionicons name={picking ? "chevron-up" : "chevron-down"} size={18} color={C.muted} />
+          </Pressable>
+          {picking ? (
+            <View style={st.pickList}>
+              {countries.data?.map((c) => (
+                <Pressable key={c.code} accessibilityRole="button" onPress={() => { setF({ ...f, countryCode: c.code, port: "" }); setPicking(false); }} style={st.pickRow}>
+                  <T style={{ color: c.code === f.countryCode ? col.brand : C.ink, fontWeight: c.code === f.countryCode ? "700" : "400" }}>{c.name}</T>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </Field>
+        <Field label="City"><Input value={f.city} onChangeText={set("city")} /></Field>
+        <Field label="Preferred port"><Input value={f.port} onChangeText={set("port")} placeholder="Mombasa, Kingston, Karachi" /></Field>
+        {country?.ports.length ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10, marginTop: -4 }}>
+            {country.ports.slice(0, 6).map((p) => <Chip key={p.id} label={p.name} active={f.port === p.name} onPress={() => setF({ ...f, port: p.name })} />)}
+          </View>
+        ) : null}
+        <T style={{ fontWeight: "600", color: C.ink, marginBottom: 6 }}>Payment percentage</T>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+          {PERCENTS.map((n) => <Chip key={n} label={`${n}%`} active={!typed && percent === n} onPress={() => { setPercent(n); setAmount(""); }} />)}
+        </View>
+        <Field label="Pay now amount (USD)" hint="Or type your own amount"><Input value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder={String(payNow)} /></Field>
+        {!me ? (
+          <>
+            <Field label="Account password" hint="8 or more characters. Your account is made with this order."><Input value={f.password} onChangeText={set("password")} secureTextEntry autoCapitalize="none" /></Field>
+            <Field label="Confirm password"><Input value={f.confirm} onChangeText={set("confirm")} secureTextEntry autoCapitalize="none" /></Field>
+            <Button title="I already have an account" small variant="secondary" onPress={() => nav.navigate("Auth", { reason: "Sign in and your cart comes with you." })} style={{ marginBottom: 10 }} />
+          </>
+        ) : null}
+        <Field label="Additional notes (optional)"><Input multiline maxLength={1000} value={f.notes} onChangeText={set("notes")} placeholder="Shipment timing, inspection needs, documents you need" /></Field>
+      </Card>
+      <Card style={{ marginTop: 12 }}>
+        <T style={{ fontWeight: "700", color: C.ink, marginBottom: 6 }}>Order summary</T>
         {ready.map((v) => (
           <View key={v.id} style={st.line}>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <T lines={1} style={{ color: C.ink, fontWeight: "600" }}>
-                {v.title}
-              </T>
+              <T lines={1} style={{ color: C.ink, fontWeight: "600" }}>{v.title}</T>
               <T style={{ color: C.muted, fontSize: 12 }}>{v.stockNo}</T>
             </View>
             <T style={{ fontWeight: "700", color: C.ink }}>{usd(effectivePrice(v))}</T>
           </View>
         ))}
-        <View style={[st.line, { borderBottomWidth: 0 }]}>
-          <T style={{ fontWeight: "700", color: C.ink }}>Total (FOB Japan)</T>
-          <T style={{ fontWeight: "800", fontSize: 18, color: col.brand }}>{usd(shop.cart?.totalUsd ?? 0)}</T>
-        </View>
-      </Card>
-      <Card style={{ marginTop: 12 }}>
-        <Field label="Notes for our team (optional)" hint="Destination port, RoRo or container, consignee name…">
-          <Input multiline maxLength={1000} value={notes} onChangeText={setNotes} />
-        </Field>
-        <T style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>This sends an order request — no payment now. We confirm availability, then send the invoice with bank details for the advance.</T>
+        <View style={st.line}><T style={{ flex: 1, color: C.muted }}>Subtotal (FOB Japan)</T><T style={{ fontWeight: "700", color: C.ink }}>{usd(subtotal)}</T></View>
+        <View style={st.line}><T style={{ flex: 1, color: C.muted }}>Pay now ({Math.round(effective)}%)</T><T style={{ fontWeight: "800", color: col.brand }}>{usd(payNow)}</T></View>
+        <View style={[st.line, { borderBottomWidth: 0 }]}><T style={{ flex: 1, color: C.muted }}>Remaining</T><T style={{ fontWeight: "700", color: C.ink }}>{usd(remaining)}</T></View>
+        {asked < floor ? <T style={{ color: C.amber, fontSize: 12, marginTop: 4 }}>For orders of $3,000 or less, the least you can pay now is 25%.</T> : null}
+        <T style={{ color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 6 }}>The final invoice can add freight, inspection, documents and destination charges once our team confirms your route.</T>
         {err ? <View style={{ marginTop: 12 }}><ErrorBox text={err} /></View> : null}
-        <Button title="Send order request" icon="paper-plane-outline" loading={busy} onPress={() => void submit()} style={{ marginTop: 14 }} />
-        {options.data?.provider ? (
-          <>
-            <T style={{ color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 14 }}>Or pay the FOB total now. The freight to your port is added on the invoice.</T>
-            <Button title={options.data.provider === "paypal" ? "Pay now with PayPal" : "Pay now online (demo)"} variant="secondary" icon="card-outline" disabled={busy} onPress={() => void submit("online")} style={{ marginTop: 8 }} />
-          </>
-        ) : null}
+        {options.data?.provider ? <Button title={options.data.provider === "paypal" ? "Pay with PayPal or card" : "Pay online (demo)"} icon="card-outline" disabled={busy || !canSend} onPress={() => void submit("online")} style={{ marginTop: 14 }} /> : null}
+        <Button title="Submit order for checking" icon="paper-plane-outline" variant={options.data?.provider ? "secondary" : "primary"} loading={busy} disabled={!canSend} onPress={() => void submit()} style={{ marginTop: 10 }} />
       </Card>
     </Screen>
   );
@@ -348,7 +415,7 @@ export function WishlistScreen() {
       void refresh();
     }, [refresh]),
   );
-  const gate = useBuyerGate("saved cars");
+  const gate = useBuyerGate("saved cars", true);
   if (gate) return gate;
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
@@ -390,6 +457,9 @@ export function WishlistScreen() {
 }
 
 const st = StyleSheet.create({
+  picker: { flexDirection: "row", alignItems: "center", minHeight: 44, borderWidth: 1, borderColor: C.line, borderRadius: 12, paddingHorizontal: 12, backgroundColor: "#fff" },
+  pickList: { maxHeight: 220, overflow: "scroll", borderWidth: StyleSheet.hairlineWidth, borderColor: C.line, borderRadius: 12, marginTop: 6 },
+  pickRow: { minHeight: 40, justifyContent: "center", paddingHorizontal: 12 },
   thumb: { width: 96, height: 64, borderRadius: 10, backgroundColor: "#e2e8f0" },
   remove: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: C.redBg },
   line: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: C.line },

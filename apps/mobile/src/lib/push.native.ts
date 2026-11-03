@@ -16,6 +16,14 @@ export async function registerPush(): Promise<void> {
   try {
     await Notifications.setNotificationChannelAsync("messages", { name: "Messages", importance: Notifications.AndroidImportance.HIGH });
     await Notifications.setNotificationChannelAsync("calls", { name: "Calls", importance: Notifications.AndroidImportance.MAX, vibrationPattern: [0, 700, 500, 700, 500, 700], lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC });
+    await Notifications.setNotificationCategoryAsync("message", [
+      { identifier: "reply", buttonTitle: "Reply", textInput: { submitButtonTitle: "Send", placeholder: "Write a reply…" }, options: { opensAppToForeground: true } },
+      { identifier: "read", buttonTitle: "Read", options: { opensAppToForeground: true } },
+    ]);
+    await Notifications.setNotificationCategoryAsync("call", [
+      { identifier: "answer", buttonTitle: "Answer", options: { opensAppToForeground: true } },
+      { identifier: "decline", buttonTitle: "Decline", options: { isDestructive: true, opensAppToForeground: true } },
+    ]);
     const now = await Notifications.getPermissionsAsync();
     const granted = now.granted || (await Notifications.requestPermissionsAsync()).granted;
     if (!granted) return;
@@ -32,12 +40,41 @@ export async function forgetPush(): Promise<void> {
   token = null;
 }
 
+/** What a button on a notification asks for, done here. Anything else (a plain tap, Answer) opens the chat. */
+async function handle(r: Notifications.NotificationResponse, open: () => void) {
+  const content = r.notification.request.content;
+  const trigger = r.notification.request.trigger as { remoteMessage?: { data?: Record<string, string> } } | null;
+  const data = { ...(trigger?.remoteMessage?.data ?? {}), ...((content.data ?? {}) as Record<string, string>) };
+  const conv = data.conversationId;
+  const action = r.actionIdentifier;
+  try {
+    if (action === "reply" && r.userText?.trim() && conv) {
+      await api.post(`/api/chat/conversations/${conv}/messages`, { body: r.userText.trim(), kind: "text", fileIds: [] });
+      await Notifications.dismissNotificationAsync(r.notification.request.identifier);
+      return;
+    }
+    if (action === "read" && conv) {
+      await api.post(`/api/chat/conversations/${conv}/read`, {});
+      await Notifications.dismissNotificationAsync(r.notification.request.identifier);
+      return;
+    }
+    if (action === "decline" && data.callId) {
+      await api.post(`/api/chat/calls/${data.callId}/signal`, { type: "decline" });
+      await Notifications.dismissNotificationAsync(r.notification.request.identifier);
+      return;
+    }
+  } catch {
+    /* it could not be done from here: the chat opens, and it can be done there */
+  }
+  open();
+}
+
 /** Tells the app a notification was tapped, including the tap that started it. */
 export function onPushOpened(fn: () => void): () => void {
-  const sub = Notifications.addNotificationResponseReceivedListener(() => fn());
+  const sub = Notifications.addNotificationResponseReceivedListener((r) => void handle(r, fn));
   void Notifications.getLastNotificationResponseAsync()
     .then((r) => {
-      if (r) fn();
+      if (r) void handle(r, fn);
     })
     .catch(() => {});
   return () => sub.remove();

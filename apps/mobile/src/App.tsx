@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { Component, useCallback, useEffect, useState, type ReactNode } from "react";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { createNavigationContainerRef, DefaultTheme, NavigationContainer } from "@react-navigation/native";
@@ -21,8 +21,34 @@ import { CartScreen, CheckoutScreen, OrdersScreen, PayScreen, WishlistScreen } f
 import { AuthScreen, BankScreen, BlogPostScreen, BlogScreen, ContactScreen, FaqScreen, InvoiceScreen, InvoicesScreen, MenuScreen, PageScreen, ProfileScreen, ServerScreen, ServicesScreen, ForgotScreen, ResetPasswordScreen, PartnersScreen, LocationsScreen } from "./screens/MenuScreens";
 import { CallProvider } from "./lib/calls";
 import { onPushOpened, registerPush } from "./lib/push";
+import { reportCrash, watchCrashes } from "./lib/crash";
+import { DeskThreadScreen, GroupInfoScreen, NewGroupScreen } from "./screens/DeskScreen";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
+watchCrashes();
+
+/** A screen that throws shows a way back, instead of the whole app closing. */
+class Guard extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(e: unknown) {
+    reportCrash(e, "screen");
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: C.bg }}>
+        <Text style={{ fontSize: 20, fontWeight: "800", color: C.ink }}>Something went wrong</Text>
+        <Text style={{ marginTop: 6, textAlign: "center", color: C.muted }}>It has been reported. Please try again.</Text>
+        <Pressable accessibilityRole="button" onPress={() => this.setState({ failed: false })} style={{ marginTop: 16, minHeight: 44, justifyContent: "center", paddingHorizontal: 20, borderRadius: 12, backgroundColor: C.brand }}>
+          <Text style={{ color: "#fff", fontWeight: "700" }}>Try again</Text>
+        </Pressable>
+      </View>
+    );
+  }
+}
 
 const Tab = createBottomTabNavigator();
 const stacks = {
@@ -38,6 +64,9 @@ function shared(S: ReturnType<typeof createNativeStackNavigator>) {
   return (
     <>
       <S.Screen name="Vehicle" component={VehicleScreen} options={{ title: "Vehicle" }} />
+      <S.Screen name="DeskThread" component={DeskThreadScreen} options={{ title: "" }} />
+      <S.Screen name="NewGroup" component={NewGroupScreen} options={{ title: "New group" }} />
+      <S.Screen name="GroupInfo" component={GroupInfoScreen} options={{ title: "Group" }} />
       <S.Screen name="Auth" component={AuthScreen} options={{ title: "Sign in" }} />
       <S.Screen name="Checkout" component={CheckoutScreen} options={{ title: "Checkout" }} />
       <S.Screen name="Pay" component={PayScreen} options={{ title: "Pay" }} />
@@ -183,7 +212,9 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
-      <Boot />
+      <Guard>
+        <Boot />
+      </Guard>
     </SafeAreaProvider>
   );
 }

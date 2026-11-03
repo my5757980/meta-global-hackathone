@@ -39,6 +39,10 @@ const schema = z.object({
     .default("true")
     .transform((v) => v !== "false"),
   DEMO_FEED_MINUTES: z.coerce.number().min(0).default(15), // 0 = no new demo lots arrive
+  PUSH_ACTION_BUTTONS: z.string().default("true").transform((v) => v !== "false"), // data-only pushes, so Reply, Read, Answer and Decline show
+  APP_APK_URL: z.string().default(""),
+  APP_VERSION: z.string().default("3.0.0"),
+  APP_SIZE_MB: z.coerce.number().default(0),
   WORKFORCE_ENABLED: z
     .string()
     .default("true")

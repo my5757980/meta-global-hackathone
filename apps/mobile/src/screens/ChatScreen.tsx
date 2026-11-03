@@ -15,13 +15,14 @@ import { C, useColors, useSite } from "../lib/site";
 import type { ChatCard, ChatMsg } from "../lib/types";
 import { uploadChatFile } from "../lib/upload";
 import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Screen, T, useKeyboardLift } from "../ui";
+import { DeskHome } from "./DeskScreen";
 
 export default function ChatScreen() {
   const route = useRoute<any>();
   const { ready, me, isBuyer } = useAuth();
   if (!ready) return <Screen><ActivityIndicator /></Screen>;
   if (!me) return <ChatGate />;
-  if (!isBuyer) return <Screen><Empty icon="briefcase-outline" title="Staff answer buyers on the desk" text="Open the Chat desk on the website to reply." /></Screen>;
+  if (!isBuyer) return <DeskHome />;
   return <Conversation draft={route.params?.draft} draftKey={route.params?.t} />;
 }
 
@@ -74,7 +75,7 @@ function ChatGate() {
 }
 
 /* ---------------- the conversation: the same thread as the website ---------------- */
-function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }) {
+export function Conversation({ draft, draftKey, desk }: { draft?: string; draftKey?: number; desk?: { id: string; name: string; kind: string } }) {
   const { me } = useAuth();
   const { site } = useSite();
   const col = useColors();
@@ -102,7 +103,7 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
   const lastSeen = useRef("");
   const poll = useCallback(async () => {
     try {
-      const r = await api.get<{ conversation: { id: string; holder: string }; messages: ChatMsg[]; agent: { id: string; name: string; title?: string | null; online: boolean } | null }>("/api/chat/mine?channel=app");
+      const r = await api.get<{ conversation: { id: string; holder: string }; messages: ChatMsg[]; agent: { id: string; name: string; title?: string | null; online: boolean } | null }>(desk ? `/api/chat/conversations/${desk.id}` : "/api/chat/mine?channel=app");
       setAgent((a) => (a?.id === r.agent?.id && a?.online === r.agent?.online ? a : r.agent));
       misses.current = 0;
       setError(null);
@@ -120,7 +121,7 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
       misses.current += 1;
       if (misses.current >= 3) setError(errText(e));
     }
-  }, []);
+  }, [desk?.id]);
 
   // live while this screen is open: the same messages the website and the desk see
   useFocusEffect(
@@ -168,8 +169,27 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
     }
   };
 
+  const take = async (over: boolean) => {
+    if (!desk) return;
+    setError(null);
+    try {
+      await api.post(`/api/chat/conversations/${desk.id}/${over ? "takeover" : "handback"}`, {});
+      await poll();
+    } catch (e) {
+      setError(errText(e));
+    }
+  };
   const call = async (media: "audio" | "video") => {
     if (!conv) return;
+    if (desk) {
+      setError(null);
+      try {
+        await startCall(conv.id, media, desk.name);
+      } catch (e) {
+        setError(e instanceof Error && !(e as { status?: number }).status ? e.message : errText(e));
+      }
+      return;
+    }
     const fte = conv.holder === "fte";
     if (!fte && !agent) return;
     setError(null);
@@ -196,7 +216,7 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
     if (!conv) return;
     const m = await api.post<ChatMsg>(`/api/chat/conversations/${conv.id}/messages`, { body: "", kind: "text", fileIds: [], ...body });
     setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-    setWaitAfter(m.id);
+    if (!desk) setWaitAfter(m.id);
   };
   const sendText = async () => {
     const t = text.trim();
@@ -275,7 +295,25 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, paddingBottom: lift }}>
-      {conv?.holder === "fte" ? (
+      {desk && desk.kind !== "group" ? (
+        <View style={{ flexDirection: "row" }}>
+          <Pressable accessibilityLabel={`Voice call ${desk.name}`} onPress={() => void call("audio")} style={[st.personBar, { flex: 1 }]}>
+            <Ionicons name="call-outline" size={16} color={col.brand} />
+            <T style={{ color: col.brand, fontWeight: "700", fontSize: 13 }}>Voice</T>
+          </Pressable>
+          <Pressable accessibilityLabel={`Video call ${desk.name}`} onPress={() => void call("video")} style={[st.personBar, { flex: 1 }]}>
+            <Ionicons name="videocam-outline" size={16} color={col.brand} />
+            <T style={{ color: col.brand, fontWeight: "700", fontSize: 13 }}>Video</T>
+          </Pressable>
+          {desk.kind === "customer" ? (
+            <Pressable accessibilityLabel={conv?.holder === "fte" ? `Take over from ${site.ftEName}` : `Hand back to ${site.ftEName}`} onPress={() => void take(conv?.holder === "fte")} style={[st.personBar, { flex: 1.4 }]}>
+              <Ionicons name={conv?.holder === "fte" ? "hand-left-outline" : "sparkles-outline"} size={16} color={C.violet} />
+              <T lines={1} style={{ color: C.violet, fontWeight: "700", fontSize: 13 }}>{conv?.holder === "fte" ? "Take over" : "Hand back"}</T>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+      {!desk && conv?.holder === "fte" ? (
         <View style={{ flexDirection: "row" }}>
           <Pressable accessibilityLabel={`Call ${site.ftEName}`} onPress={() => void call("audio")} style={[st.personBar, { flex: 1 }]}>
             <Ionicons name="call-outline" size={16} color={C.violet} />
@@ -287,7 +325,7 @@ function Conversation({ draft, draftKey }: { draft?: string; draftKey?: number }
           </Pressable>
         </View>
       ) : null}
-      {conv?.holder === "human" ? (
+      {!desk && conv?.holder === "human" ? (
         <Pressable accessibilityLabel={`Back to ${site.ftEName}`} onPress={() => void backToFte()} style={st.personBar}>
           <Ionicons name="sparkles-outline" size={16} color={C.violet} />
           <T style={{ color: C.violet, fontWeight: "700", fontSize: 13 }}>Back to {site.ftEName}</T>

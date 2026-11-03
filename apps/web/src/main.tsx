@@ -58,6 +58,7 @@ const InvoiceDetail = lazy(() => import("./crm/InvoiceDetail"));
 const Desk = lazy(() => import("./chat/Desk"));
 const ops = () => import("./crm/OpsPages");
 const UnitPage = lazy(() => import("./crm/UnitPage"));
+const AppDownload = lazy(() => import("./site/AppDownload"));
 const UnitsPage = lazy(() => ops().then((m) => ({ default: m.UnitsPage })));
 const ReportsPage = lazy(() => ops().then((m) => ({ default: m.ReportsPage })));
 const UsersPage = lazy(() => ops().then((m) => ({ default: m.UsersPage })));
@@ -102,6 +103,7 @@ const router = createBrowserRouter([
       { path: "/register", element: page(<Register />) },
       { path: "/reset-password", element: page(<ResetPassword />) },
       { path: "/credits", element: page(<Credits />) },
+      { path: "/app", element: page(<AppDownload />) },
       { path: "/about", element: page(<ContentPage slug="about" />) },
       { path: "/how-to-buy", element: page(<ContentPage slug="how-to-buy" />) },
       { path: "/terms", element: page(<ContentPage slug="terms" />) },

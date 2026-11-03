@@ -9,6 +9,7 @@ export interface Site {
   whatsapp: string;
   email: string;
   address: string;
+  bankAccounts?: { label: string; bankName: string; branch: string; swift: string; accountName: string; accountNo: string; address?: string }[];
   bank: { bankName: string; branch: string; swift: string; accountName: string; accountNo: string };
 }
 
@@ -20,6 +21,7 @@ export interface Me {
   phone: string | null;
   countryCode: string | null;
   perms: string[];
+  avatarUrl?: string | null;
 }
 
 export interface VehicleCard {
@@ -110,8 +112,12 @@ export interface CustomerInvoice {
   port: string | null;
   advancePercent: number;
   totals: { total: number; advance: number; paid: number; balance: number };
-  payments: { date: string; amountUsd: number }[];
-  vehicles: { id: string; label: string; color: string; chassisNo: string; cnfUsd: number; progress: { stage: string; date: string; note: string | null }[]; documents: { id: string; folder: string; fileId: string; mime?: string; name: string }[] }[];
+  payments: { date: string; amountUsd: number; balanceAfter: number }[];
+  orderState?: string;
+  salesperson?: string | null;
+  thumbnail?: string | null;
+  timeline?: { at: string; kind: string; text: string }[];
+  vehicles: { paidUsd?: number; remainingUsd?: number; id: string; label: string; color: string; chassisNo: string; cnfUsd: number; progress: { stage: string; date: string; note: string | null }[]; documents: { id: string; folder: string; fileId: string; mime?: string; name: string }[] }[];
 }
 
 export const effectivePrice = (v: { priceUsd: number; discountPriceUsd: number | null }) => Number(v.discountPriceUsd ?? v.priceUsd);

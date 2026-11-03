@@ -419,7 +419,7 @@ function Footer() {
         </div>
       </div>
       <div className="border-t border-white/10 py-4 text-center text-xs text-slate-500">
-        © {new Date().getFullYear()} {site?.companyName ?? "Hikari Motors"} (demo) · Powered by AutoFTE · <Link to="/terms" className="hover:text-slate-300">Terms</Link> · <Link to="/privacy" className="hover:text-slate-300">Privacy</Link> · <Link to="/credits" className="hover:text-slate-300">Photo credits</Link>
+        © {new Date().getFullYear()} {site?.companyName ?? "Hikari Motors"} (demo) · Powered by AutoFTE · <Link to="/terms" className="hover:text-slate-300">Terms</Link> · <Link to="/privacy" className="hover:text-slate-300">Privacy</Link> · <Link to="/credits" className="hover:text-slate-300">Photo credits</Link> · <Link to="/app" className="hover:text-slate-300">Android app</Link>
       </div>
     </footer>
   );

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { FlatList, Linking, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { FlatList, Linking, Pressable, Share, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Image } from "expo-image";
+import { Ionicons } from "@expo/vector-icons";
 import { errText } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { absUrl } from "../lib/config";
@@ -23,7 +24,15 @@ export default function VehicleScreen() {
   const [shot, setShot] = useState(0);
 
   useEffect(() => {
-    if (v) nav.setOptions({ title: v.stockNo });
+    if (v)
+      nav.setOptions({
+        title: v.stockNo,
+        headerRight: () => (
+          <Pressable accessibilityRole="button" accessibilityLabel="Share this car" hitSlop={10} onPress={() => void Share.share({ message: `${v.title}: ${absUrl(`/vehicles/${v.slug}`)}` })}>
+            <Ionicons name="share-social-outline" size={22} color={C.muted} />
+          </Pressable>
+        ),
+      });
   }, [v, nav]);
 
   const askSora = (draft: string) => nav.navigate("ChatTab", { screen: "Chat", params: { draft, t: Date.now() }, pop: true });
@@ -177,10 +186,6 @@ function ShopButtons({ v }: { v: VehicleDetail }) {
   const inCart = shop.inCart(v.id);
   const saved = shop.saved(v.id);
   const run = async (k: "cart" | "save", fn: () => Promise<void>) => {
-    if (!me) {
-      nav.navigate("Auth", { reason: k === "cart" ? "Sign in to add cars to your cart." : "Sign in to save cars." });
-      return;
-    }
     setBusy(k);
     setErr(null);
     try {
@@ -193,6 +198,20 @@ function ShopButtons({ v }: { v: VehicleDetail }) {
   };
   return (
     <>
+      {v.status === "available" ? (
+        <Button
+          title="Buy now"
+          icon="flash-outline"
+          loading={busy === "cart"}
+          style={{ marginTop: 10 }}
+          onPress={() =>
+            run("cart", async () => {
+              if (!inCart) await shop.addToCart(v.id);
+              nav.navigate("Checkout");
+            })
+          }
+        />
+      ) : null}
       <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
         {inCart ? (
           <Button title="In cart" icon="checkmark" variant="secondary" onPress={() => nav.navigate("CartTab", { screen: "Cart", pop: true })} style={{ flex: 1 }} />

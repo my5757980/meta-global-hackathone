@@ -1,9 +1,22 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "./api";
 import { useAuth } from "./auth";
 import type { CartData, VehicleCard } from "./types";
 
-/** Cart and saved cars, shared by every screen (and the Cart tab badge). Same API as the website. */
+const GUEST_CART = "guest-cart";
+const GUEST_WISH = "guest-wishlist";
+const readIds = async (k: string): Promise<string[]> => {
+  try {
+    const v = JSON.parse((await AsyncStorage.getItem(k)) ?? "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+};
+const writeIds = (k: string, ids: string[]) => AsyncStorage.setItem(k, JSON.stringify(ids)).catch(() => {});
+
+/** Cart and saved cars, shared by every screen (and the Cart tab badge). Same API as the website. A guest's lists live on the phone until they have an account. */
 interface ShopCtx {
   cart: CartData | null;
   wishlist: VehicleCard[];
@@ -22,15 +35,28 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const [wishlist, setWishlist] = useState<VehicleCard[]>([]);
 
   const refresh = useCallback(async () => {
+    if (!me) {
+      const [c, w] = await Promise.all([readIds(GUEST_CART), readIds(GUEST_WISH)]);
+      const [cd, wd] = await Promise.all([api.get<CartData>(`/api/shop/guest-list?ids=${c.join(",")}`).catch(() => null), api.get<{ items: VehicleCard[] }>(`/api/shop/guest-list?ids=${w.join(",")}`).catch(() => null)]);
+      setCart(cd);
+      setWishlist(wd?.items ?? []);
+      return;
+    }
     if (!isBuyer) {
       setCart(null);
       setWishlist([]);
       return;
     }
+    const [gc, gw] = await Promise.all([readIds(GUEST_CART), readIds(GUEST_WISH)]);
+    if (gc.length || gw.length) {
+      // signed in: what they collected as a guest joins the account
+      await api.post("/api/shop/merge", { cart: gc, wishlist: gw }).catch(() => {});
+      await Promise.all([writeIds(GUEST_CART, []), writeIds(GUEST_WISH, [])]);
+    }
     const [c, w] = await Promise.all([api.get<CartData>("/api/shop/cart").catch(() => null), api.get<{ items: VehicleCard[] }>("/api/shop/wishlist").catch(() => null)]);
     if (c) setCart(c);
     if (w) setWishlist(w.items);
-  }, [isBuyer]);
+  }, [isBuyer, me]);
 
   useEffect(() => {
     void refresh();
@@ -45,21 +71,28 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       inCart: (id) => cartIds.has(id),
       saved: (id) => savedIds.has(id),
       addToCart: async (id) => {
-        await api.post("/api/shop/cart", { vehicleId: id });
+        if (me) await api.post("/api/shop/cart", { vehicleId: id });
+        else await writeIds(GUEST_CART, [...new Set([...(await readIds(GUEST_CART)), id])].slice(0, 10));
         await refresh();
       },
       removeFromCart: async (id) => {
-        await api.del(`/api/shop/cart/${id}`);
+        if (me) await api.del(`/api/shop/cart/${id}`);
+        else await writeIds(GUEST_CART, (await readIds(GUEST_CART)).filter((x) => x !== id));
         await refresh();
       },
       toggleSaved: async (id) => {
-        if (savedIds.has(id)) await api.del(`/api/shop/wishlist/${id}`);
-        else await api.post("/api/shop/wishlist", { vehicleId: id });
+        if (me) {
+          if (savedIds.has(id)) await api.del(`/api/shop/wishlist/${id}`);
+          else await api.post("/api/shop/wishlist", { vehicleId: id });
+        } else {
+          const cur = await readIds(GUEST_WISH);
+          await writeIds(GUEST_WISH, savedIds.has(id) ? cur.filter((x) => x !== id) : [...new Set([...cur, id])].slice(0, 40));
+        }
         await refresh();
       },
       refresh,
     };
-  }, [cart, wishlist, refresh]);
+  }, [cart, wishlist, refresh, me]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

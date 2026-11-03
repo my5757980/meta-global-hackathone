@@ -19,6 +19,23 @@ import { BODY_PHOTOS } from "../seed/photos";
 
 export const publicRouter = Router();
 
+/** What broke on a phone reaches the server's log: a screen that closes itself says nothing otherwise. */
+publicRouter.post(
+  "/crash",
+  h(async (req) => {
+    const b = parse(z.object({ message: z.string().max(500), stack: z.string().max(4000).optional(), where: z.string().max(80).optional(), version: z.string().max(20).optional() }), req.body);
+    if (tooMany(`crash:${req.ip}`, 20, 10 * 60_000)) return { ok: true };
+    console.error(`[app-crash] ${b.where ?? "app"} v${b.version ?? "?"}: ${b.message}${b.stack ? `\n${b.stack}` : ""}`);
+    return { ok: true };
+  }),
+);
+
+/** The download page's facts. The APK itself is too big for the repository: it lives on a release page. */
+publicRouter.get(
+  "/app-info",
+  h(async () => ({ version: env.APP_VERSION, sizeMb: env.APP_SIZE_MB, url: env.APP_APK_URL || null, needs: "Android 7 or newer" })),
+);
+
 const LANG_NAMES: Record<string, string> = { ja: "Japanese", "zh-CN": "Simplified Chinese", ur: "Urdu", ar: "Arabic", ru: "Russian", es: "Spanish", fr: "French" };
 const translated = new Map<string, string>();
 

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { Linking, Pressable, StyleSheet, View } from "react-native";
+import { Linking, Pressable, Share, StyleSheet, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import Constants from "expo-constants";
+import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { api, errText } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { absUrl, getServer, isWeb, setServer, setToken } from "../lib/config";
+import { absUrl, authHeaders, getServer, isWeb, setServer, setToken } from "../lib/config";
 import { useFetch } from "../lib/data";
 import { downloadAndShare } from "../lib/download";
 import { uploadChatFile } from "../lib/upload";
@@ -191,7 +192,7 @@ export function AuthScreen() {
 /* ================================ Profile ================================ */
 export function ProfileScreen() {
   const nav = useNavigation<any>();
-  const { refresh } = useAuth();
+  const { refresh, me } = useAuth();
   const q = useFetch<{ name: string; email: string; phone: string | null; company: string | null; city: string | null; address: string | null }>("/api/account/profile");
   const [f, setF] = useState({ name: "", phone: "", company: "", city: "", address: "" });
   const [busy, setBusy] = useState(false);
@@ -217,6 +218,30 @@ export function ProfileScreen() {
     <Screen>
       <Card>
         {err || q.error ? <ErrorBox text={(err ?? q.error)!} /> : null}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
+          {me?.avatarUrl ? <Image source={{ uri: absUrl(me.avatarUrl), headers: authHeaders() }} style={{ width: 64, height: 64, borderRadius: 32 }} accessibilityLabel="Your profile" /> : <View style={[st.avatar, { width: 64, height: 64, borderRadius: 32, backgroundColor: "#e2e8f0" }]}><Ionicons name="person" size={28} color={C.muted} /></View>}
+          <Button
+            small
+            title="Profile picture"
+            icon="image-outline"
+            variant="secondary"
+            onPress={async () => {
+              const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8, allowsEditing: true, aspect: [1, 1] });
+              const a = r.canceled ? null : r.assets?.[0];
+              if (!a) return;
+              setErr(null);
+              try {
+                const fd = new FormData();
+                if (isWeb) fd.append("file", await (await fetch(a.uri)).blob(), "me.jpg");
+                else fd.append("file", { uri: a.uri, name: a.fileName ?? "me.jpg", type: a.mimeType ?? "image/jpeg" } as unknown as Blob);
+                await api.post("/api/account/avatar", fd);
+                await refresh();
+              } catch (e) {
+                setErr(errText(e));
+              }
+            }}
+          />
+        </View>
         <Field label="Full name"><Input value={f.name} onChangeText={(name) => setF({ ...f, name })} /></Field>
         <Field label="E-mail" hint="Contact us to change your e-mail."><Input value={q.data?.email ?? ""} editable={false} style={{ backgroundColor: "#f8fafc", color: C.muted }} /></Field>
         <Field label="Phone / WhatsApp"><Input value={f.phone} onChangeText={(phone) => setF({ ...f, phone })} keyboardType="phone-pad" /></Field>
@@ -441,8 +466,16 @@ export function PageScreen() {
   const route = useRoute<any>();
   const q = useFetch<{ title: string; body: string }>(`/api/public/pages/${encodeURIComponent(route.params?.slug ?? "")}`);
   useEffect(() => {
-    if (q.data) nav.setOptions({ title: q.data.title });
-  }, [q.data, nav]);
+    if (q.data)
+      nav.setOptions({
+        title: q.data.title,
+        headerRight: () => (
+          <Pressable accessibilityRole="button" accessibilityLabel="Share this guide" hitSlop={10} onPress={() => void Share.share({ message: `${q.data!.title}: ${absUrl(`/blog/${route.params?.slug}`)}` })}>
+            <Ionicons name="share-social-outline" size={22} color={C.muted} />
+          </Pressable>
+        ),
+      });
+  }, [q.data, nav, route.params?.slug]);
   return (
     <Screen onRefresh={q.reload} refreshing={q.refreshing}>
       {q.error ? <ErrorBox text={q.error} onRetry={q.reload} /> : null}
@@ -454,16 +487,20 @@ export function PageScreen() {
 export function BlogScreen() {
   const nav = useNavigation<any>();
   const q = useFetch<{ slug: string; title: string; excerpt: string; publishedAt: string | null }[]>("/api/public/blog");
+  const [term, setTerm] = useState("");
+  const needle = term.trim().toLowerCase();
+  const rows = q.data?.filter((p) => !needle || p.title.toLowerCase().includes(needle) || p.excerpt.toLowerCase().includes(needle));
   return (
     <Screen onRefresh={q.reload} refreshing={q.refreshing}>
       {q.error ? <ErrorBox text={q.error} onRetry={q.reload} /> : null}
+      <View style={{ marginBottom: 12 }}><Input accessibilityLabel="Search guides" placeholder="Search guides" value={term} onChangeText={setTerm} /></View>
       {q.loading ? (
         <Skeleton h={200} />
-      ) : !q.data?.length ? (
-        <Empty icon="newspaper-outline" title="No guides yet" />
+      ) : !rows?.length ? (
+        <Empty icon="newspaper-outline" title={needle ? "No guides found" : "No guides yet"} />
       ) : (
         <View style={{ gap: 12 }}>
-          {q.data.map((p) => (
+          {rows.map((p) => (
             <Card key={p.slug} onPress={() => nav.navigate("BlogPost", { slug: p.slug })}>
               <T style={{ fontWeight: "800", color: C.ink, fontSize: 16 }}>{p.title}</T>
               {p.publishedAt ? <T style={{ color: C.faint, fontSize: 12, marginTop: 2 }}>{date(p.publishedAt)}</T> : null}
@@ -554,27 +591,40 @@ export function ServicesScreen() {
 
 export function BankScreen() {
   const { site } = useSite();
-  const b = site.bank;
-  const rows: [string, string][] = [
-    ["Bank", b.bankName],
-    ["Branch", b.branch],
-    ["SWIFT", b.swift],
-    ["Account name", b.accountName],
-    ["Account no.", b.accountNo],
-  ];
+  const accounts = site.bankAccounts?.length ? site.bankAccounts : [{ label: "Company", ...site.bank }];
   return (
     <Screen>
-      <Card style={{ padding: 0 }}>
-        {rows.map(([k, v]) => (
-          <View key={k} style={st.kv}>
-            <T style={{ color: C.muted, flex: 1 }}>{k}</T>
-            <T selectable style={{ color: C.ink, fontWeight: "700", flex: 1.4, textAlign: "right" }}>
-              {v || "—"}
-            </T>
-          </View>
-        ))}
-      </Card>
-      <T style={{ color: C.muted, fontSize: 13, marginTop: 12, lineHeight: 19 }}>Pay only against an approved invoice, and put the invoice number in the transfer reference. We never change bank details by chat or e-mail — if anyone asks you to pay elsewhere, call us first.</T>
+      <T style={{ color: C.muted, fontSize: 13, marginBottom: 12, lineHeight: 19 }}>Match the amount and the name on your invoice, pay the account your invoice names, then send us the slip on the invoice or in the chat.</T>
+      <View style={{ gap: 12 }}>
+        {accounts.map((b) => {
+          const rows: [string, string][] = [
+            ["Bank", b.bankName],
+            ["Branch", b.branch],
+            ["SWIFT", b.swift],
+            ["Account name", b.accountName],
+            ["Account no.", b.accountNo],
+          ];
+          return (
+            <Card key={b.label} style={{ padding: 0 }}>
+              <View style={[st.kv, { alignItems: "center" }]}>
+                <T style={{ flex: 1, fontWeight: "800", color: C.ink }}>{b.label} account (demo)</T>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Share the ${b.label} account`} hitSlop={8} onPress={() => void Share.share({ message: rows.map(([k, v]) => `${k}: ${v}`).join("\n") })}>
+                  <Ionicons name="share-social-outline" size={20} color={C.muted} />
+                </Pressable>
+              </View>
+              {rows.map(([k, v]) => (
+                <View key={k} style={st.kv}>
+                  <T style={{ color: C.muted, flex: 1 }}>{k}</T>
+                  <T selectable style={{ color: C.ink, fontWeight: "700", flex: 1.4, textAlign: "right" }}>
+                    {v || "—"}
+                  </T>
+                </View>
+              ))}
+            </Card>
+          );
+        })}
+      </View>
+      <T style={{ color: C.muted, fontSize: 13, marginTop: 12, lineHeight: 19 }}>Pay only against an approved invoice, and put the invoice number in the transfer reference. We never ask you to pay a personal account.</T>
     </Screen>
   );
 }
@@ -768,6 +818,11 @@ export function InvoiceScreen() {
         <View key={v.id}>
           <SectionTitle title={v.label} />
           <Card>
+            <View style={{ flexDirection: "row", gap: 12, marginBottom: 6 }}>
+              <View style={{ flex: 1 }}><T style={{ color: C.muted, fontSize: 12 }}>C&F</T><T style={{ fontWeight: "700", color: C.ink }}>{usd(v.cnfUsd)}</T></View>
+              <View style={{ flex: 1 }}><T style={{ color: C.muted, fontSize: 12 }}>Paid</T><T style={{ fontWeight: "700", color: C.green }}>{usd(v.paidUsd ?? 0)}</T></View>
+              <View style={{ flex: 1 }}><T style={{ color: C.muted, fontSize: 12 }}>Remaining</T><T style={{ fontWeight: "700", color: C.ink }}>{usd(v.remainingUsd ?? v.cnfUsd)}</T></View>
+            </View>
             <T style={{ color: C.muted, fontSize: 12 }}>
               {v.color} · chassis {v.chassisNo} · C&F {usd(v.cnfUsd)}
             </T>
@@ -807,12 +862,28 @@ export function InvoiceScreen() {
       {inv.totals.balance > 0 && inv.status !== "awaiting_approval" ? <SendSlip inv={inv} onSent={q.reload} /> : null}
       {inv.payments.length ? (
         <>
-          <SectionTitle title="Payments" />
+          <SectionTitle title="Payment history" />
           <Card style={{ padding: 0 }}>
             {inv.payments.map((p, i) => (
               <View key={i} style={st.kv}>
                 <T style={{ color: C.muted, flex: 1 }}>{date(p.date)}</T>
-                <T style={{ color: C.ink, fontWeight: "700" }}>{usd(p.amountUsd)}</T>
+                <View style={{ alignItems: "flex-end" }}>
+                  <T style={{ color: C.ink, fontWeight: "700" }}>{usd(p.amountUsd)}</T>
+                  <T style={{ color: C.muted, fontSize: 12 }}>Balance after {usd(p.balanceAfter)}</T>
+                </View>
+              </View>
+            ))}
+          </Card>
+        </>
+      ) : null}
+      {inv.timeline?.length ? (
+        <>
+          <SectionTitle title="Order notes" />
+          <Card>
+            {inv.timeline.map((n, i) => (
+              <View key={i} style={{ paddingVertical: 6 }}>
+                <T style={{ color: C.ink }}>{n.text}</T>
+                <T style={{ color: C.faint, fontSize: 12 }}>{date(n.at)}</T>
               </View>
             ))}
           </Card>

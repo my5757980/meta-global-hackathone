@@ -379,6 +379,15 @@ export default function HomeScreen() {
             </Pressable>
           ))}
         </Card>
+        <SectionTitle title="Ask our team" />
+        <Card>
+          <T style={{ color: C.muted, fontSize: 13, marginBottom: 10 }}>A question about a car, a port or a payment? We are one tap away.</T>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {site.whatsapp ? <Button small title="WhatsApp" icon="logo-whatsapp" variant="secondary" style={{ flex: 1 }} onPress={() => void Linking.openURL(`https://wa.me/${site.whatsapp.replace(/\D/g, "")}`)} /> : null}
+            {site.phone ? <Button small title="Call" icon="call-outline" variant="secondary" style={{ flex: 1 }} onPress={() => void Linking.openURL(`tel:${site.phone.replace(/\s/g, "")}`)} /> : null}
+            {site.email ? <Button small title="E-mail" icon="mail-outline" variant="secondary" style={{ flex: 1 }} onPress={() => void Linking.openURL(`mailto:${site.email}`)} /> : null}
+          </View>
+        </Card>
         <SectionTitle title="Our newsletter" />
         <Card>
           <T style={{ color: C.muted, fontSize: 13 }}>New stock and shipping news, now and then.</T>
