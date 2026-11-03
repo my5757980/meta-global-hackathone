@@ -6,7 +6,9 @@ import * as s from "../db/schema";
 import { bad, conflict, forbidden, h, notFound, page, parse } from "../lib/http";
 import { can, requirePerm, type AuthUser } from "../auth/session";
 import { audit } from "../services/audit";
-import { addLeadNote, approveInvoice, ensureWebsiteAccount, findLeadByContact, findOrCreateLead, getInvoiceFull, markInvoiceSent, rejectInvoice, type Actor } from "../services/crm";
+import { addLeadNote, approveInvoice, ensureWebsiteAccount, findLeadByContact, findOrCreateLead, getInvoiceFull, markInvoiceSent, reassignLead, rejectInvoice, type Actor } from "../services/crm";
+import { emit } from "../services/events";
+import { notify, usersWithPerm } from "../services/notify";
 
 export const crmRouter = Router();
 
@@ -69,6 +71,7 @@ crmRouter.get(
         port: s.ports.name,
         invoiced: sql<number>`(select coalesce(sum(i.total_cnf_usd),0)::float from invoices i where i.lead_id = "leads"."id" and i.status in ('approved','sent'))`,
         paid: sql<number>`(select coalesce(sum(p.amount_usd),0)::float from payments p join invoices i on i.id = p.invoice_id where i.lead_id = "leads"."id")`,
+        duplicateBy: sql<string | null>`(select d.name from users d where d.id = "leads"."duplicate_attempt_by")`,
       })
       .from(s.leads)
       .leftJoin(s.users, eq(s.users.id, s.leads.ownerUserId))
@@ -82,7 +85,7 @@ crmRouter.get(
     const agents = can(u, "crm.leads.view_all")
       ? await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind, n: sql<number>`(select count(*)::int from leads l where l.owner_user_id = "users"."id")` }).from(s.users).where(inArray(s.users.kind, ["staff", "fte"])).orderBy(s.users.name)
       : [];
-    return { items: rows.map((r) => ({ ...r.lead, owner: r.owner, ownerKind: r.ownerKind, country: r.country, port: r.port, invoiced: r.invoiced, paid: r.paid })), total: n, page: pageNo, pageSize, agents: agents.filter((a) => a.n > 0) };
+    return { items: rows.map((r) => ({ ...r.lead, owner: r.owner, ownerKind: r.ownerKind, country: r.country, port: r.port, invoiced: r.invoiced, paid: r.paid, duplicateBy: r.duplicateBy })), total: n, page: pageNo, pageSize, agents: agents.filter((a) => a.n > 0) };
   }),
 );
 
@@ -103,7 +106,9 @@ crmRouter.get(
     const [port] = lead.portId ? await db().select().from(s.ports).where(eq(s.ports.id, lead.portId)).limit(1) : [];
     const [owner] = lead.ownerUserId ? await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind }).from(s.users).where(eq(s.users.id, lead.ownerUserId)).limit(1) : [];
     const [account] = lead.customerUserId ? await db().select({ id: s.users.id, email: s.users.email, kind: s.users.kind, mustChangePassword: s.users.mustChangePassword, lastSeenAt: s.users.lastSeenAt }).from(s.users).where(eq(s.users.id, lead.customerUserId)).limit(1) : [];
-    return { lead, notes: notes.map((x) => ({ ...x.n, author: x.author, authorKind: x.authorKind })), invoices, country: country ?? null, port: port ?? null, owner: owner ?? null, account: account ?? null };
+    const [dupBy] = lead.duplicateAttemptBy ? await db().select({ name: s.users.name }).from(s.users).where(eq(s.users.id, lead.duplicateAttemptBy)).limit(1) : [];
+    const staff = can(u, "crm.leads.reassign") ? await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind }).from(s.users).where(and(inArray(s.users.kind, ["staff", "fte"]), eq(s.users.isActive, true))).orderBy(s.users.name) : [];
+    return { duplicateBy: dupBy?.name ?? null, staff, lead, notes: notes.map((x) => ({ ...x.n, author: x.author, authorKind: x.authorKind })), invoices, country: country ?? null, port: port ?? null, owner: owner ?? null, account: account ?? null };
   }),
 );
 
@@ -112,8 +117,29 @@ crmRouter.post(
   h(async (req) => {
     const u = requirePerm(req, "crm.leads.create");
     const b = parse(z.object({ customerName: z.string().trim().min(2).max(120), contactPerson: z.string().trim().min(2).max(80), phone: z.string().trim().min(6).max(30), email: z.string().trim().email().max(120).optional().or(z.literal("")), address: z.string().max(200).optional(), countryCode: z.string().length(2), portId: z.string().min(8) }), req.body);
+    // Another agent's client is refused, not quietly opened: the owner stays, the attempt is on record, and the Supervisors know.
+    const taken = await findLeadByContact(b.phone, b.email || null);
+    if (taken && taken.ownerUserId && taken.ownerUserId !== u.id) {
+      const [owner] = await db().select({ name: s.users.name }).from(s.users).where(eq(s.users.id, taken.ownerUserId)).limit(1);
+      await db().update(s.leads).set({ duplicateAttemptBy: u.id, duplicateAttemptAt: new Date() }).where(eq(s.leads.id, taken.id));
+      await audit(db(), { actorUserId: u.id, actorKind: "human", action: "lead.duplicate_attempt", entity: "lead", entityId: taken.id, summary: `${u.name} tried to add ${taken.customerName}, who is already under ${owner?.name ?? "another agent"}` });
+      await notify(await usersWithPerm("crm.invoices.approve"), { type: "lead", title: "Duplicate lead attempt", body: `${u.name} tried to add ${taken.customerName} (${taken.phone}), already under ${owner?.name ?? "another agent"}`, link: `/crm/leads/${taken.id}` });
+      await emit("lead.duplicate_attempt", { leadId: taken.id, byName: u.name, ownerName: owner?.name ?? null });
+      throw conflict(`This client is already registered under ${owner?.name ?? "another agent"} since ${new Date(taken.createdAt).toISOString().slice(0, 10)}. The Supervisor has been told.`);
+    }
     const r = await findOrCreateLead({ ...b, email: b.email || null, ownerUserId: u.id, source: "manual" }, actor(u));
     return { lead: r.lead, duplicate: !r.created };
+  }),
+);
+
+crmRouter.post(
+  "/leads/:id/reassign",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.leads.reassign");
+    const b = parse(z.object({ userId: z.string().min(8), reason: z.string().trim().max(300).optional() }), req.body);
+    const r = await reassignLead(String(req.params.id), b.userId, actor(u), b.reason ?? null);
+    if (r.moved && r.toKind === "staff" && r.toId !== u.id) await notify([r.toId!], { type: "lead", title: "A lead is now yours", body: `${u.name} gave you ${r.customerName}`, link: `/crm/leads/${String(req.params.id)}` });
+    return { moved: r.moved, to: r.to };
   }),
 );
 
@@ -187,11 +213,29 @@ crmRouter.get(
     const { pageSize, offset, page: pageNo } = page(req.query, 25);
     const w: (SQL | undefined)[] = [];
     if (!can(u, "crm.invoices.view_all")) w.push(or(eq(s.invoices.requestedBy, u.id), sql`${s.invoices.leadId} in (select id from leads where owner_user_id = ${u.id})`));
-    if (req.query.status) w.push(eq(s.invoices.status, String(req.query.status)));
+    if (req.query.month && /^\d{4}-\d{2}$/.test(String(req.query.month))) w.push(sql`to_char("invoices"."created_at", 'YYYY-MM') = ${String(req.query.month)}`);
+    if (req.query.agent) w.push(sql`"invoices"."requested_by" in (select id from users where name ilike ${`%${req.query.agent}%`})`);
     if (req.query.q) w.push(or(ilike(s.invoices.number, `%${req.query.q}%`), ilike(s.invoices.consigneeName, `%${req.query.q}%`)));
+    const beforeStatus = and(...w);
+    const FULLY_PAID = sql`("invoices"."total_cnf_usd" > 0 and (select coalesce(sum(p.amount_usd),0) from payments p where p.invoice_id = "invoices"."id") >= "invoices"."total_cnf_usd" - 0.01)`;
+    const wanted = String(req.query.status ?? "");
+    if (wanted === "payment_received") w.push(and(eq(s.invoices.status, "sent"), FULLY_PAID));
+    else if (wanted) w.push(eq(s.invoices.status, wanted));
     const where = and(...w);
+    const [counts] = (await db()
+      .select({
+        total: sql<number>`count(*)::int`,
+        pending: sql<number>`count(*) filter (where "invoices"."status" = 'pending')::int`,
+        approved: sql<number>`count(*) filter (where "invoices"."status" = 'approved')::int`,
+        sent: sql<number>`count(*) filter (where "invoices"."status" = 'sent')::int`,
+        rejected: sql<number>`count(*) filter (where "invoices"."status" = 'rejected')::int`,
+        paymentReceived: sql<number>`count(*) filter (where "invoices"."status" = 'sent' and ${FULLY_PAID})::int`,
+      })
+      .from(s.invoices)
+      .where(beforeStatus)) as [{ total: number; pending: number; approved: number; sent: number; rejected: number; paymentReceived: number }];
+    const months = await db().execute(sql`select distinct to_char(created_at, 'YYYY-MM') as m from invoices order by 1 desc limit 36`);
     const rows = await db()
-      .select({ inv: s.invoices, requestedBy: s.users.name, requestedKind: s.users.kind, port: s.ports.name, vehicles: sql<number>`(select count(*)::int from invoice_vehicles iv where iv.invoice_id = ${s.invoices.id})`, firstVehicle: sql<string>`(select unit_label from invoice_vehicles iv where iv.invoice_id = ${s.invoices.id} order by position limit 1)`, paid: sql<number>`(select coalesce(sum(amount_usd),0)::float from payments p where p.invoice_id = ${s.invoices.id})` })
+      .select({ inv: s.invoices, requestedBy: s.users.name, requestedKind: s.users.kind, port: s.ports.name, vehicles: sql<number>`(select count(*)::int from invoice_vehicles iv where iv.invoice_id = ${s.invoices.id})`, firstVehicle: sql<string>`(select unit_label from invoice_vehicles iv where iv.invoice_id = ${s.invoices.id} order by position limit 1)`, chassis: sql<string>`(select chassis_no from invoice_vehicles iv where iv.invoice_id = ${s.invoices.id} order by position limit 1)`, paid: sql<number>`(select coalesce(sum(amount_usd),0)::float from payments p where p.invoice_id = ${s.invoices.id})` })
       .from(s.invoices)
       .leftJoin(s.users, eq(s.users.id, s.invoices.requestedBy))
       .leftJoin(s.ports, eq(s.ports.id, s.invoices.consigneePortId))
@@ -200,7 +244,14 @@ crmRouter.get(
       .limit(pageSize)
       .offset(offset);
     const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(s.invoices).where(where)) as [{ n: number }];
-    return { items: rows.map((r) => ({ ...r.inv, requestedByName: r.requestedBy, requestedByKind: r.requestedKind, port: r.port, vehicleCount: r.vehicles, firstVehicle: r.firstVehicle, paid: r.paid })), total: n, page: pageNo, pageSize };
+    return {
+      items: rows.map((r) => ({ ...r.inv, requestedByName: r.requestedBy, requestedByKind: r.requestedKind, port: r.port, vehicleCount: r.vehicles, firstVehicle: r.firstVehicle, chassis: r.chassis, paid: r.paid, displayStatus: r.inv.status === "sent" && Number(r.inv.totalCnfUsd) > 0 && r.paid >= Number(r.inv.totalCnfUsd) - 0.01 ? "payment_received" : r.inv.status })),
+      total: n,
+      page: pageNo,
+      pageSize,
+      counts,
+      months: (months as unknown as { rows: { m: string }[] }).rows.map((x) => x.m),
+    };
   }),
 );
 
@@ -223,7 +274,10 @@ crmRouter.get(
       }
     }
     const [quote] = full.invoice.quoteId ? await db().select().from(s.quotes).where(eq(s.quotes.id, full.invoice.quoteId)).limit(1) : [];
-    return { ...full, audit: audit.map((x) => ({ ...x.a, actor: x.actor, actorType: x.actorType })), conversation, fteTrail, quote: quote ?? null, canApprove: can(u, "crm.invoices.approve"), canDelete: can(u, "crm.invoices.delete") };
+    const recorders = await db().select({ id: s.users.id, name: s.users.name }).from(s.users).where(inArray(s.users.id, full.payments.map((p) => p.recordedBy).filter(Boolean).concat(["-"]) as string[]));
+    const payments = full.payments.map((p) => ({ ...p, recordedByName: recorders.find((x) => x.id === p.recordedBy)?.name ?? null }));
+    const unitsByVehicle = await db().select({ id: s.units.id, invoiceVehicleId: s.units.invoiceVehicleId }).from(s.units).where(eq(s.units.invoiceId, full.invoice.id));
+    return { ...full, payments, unitsByVehicle, canDeletePayment: can(u, "crm.payments.delete"), audit: audit.map((x) => ({ ...x.a, actor: x.actor, actorType: x.actorType })), conversation, fteTrail, quote: quote ?? null, canApprove: can(u, "crm.invoices.approve"), canDelete: can(u, "crm.invoices.delete") };
   }),
 );
 

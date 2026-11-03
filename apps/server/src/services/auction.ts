@@ -180,7 +180,7 @@ export async function settleAuctions(): Promise<number> {
   const bids = await db()
     .select()
     .from(s.auctionBids)
-    .where(and(inArray(s.auctionBids.lotId, due.map((l) => l.id)), eq(s.auctionBids.status, "active")))
+    .where(and(inArray(s.auctionBids.lotId, due.map((l) => l.id)), inArray(s.auctionBids.status, ["placed", "under review", "accepted"])))
     .orderBy(desc(s.auctionBids.amountJpy), asc(s.auctionBids.createdAt));
   const byLot = new Map<string, typeof bids>();
   for (const b of bids) byLot.set(b.lotId, [...(byLot.get(b.lotId) ?? []), b]);

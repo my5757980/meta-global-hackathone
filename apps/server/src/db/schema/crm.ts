@@ -49,6 +49,8 @@ export const leads = pgTable(
     customerUserId: text().references(() => users.id),
     source: text().notNull().default("manual"),
     duplicateOf: text(),
+    duplicateAttemptBy: text().references(() => users.id), // someone else tried to add this client
+    duplicateAttemptAt: timestamp({ withTimezone: true }),
     createdBy: text().references(() => users.id),
     createdAt: createdAt(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -194,6 +196,7 @@ export const units = pgTable(
     doors: integer(),
     seats: integer(),
     location: text(),
+    coverFileId: text().references(() => files.id, { onDelete: "set null" }), // empty = the unit's first picture
     createdBy: text().references(() => users.id),
     createdAt: createdAt(),
   },
@@ -204,6 +207,8 @@ export const unitFinancials = pgTable("unit_financials", {
   unitId: text()
     .primaryKey()
     .references(() => units.id, { onDelete: "cascade" }),
+  currency: text().notNull().default("JPY"), // JPY = the 13 lines; USD = one figure, for a car not bought in yen
+  costUsd: usd(),
   lotNo: text(),
   auctionName: text(),
   buyingJpy: integer().notNull().default(0),

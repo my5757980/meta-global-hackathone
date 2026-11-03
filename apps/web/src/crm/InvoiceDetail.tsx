@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Check, ChevronLeft, MessageSquare, Pencil, Printer, ShieldCheck, Trash2, X } from "lucide-react";
 import { api } from "../lib/api";
 import { dateTime, date, usd2 } from "../lib/format";
-import { Badge, Button, Card, Empty, Field, Modal, Skeleton, StatusBadge, Textarea } from "../ui";
+import { Button, Card, Empty, Field, Modal, Skeleton, StatusBadge, Table, Textarea } from "../ui";
 import { InvoiceOps } from "./InvoiceOps";
 import { EditInvoiceModal } from "./LeadForms";
 import { FteName, useFte } from "../lib/site";
@@ -13,7 +13,9 @@ interface Full {
   invoice: { id: string; number: string; status: string; consigneeName: string; consigneePhone: string; consigneeEmail: string | null; consigneeAddress: string | null; consigneeCountryCode: string | null; consigneePortId: string | null; finalPdfFileId: string | null; totalCnfUsd: number; totalPushUsd: number; advancePercent: number; rejectionNote: string | null; createdAt: string; approvedAt: string | null; m3Rate: number | null; exchangeRate: number | null; salesperson: string | null };
   lead: { id: string; customerName: string; contactPerson: string; phone: string; email: string | null; status: string } | null;
   vehicles: { id: string; vehicleId: string | null; unitLabel: string; year: number | null; color: string | null; chassisNo: string | null; engine: string | null; transmission: string | null; fuel: string | null; pushUsd: number; cnfUsd: number }[];
-  payments: { id: string; amountUsd: number; receivedDate: string }[];
+  payments: { id: string; amountUsd: number; sellingPriceUsd: number | null; receivedDate: string; fxRate: number | null; yenAmount: number | null; receiptFileId: string | null; recordedByName: string | null }[];
+  unitsByVehicle: { id: string; invoiceVehicleId: string | null }[];
+  canDeletePayment: boolean;
   port: { name: string } | null;
   country: { name: string } | null;
   requestedBy: { name: string; kind: string } | null;
@@ -169,7 +171,8 @@ export default function InvoiceDetail() {
                     <th className="px-5 py-2">Vehicle</th>
                     <th className="px-3 py-2">Chassis</th>
                     <th className="px-3 py-2 text-right">FOB (push)</th>
-                    <th className="px-5 py-2 text-right">C&F</th>
+                    <th className="px-3 py-2 text-right">C&F</th>
+                    <th className="px-5 py-2" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -185,13 +188,25 @@ export default function InvoiceDetail() {
                       </td>
                       <td className="px-3 py-3 text-xs">{v.chassisNo}</td>
                       <td className="px-3 py-3 text-right">{usd2(v.pushUsd)}</td>
-                      <td className="px-5 py-3 text-right font-semibold">{usd2(v.cnfUsd)}</td>
+                      <td className="px-3 py-3 text-right font-semibold">{usd2(v.cnfUsd)}</td>
+                      <td className="px-5 py-3 text-right whitespace-nowrap">
+                        {d.unitsByVehicle.find((x) => x.invoiceVehicleId === v.id) && (
+                          <Link to={`/crm/units/${d.unitsByVehicle.find((x) => x.invoiceVehicleId === v.id)!.id}`} className="text-sm font-semibold text-brand-700">
+                            View unit →
+                          </Link>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             <div className="flex flex-wrap justify-end gap-6 border-t border-slate-100 px-5 py-4 text-sm">
+              {inv.salesperson && (
+                <span>
+                  Salesperson <strong className="ml-1">{inv.salesperson}</strong>
+                </span>
+              )}
               {inv.m3Rate ? (
                 <span>
                   M3 rate <strong className="ml-1">{usd2(inv.m3Rate)}</strong>
@@ -231,6 +246,45 @@ export default function InvoiceDetail() {
             </Card>
           )}
           <InvoiceOps invoiceId={inv.id} status={inv.status} vehicles={d.vehicles} balance={d.totals.balance} finalPdfFileId={inv.finalPdfFileId} canApprove={d.canApprove} />
+          {d.payments.length > 0 && (
+            <div>
+              <p className="mb-2 font-semibold text-slate-900">Payments</p>
+              <Table head={d.canDeletePayment ? ["Date", "Selling price", "Received", "Exchange rate", "Yen amount", "Recorded by", "Receipt", ""] : ["Date", "Selling price", "Received", "Exchange rate", "Yen amount", "Recorded by", "Receipt"]}>
+                {d.payments.map((p) => (
+                  <tr key={p.id}>
+                    <td className="px-4 py-2 whitespace-nowrap">{date(p.receivedDate)}</td>
+                    <td className="px-4 py-2 whitespace-nowrap">{p.sellingPriceUsd != null ? usd2(p.sellingPriceUsd) : "—"}</td>
+                    <td className="px-4 py-2 font-semibold whitespace-nowrap text-emerald-700">{usd2(p.amountUsd)}</td>
+                    <td className="px-4 py-2">{p.fxRate ?? "—"}</td>
+                    <td className="px-4 py-2 whitespace-nowrap">{p.yenAmount != null ? `¥${p.yenAmount.toLocaleString("en-US")}` : "—"}</td>
+                    <td className="px-4 py-2 whitespace-nowrap">{p.recordedByName ?? "—"}</td>
+                    <td className="px-4 py-2">{p.receiptFileId ? <a className="font-semibold text-brand-700" href={`/api/crm/files/${p.receiptFileId}`} target="_blank" rel="noreferrer">Open</a> : "—"}</td>
+                    {d.canDeletePayment && (
+                      <td className="px-4 py-2 text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Delete payment of ${usd2(p.amountUsd)}`}
+                          onClick={async () => {
+                            if (!window.confirm(`Delete this payment of ${usd2(p.amountUsd)}? The balance goes back up. It stays in the history.`)) return;
+                            setErr(null);
+                            try {
+                              await api.del(`/api/crm/payments/${p.id}`);
+                              await qc.invalidateQueries();
+                            } catch (e) {
+                              setErr((e as Error).message);
+                            }
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </Table>
+            </div>
+          )}
           {inv.rejectionNote && (
             <Card className="border-rose-200 bg-rose-50">
               <p className="text-sm font-semibold text-rose-800">Internal rejection note</p>
@@ -282,19 +336,6 @@ export default function InvoiceDetail() {
               ))}
             </ol>
           </Card>
-          {d.payments.length > 0 && (
-            <Card>
-              <p className="font-semibold text-slate-900">Payments</p>
-              <ul className="mt-2 space-y-1 text-sm">
-                {d.payments.map((p) => (
-                  <li key={p.id} className="flex justify-between">
-                    <span>{date(p.receivedDate)}</span>
-                    <Badge tone="green">{usd2(p.amountUsd)}</Badge>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
         </div>
       </div>
       {editing && (

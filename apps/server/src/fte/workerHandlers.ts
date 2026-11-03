@@ -2,7 +2,7 @@ import { and, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { WorkerKey } from "@autofte/shared";
 import { db } from "../db/client";
 import * as s from "../db/schema";
-import { attachFinalPdf, getInvoiceFull, markInvoiceSent, rejectInvoice, type Actor } from "../services/crm";
+import { addLeadNote, attachFinalPdf, getInvoiceFull, markInvoiceSent, reassignLead, rejectInvoice, type Actor } from "../services/crm";
 import { emit, on } from "../services/events";
 import { saveFile } from "../services/files";
 import { invoicePdf } from "../services/invoiceDocs";
@@ -193,6 +193,34 @@ export function registerWorkforce() {
         void assign("crm", { task: "crm.leads", title: "Write to imported leads", note: `New imported leads, not yet contacted: ${JSON.stringify(rows.slice(i, i + 5))}. Call first_contact_lead once for each.` });
       }
     }
+  });
+  // a person tried to add a client somebody already has: on record, no model
+  on("lead.duplicate_attempt", async ({ leadId, byName, ownerName }) => {
+    if (!(await on_("crm", "crm.leads"))) return;
+    const yuki = await actorFor("crm");
+    if (!yuki) return;
+    await addLeadNote(String(leadId), `${String(byName)} tried to add this client. It stays with ${String(ownerName ?? "its owner")}. The Supervisors have been told.`, yuki);
+    await sayInRoom("crm", `${String(byName)} tried to add a client who already belongs to ${String(ownerName ?? "someone else")}. Noted on the lead; the Supervisors know.`);
+  });
+  // someone left: their open leads go to whoever has the fewest, so no buyer waits on a switched-off login
+  on("staff.switched_off", async ({ userId, name }) => {
+    if (!(await on_("crm", "crm.leads"))) return;
+    const yuki = await actorFor("crm");
+    if (!yuki) return;
+    const open = await db().select({ id: s.leads.id, name: s.leads.customerName }).from(s.leads).where(and(eq(s.leads.ownerUserId, String(userId)), sql`${s.leads.status} <> 'closed'`));
+    if (!open.length) return;
+    const agents = await db().execute(sql`select u.id, u.name, (select count(*)::int from leads l where l.owner_user_id = u.id and l.status <> 'closed') as n from users u join roles r on r.id = u.role_id where u.kind = 'staff' and u.is_active and r.slug = 'agent' and u.id <> ${String(userId)} order by 3 asc`);
+    const people = (agents as unknown as { rows: { id: string; name: string; n: number }[] }).rows;
+    const sora = await workerUser("sales");
+    const pool = people.length ? people : sora ? [{ id: sora.id, name: sora.name, n: 0 }] : [];
+    if (!pool.length) return;
+    for (const l of open) {
+      pool.sort((x, y) => x.n - y.n);
+      const to = pool[0]!;
+      await reassignLead(l.id, to.id, yuki, `${String(name)} was switched off`);
+      to.n++;
+    }
+    await sayInRoom("crm", `${String(name)} was switched off, so I moved their ${open.length} open lead(s) to ${[...new Set(pool.filter((p) => p.n > 0).map((p) => p.name))].join(", ")}.`);
   });
   on("contact.message", async ({ messageId }) => {
     if (!workforceOn()) return;

@@ -25,6 +25,7 @@ interface LeadRow {
   ownerKind: string | null;
   source: string;
   createdAt: string;
+  duplicateBy: string | null;
   invoiced: number;
   paid: number;
 }
@@ -35,7 +36,7 @@ export default function Leads() {
   const [newLead, setNewLead] = useState(false);
   const [importing, setImporting] = useState(false);
   const [assigning, setAssigning] = useState(false);
-  const params = { q: sp.get("q") ?? "", status: sp.get("status") ?? "", agent: sp.get("agent") ?? "", country: sp.get("country") ?? "", port: sp.get("port") ?? "", from: sp.get("from") ?? "", to: sp.get("to") ?? "", customers: sp.get("customers") ?? "", page: Number(sp.get("page") ?? 1) };
+  const params = { q: sp.get("q") ?? "", status: sp.get("status") ?? "", agent: sp.get("agent") ?? "", country: sp.get("country") ?? "", port: sp.get("port") ?? "", from: sp.get("from") ?? "", to: sp.get("to") ?? "", customers: sp.get("customers") ?? "", pageSize: sp.get("pageSize") ?? "", page: Number(sp.get("page") ?? 1) };
   const customersTab = params.customers === "1";
   const canAssign = can("crm.leads.upload") && can("crm.leads.view_all");
   const countries = useCountries();
@@ -165,6 +166,7 @@ export default function Leads() {
                   <Link to={`/crm/leads/${l.id}`} className="text-brand-700 hover:underline">
                     {l.customerName}
                   </Link>
+                  {l.duplicateBy && <p className="text-xs font-medium text-rose-700">{l.duplicateBy} tried to add this client</p>}
                 </td>
                 <td className="px-4 py-3">
                   {l.contactPerson}
@@ -193,7 +195,7 @@ export default function Leads() {
               </tr>
             ))}
           </Table>
-          <Pagination page={q.data.page} pageSize={q.data.pageSize} total={q.data.total} onPage={(p) => set("page", String(p))} />
+          <Pagination page={q.data.page} pageSize={q.data.pageSize} total={q.data.total} onPage={(p) => set("page", String(p))} onPageSize={(n) => set("pageSize", String(n))} />
         </>
       )}
     </div>

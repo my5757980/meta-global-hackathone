@@ -39,13 +39,13 @@ const ROLE_PERMS: Record<RoleSlug, PermissionKey[] | "all"> = {
   admin: "all",
   manager: [
     "website.admin", "website.vehicles.manage", "website.content.manage", "website.orders.manage", "website.customers.view", "website.customers.view_all", "website.customers.manage",
-    "crm.access", "crm.leads.view_all", "crm.leads.status", "crm.leads.delete", "crm.leads.edit", "crm.leads.transfer", "crm.invoices.view_all", "crm.invoices.delete", "crm.invoices.download", "crm.payments.record", "crm.units.manage", "crm.progress.update", "crm.reports.view", "crm.backup.download", "crm.users.manage",
+    "crm.access", "crm.leads.view_all", "crm.leads.status", "crm.leads.delete", "crm.leads.edit", "crm.leads.transfer", "crm.leads.reassign", "crm.invoices.view_all", "crm.invoices.delete", "crm.invoices.download", "crm.payments.record", "crm.payments.delete", "crm.units.manage", "crm.progress.update", "crm.reports.view", "crm.backup.download", "crm.users.manage",
     "auction.access", "auction.admin", "auction.lots.import", "auction.lots.view_sold", "auction.bids.view", "auction.bids.view_all", "auction.bids.manage", "auction.bids.export", "auction.clients.view", "auction.orders.manage", "auction.enquiries.reply",
     "chat.desk", "chat.view_all", "chat.groups", "fte.console", "fte.approvals.decide", "fte.evals.run",
   ],
   supervisor: [
     "website.admin", "website.customers.view", "website.customers.view_all", "website.customers.manage",
-    "crm.access", "crm.leads.view_all", "crm.leads.edit", "crm.leads.upload", "crm.invoices.view_all", "crm.invoices.approve", "crm.invoices.download", "crm.payments.record", "crm.units.manage", "crm.progress.update", "crm.reports.view", "crm.users.manage",
+    "crm.access", "crm.leads.view_all", "crm.leads.edit", "crm.leads.upload", "crm.leads.reassign", "crm.invoices.view_all", "crm.invoices.approve", "crm.invoices.download", "crm.payments.record", "crm.payments.delete", "crm.units.manage", "crm.progress.update", "crm.reports.view", "crm.users.manage",
     "auction.access", "auction.admin", "auction.lots.view_sold", "auction.bids.view", "auction.bids.view_all", "auction.bids.manage", "auction.clients.view", "auction.orders.manage", "auction.enquiries.reply",
     "chat.desk", "chat.view_all", "chat.groups", "fte.console", "fte.envelope.manage", "fte.approvals.decide", "fte.evals.run",
   ],

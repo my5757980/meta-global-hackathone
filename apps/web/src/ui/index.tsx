@@ -90,6 +90,7 @@ const STATUS_TONES: Record<string, keyof typeof tones> = {
   sold: "gray",
   confirmed: "blue",
   paid: "green",
+  payment_received: "green",
   shipped: "violet",
   delivered: "green",
   cancelled: "red",
@@ -199,22 +200,47 @@ export function PageHeader({ title, subtitle, actions }: { title: ReactNode; sub
   );
 }
 
-export function Pagination({ page, pageSize, total, onPage }: { page: number; pageSize: number; total: number; onPage: (p: number) => void }) {
+export function Pagination({ page, pageSize, total, onPage, onPageSize, sizes = [25, 50, 100] }: { page: number; pageSize: number; total: number; onPage: (p: number) => void; onPageSize?: (n: number) => void; sizes?: number[] }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  if (pages <= 1) return null;
+  if (pages <= 1 && !onPageSize) return null;
   return (
     <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
-      <span>
-        {(page - 1) * pageSize + 1}–{Math.min(total, page * pageSize)} of {total.toLocaleString("en-US")}
+      <span className="flex flex-wrap items-center gap-3">
+        <span>
+          {total ? (page - 1) * pageSize + 1 : 0}–{Math.min(total, page * pageSize)} of {total.toLocaleString("en-US")}
+        </span>
+        {onPageSize && (
+          <label className="flex items-center gap-1.5">
+            <span>Rows per page</span>
+            <select className="h-8 rounded-lg border border-slate-200 bg-white px-1.5 text-sm" value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))}>
+              {[...new Set([...sizes, pageSize])].sort((a, b) => a - b).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </span>
-      <div className="flex gap-2">
-        <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-          Previous
-        </Button>
-        <Button variant="secondary" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>
-          Next
-        </Button>
-      </div>
+      {pages > 1 && (
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => onPage(1)}>
+            First
+          </Button>
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+            Previous
+          </Button>
+          <span className="self-center text-xs whitespace-nowrap">
+            Page {page} of {pages}
+          </span>
+          <Button variant="secondary" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>
+            Next
+          </Button>
+          <Button variant="secondary" size="sm" disabled={page >= pages} onClick={() => onPage(pages)}>
+            Last
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

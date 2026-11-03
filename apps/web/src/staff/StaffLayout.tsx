@@ -40,6 +40,43 @@ interface Notif {
   createdAt: string;
 }
 
+/** The team is one tap away on every staff page: the list opens here and a name opens that conversation at the desk. */
+function TeamChatButton() {
+  const { can } = useAuth();
+  const nav = useNavigate();
+  const { pathname } = useLocation();
+  const [open, setOpen] = useState(false);
+  const team = useQuery({ queryKey: ["team"], queryFn: () => api.get<{ id: string; name: string; title?: string | null; online?: boolean; kind: string }[]>("/api/chat/team"), enabled: open && can("chat.desk") });
+  if (!can("chat.desk") || pathname.startsWith("/desk")) return null;
+  return (
+    <div className="fixed right-4 bottom-4 z-40 print:hidden">
+      {open && (
+        <div className="scrollbar-thin mb-2 max-h-80 w-64 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+          <p className="px-2 py-1 text-sm font-semibold text-slate-900">Team chat</p>
+          {team.data?.map((p) => (
+            <button
+              key={p.id}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50"
+              onClick={async () => {
+                const c = await api.post<{ id: string }>("/api/chat/dm", { userId: p.id });
+                setOpen(false);
+                nav(`/desk?c=${c.id}`);
+              }}
+            >
+              <span className={`size-2 shrink-0 rounded-full ${p.online ? "bg-emerald-500" : "bg-slate-300"}`} />
+              <span className="min-w-0 flex-1 truncate">{p.name}</span>
+            </button>
+          ))}
+          {team.data && !team.data.length && <p className="px-2 py-1 text-sm text-slate-500">No colleagues yet.</p>}
+        </div>
+      )}
+      <button aria-label="Team chat" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="ml-auto flex size-12 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg hover:bg-brand-700">
+        <MessagesSquare className="size-5" />
+      </button>
+    </div>
+  );
+}
+
 export function StaffLayout() {
   const { me, loading, can, logout } = useAuth();
   const [menu, setMenu] = useState(false);
@@ -194,6 +231,7 @@ export function StaffLayout() {
         </main>
       </div>
       <CallLayer />
+      <TeamChatButton />
       <SecurityModal open={security} onClose={() => setSecurity(false)} />
       <MustChangePassword />
     </div>

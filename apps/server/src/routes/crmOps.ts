@@ -7,21 +7,21 @@
 import { Router } from "express";
 import multer from "multer";
 import archiver from "archiver";
-import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { PROGRESS_STAGES, UNIT_FOLDERS, ROLE_LABELS, type RoleSlug } from "@autofte/shared";
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, conflict, forbidden, h, notFound, parse } from "../lib/http";
 import { can, clearPermCache, requirePerm, type AuthUser } from "../auth/session";
-import { attachFinalPdf, deleteInvoice, editInvoice, getInvoiceFull, requestInvoice, type Actor } from "../services/crm";
+import { attachFinalPdf, deleteInvoice, editInvoice, getInvoiceFull, removeFinalPdf, requestInvoice, type Actor } from "../services/crm";
 import { notify, usersWithPerm } from "../services/notify";
 import { audit } from "../services/audit";
 import { emit } from "../services/events";
 import { getFile, saveFile } from "../services/files";
 import { invoicePdf, invoiceXlsx, letterheadOf } from "../services/invoiceDocs";
 import { hashPassword, oneTimePassword, randomPassword } from "../auth/passwords";
-import { reportData, reportDocx, reportXlsx, backupXlsx } from "../services/reports";
+import { reportCsv, reportData, reportDetail, reportDocx, reportXlsx, backupXlsx } from "../services/reports";
 import { cellText } from "../lib/excel";
 
 export const crmOps = Router();
@@ -238,6 +238,11 @@ crmOps.post(
 );
 
 export function computeProfit(f: typeof s.unitFinancials.$inferSelect) {
+  if (f.currency === "USD") {
+    const usd = f.costUsd != null ? Number(f.costUsd) : null;
+    const selling = f.sellingPriceUsd != null ? Number(f.sellingPriceUsd) : null;
+    return { costJpy: 0, costUsd: usd, sellingUsd: selling, profitUsd: usd != null && selling != null ? Math.round((selling - usd) * 100) / 100 : null, note: null };
+  }
   const keys = ["buyingJpy", "domesticJpy", "storageJpy", "inspectJpy", "repairsJpy", "miscJpy", "agencyFeeJpy", "freightJpy", "dhlJpy", "auctionFeeJpy", "partsJpy", "vanningJpy", "docJpy"] as const;
   const costJpy = keys.reduce((a, k) => a + (Number(f[k]) || 0), 0);
   if (!f.fxRate || Number(f.fxRate) <= 0) return { costJpy, costUsd: null, sellingUsd: f.sellingPriceUsd != null ? Number(f.sellingPriceUsd) : null, profitUsd: null, note: "Needs the exchange rate" };
@@ -252,7 +257,7 @@ crmOps.put(
     const u = requirePerm(req, "crm.units.manage");
     const yen = z.coerce.number().int().min(0).default(0);
     const b = parse(
-      z.object({ lotNo: z.string().max(20).optional().nullable(), auctionName: z.string().max(80).optional().nullable(), buyingJpy: yen, domesticJpy: yen, storageJpy: yen, inspectJpy: yen, repairsJpy: yen, miscJpy: yen, agencyFeeJpy: yen, freightJpy: yen, dhlJpy: yen, auctionFeeJpy: yen, partsJpy: yen, vanningJpy: yen, docJpy: yen, fxRate: z.coerce.number().positive().optional().nullable(), sellingPriceUsd: z.coerce.number().min(0).optional().nullable() }),
+      z.object({ currency: z.enum(["JPY", "USD"]).default("JPY"), costUsd: z.coerce.number().min(0).optional().nullable(), lotNo: z.string().max(20).optional().nullable(), auctionName: z.string().max(80).optional().nullable(), buyingJpy: yen, domesticJpy: yen, storageJpy: yen, inspectJpy: yen, repairsJpy: yen, miscJpy: yen, agencyFeeJpy: yen, freightJpy: yen, dhlJpy: yen, auctionFeeJpy: yen, partsJpy: yen, vanningJpy: yen, docJpy: yen, fxRate: z.coerce.number().positive().optional().nullable(), sellingPriceUsd: z.coerce.number().min(0).optional().nullable() }),
       req.body,
     );
     const [un] = await db().select().from(s.units).where(eq(s.units.id, String(req.params.id))).limit(1);
@@ -430,6 +435,29 @@ crmOps.get(
     return reportData(q.from, q.to);
   }),
 );
+const DAY = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+crmOps.get(
+  "/reports/detail",
+  h(async (req) => {
+    requirePerm(req, "crm.reports.view");
+    const q = parse(z.object({ userId: z.string().min(8), from: DAY, to: DAY }), req.query);
+    return reportDetail(q.userId, q.from, q.to);
+  }),
+);
+
+crmOps.get(
+  "/reports.csv",
+  h(async (req, res) => {
+    requirePerm(req, "crm.reports.view");
+    const q = parse(z.object({ from: DAY, to: DAY, userId: z.string().min(8).optional() }), req.query);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="report-${q.from}-to-${q.to}${q.userId ? "-agent" : ""}.csv"`);
+    res.send(await reportCsv(q.from, q.to, q.userId));
+    return undefined;
+  }),
+);
+
 crmOps.get(
   "/reports.xlsx",
   h(async (req, res) => {
@@ -516,7 +544,10 @@ crmOps.put(
     if (b.isActive !== undefined) patch.isActive = b.isActive;
     if (b.title !== undefined) patch.title = b.title;
     await db().update(s.users).set(patch).where(eq(s.users.id, target.id));
-    if (b.isActive === false) await db().delete(s.sessions).where(eq(s.sessions.userId, target.id)); // switched off = signed out everywhere
+    if (b.isActive === false) {
+      await db().delete(s.sessions).where(eq(s.sessions.userId, target.id)); // switched off = signed out everywhere
+      await emit("staff.switched_off", { userId: target.id, name: target.name }); // the CRM desk moves their open leads
+    }
     clearPermCache();
     await audit(db(), { actorUserId: u.id, actorKind: "human", action: "user.updated", entity: "user", entityId: target.id, summary: `${u.name} updated ${target.name}${b.roleSlug ? ` → ${b.roleSlug}` : ""}${b.isActive === false ? " (switched off)" : b.isActive ? " (switched on)" : ""}` });
     return { ok: true };
@@ -542,13 +573,145 @@ crmOps.get(
   "/units",
   h(async (req) => {
     requirePerm(req, "crm.access");
+    const term = String(req.query.q ?? "").trim();
+    const like = `%${term}%`;
     const rows = await db()
-      .select({ unit: s.units, invoice: s.invoices.number, invoiceId: s.invoices.id, consignee: s.invoices.consigneeName, docs: sql<number>`(select count(*)::int from unit_documents d where d.unit_id = ${s.units.id})`, stage: sql<string>`(select stage from vehicle_progress p where p.invoice_vehicle_id = ${s.units.invoiceVehicleId} order by created_at desc limit 1)` })
+      .select({ addedBy: s.users.name, addedByKind: s.users.kind, fin: s.unitFinancials, cover: sql<string | null>`coalesce("units"."cover_file_id", (select d.file_id from unit_documents d join files f on f.id = d.file_id where d.unit_id = "units"."id" and f.mime like 'image/%' order by d.created_at limit 1))`, unit: s.units, invoice: s.invoices.number, invoiceId: s.invoices.id, consignee: s.invoices.consigneeName, docs: sql<number>`(select count(*)::int from unit_documents d where d.unit_id = ${s.units.id})`, stage: sql<string>`(select stage from vehicle_progress p where p.invoice_vehicle_id = ${s.units.invoiceVehicleId} order by created_at desc limit 1)` })
       .from(s.units)
       .innerJoin(s.invoices, eq(s.invoices.id, s.units.invoiceId))
+      .leftJoin(s.users, eq(s.users.id, s.units.createdBy))
+      .leftJoin(s.unitFinancials, eq(s.unitFinancials.unitId, s.units.id))
+      .where(term ? or(ilike(s.units.make, like), ilike(s.units.model, like), ilike(s.units.chassis, like), ilike(s.units.color, like), sql`"units"."year"::text ilike ${like}`) : undefined)
       .orderBy(desc(s.units.createdAt))
       .limit(200);
-    return rows.map((r) => ({ ...r.unit, invoice: r.invoice, invoiceId: r.invoiceId, consignee: r.consignee, docs: r.docs, stage: r.stage }));
+    return rows.map((r) => ({ ...r.unit, invoice: r.invoice, invoiceId: r.invoiceId, consignee: r.consignee, docs: r.docs, stage: r.stage, cover: r.cover, addedBy: r.addedBy, addedByKind: r.addedByKind, profitUsd: r.fin ? computeProfit(r.fin).profitUsd : null }));
+  }),
+);
+
+async function unitVisible(u: AuthUser, id: string) {
+  const [un] = await db().select().from(s.units).where(eq(s.units.id, id)).limit(1);
+  if (!un) throw notFound("Unit not found");
+  await invoiceVisible(u, un.invoiceId); // the same rule as its invoice
+  return un;
+}
+
+crmOps.get(
+  "/units/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.access");
+    const un = await unitVisible(u, String(req.params.id));
+    const full = (await getInvoiceFull(un.invoiceId))!;
+    const documents = await db().select({ id: s.unitDocuments.id, folder: s.unitDocuments.folder, fileId: s.files.id, name: s.files.originalName, mime: s.files.mime, size: s.files.size, createdAt: s.unitDocuments.createdAt }).from(s.unitDocuments).innerJoin(s.files, eq(s.files.id, s.unitDocuments.fileId)).where(eq(s.unitDocuments.unitId, un.id)).orderBy(asc(s.unitDocuments.createdAt));
+    const [fin] = await db().select().from(s.unitFinancials).where(eq(s.unitFinancials.unitId, un.id)).limit(1);
+    const [added] = un.createdBy ? await db().select({ name: s.users.name, kind: s.users.kind }).from(s.users).where(eq(s.users.id, un.createdBy)).limit(1) : [];
+    const recorders = await db().select({ id: s.users.id, name: s.users.name }).from(s.users).where(inArray(s.users.id, full.payments.map((p) => p.recordedBy).filter(Boolean).concat(["-"]) as string[]));
+    const cover = un.coverFileId ?? documents.find((d) => d.mime.startsWith("image/"))?.fileId ?? null;
+    const progress = un.invoiceVehicleId ? await db().select().from(s.vehicleProgress).where(eq(s.vehicleProgress.invoiceVehicleId, un.invoiceVehicleId)).orderBy(asc(s.vehicleProgress.createdAt)) : [];
+    return {
+      unit: un,
+      addedBy: added ?? null,
+      invoice: { id: full.invoice.id, number: full.invoice.number, status: full.invoice.status, consignee: full.invoice.consigneeName },
+      totals: full.totals,
+      payments: full.payments.map((p) => ({ ...p, recordedByName: recorders.find((x) => x.id === p.recordedBy)?.name ?? null })),
+      documents,
+      cover,
+      financials: fin ?? null,
+      profit: fin ? computeProfit(fin) : null,
+      progress,
+      folders: UNIT_FOLDERS,
+      canManage: can(u, "crm.units.manage"),
+    };
+  }),
+);
+
+crmOps.patch(
+  "/units/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.units.manage");
+    const un = await unitVisible(u, String(req.params.id));
+    const b = parse(unitSchema.omit({ invoiceVehicleId: true }).partial(), req.body);
+    await db().update(s.units).set(b).where(eq(s.units.id, un.id));
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "unit.edited", entity: "unit", entityId: un.id, summary: `${u.name} edited unit ${un.make} ${un.model}` });
+    return { ok: true };
+  }),
+);
+
+crmOps.put(
+  "/units/:id/cover",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.units.manage");
+    const un = await unitVisible(u, String(req.params.id));
+    const { fileId } = parse(z.object({ fileId: z.string().min(8) }), req.body);
+    const [d] = await db().select({ mime: s.files.mime }).from(s.unitDocuments).innerJoin(s.files, eq(s.files.id, s.unitDocuments.fileId)).where(and(eq(s.unitDocuments.unitId, un.id), eq(s.unitDocuments.fileId, fileId))).limit(1);
+    if (!d || !d.mime.startsWith("image/")) throw bad("The cover must be one of this unit's pictures");
+    await db().update(s.units).set({ coverFileId: fileId }).where(eq(s.units.id, un.id));
+    return { ok: true };
+  }),
+);
+
+crmOps.delete(
+  "/units/:id/documents/:docId",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.units.manage");
+    const un = await unitVisible(u, String(req.params.id));
+    const [d] = await db().select({ id: s.unitDocuments.id, fileId: s.unitDocuments.fileId, folder: s.unitDocuments.folder, name: s.files.originalName }).from(s.unitDocuments).innerJoin(s.files, eq(s.files.id, s.unitDocuments.fileId)).where(and(eq(s.unitDocuments.id, String(req.params.docId)), eq(s.unitDocuments.unitId, un.id))).limit(1);
+    if (!d) throw notFound("That file is not on this unit");
+    await db().transaction(async (tx) => {
+      await tx.delete(s.unitDocuments).where(eq(s.unitDocuments.id, d.id));
+      if (un.coverFileId === d.fileId) await tx.update(s.units).set({ coverFileId: null }).where(eq(s.units.id, un.id));
+      await audit(tx, { actorUserId: u.id, actorKind: "human", action: "unit.document_removed", entity: "unit", entityId: un.id, summary: `${u.name} removed "${d.name ?? "a file"}" from "${d.folder}" on ${un.make} ${un.model}` });
+    });
+    return { ok: true };
+  }),
+);
+
+crmOps.get(
+  "/units/:id/documents.zip",
+  h(async (req, res) => {
+    const u = requirePerm(req, "crm.access");
+    const un = await unitVisible(u, String(req.params.id));
+    const docs = await db().select({ folder: s.unitDocuments.folder, fileId: s.unitDocuments.fileId }).from(s.unitDocuments).where(eq(s.unitDocuments.unitId, un.id));
+    const safe = (x: string) => x.replace(/[\\/:*?"<>|]/g, "_");
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${safe(un.chassis ?? un.id)}-documents.zip"`);
+    const zip = archiver("zip", { zlib: { level: 6 } });
+    zip.pipe(res);
+    const used = new Set<string>();
+    for (const d of docs) {
+      const f = await getFile(d.fileId);
+      if (!f) continue;
+      let name = `${d.folder.replace(/\//g, "-")}/${safe(f.originalName ?? f.id)}`;
+      let n = 2;
+      while (used.has(name)) name = name.replace(/(\.[^.]+)?$/, (m) => ` (${n++})${m}`);
+      used.add(name);
+      zip.file(f.abs, { name });
+    }
+    await zip.finalize();
+    return undefined;
+  }),
+);
+
+crmOps.delete(
+  "/invoices/:id/final-pdf",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.invoices.approve");
+    await invoiceVisible(u, String(req.params.id));
+    return removeFinalPdf(String(req.params.id), actor(u));
+  }),
+);
+
+crmOps.delete(
+  "/payments/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.payments.delete");
+    const [p] = await db().select().from(s.payments).where(eq(s.payments.id, String(req.params.id))).limit(1);
+    if (!p) throw notFound("Payment not found");
+    const [inv] = await db().select({ number: s.invoices.number }).from(s.invoices).where(eq(s.invoices.id, p.invoiceId)).limit(1);
+    await db().transaction(async (tx) => {
+      await tx.delete(s.payments).where(eq(s.payments.id, p.id));
+      await audit(tx, { actorUserId: u.id, actorKind: "human", action: "payment.deleted", entity: "invoice", entityId: p.invoiceId, summary: `${u.name} deleted a payment of $${Number(p.amountUsd).toLocaleString("en-US")} (${p.receivedDate}) on ${inv?.number ?? "an invoice"}` });
+    });
+    return { ok: true };
   }),
 );
 

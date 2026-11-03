@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Calculator, Download, FileText, Image as ImageIcon, Plus, Ship, Upload, Wallet } from "lucide-react";
 import { api } from "../lib/api";
@@ -111,11 +112,28 @@ export function InvoiceOps({ invoiceId, status, vehicles, balance, finalPdfFileI
           </div>
         </div>
         {finalPdfFileId && (
-          <p className="mt-3 text-sm text-emerald-800">
-            The final PDF is ready.{" "}
+          <p className="mt-3 flex flex-wrap items-center gap-3 text-sm text-emerald-800">
+            <span>The final PDF is ready.</span>
             <a href={`/api/crm/files/${finalPdfFileId}`} target="_blank" rel="noreferrer" className="font-semibold underline">
-              Open it
+              Open PDF
             </a>
+            {canApprove && status === "approved" && (
+              <button
+                className="font-semibold text-rose-700 underline"
+                onClick={async () => {
+                  if (!window.confirm("Remove the final PDF? Mark as sent will wait for a new one.")) return;
+                  setFinalErr(null);
+                  try {
+                    await api.del(`/api/crm/invoices/${invoiceId}/final-pdf`);
+                    refresh();
+                  } catch (ex) {
+                    setFinalErr((ex as Error).message);
+                  }
+                }}
+              >
+                Remove
+              </button>
+            )}
           </p>
         )}
         {canApprove && status === "approved" && (
@@ -162,6 +180,11 @@ export function InvoiceOps({ invoiceId, status, vehicles, balance, finalPdfFileI
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {u && (
+                    <Link to={`/crm/units/${u.unit.id}`} className="inline-flex h-8 items-center rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
+                      Open unit
+                    </Link>
+                  )}
                   {d?.canProgress && (
                     <Button size="sm" variant="secondary" onClick={() => setProgressFor(v)}>
                       <Ship className="size-4" /> Update progress
@@ -449,11 +472,12 @@ function ProgressModal({ v, stages, onClose, onDone }: { v: Vehicle; stages: str
 
 function CostModal({ u, onClose, onDone }: { u: UnitsData["units"][number]; onClose: () => void; onDone: () => void }) {
   const f0 = u.financials ?? {};
-  const [f, setF] = useState<Record<string, string>>(Object.fromEntries([...COST_FIELDS.map(([k]) => [k, String(f0[k] ?? 0)]), ["fxRate", f0.fxRate != null ? String(f0.fxRate) : ""], ["sellingPriceUsd", f0.sellingPriceUsd != null ? String(f0.sellingPriceUsd) : ""], ["lotNo", String(f0.lotNo ?? "")], ["auctionName", String(f0.auctionName ?? "")]]));
+  const [f, setF] = useState<Record<string, string>>(Object.fromEntries([...COST_FIELDS.map(([k]) => [k, String(f0[k] ?? 0)]), ["currency", String(f0.currency ?? "JPY")], ["costUsd", f0.costUsd != null ? String(f0.costUsd) : ""], ["fxRate", f0.fxRate != null ? String(f0.fxRate) : ""], ["sellingPriceUsd", f0.sellingPriceUsd != null ? String(f0.sellingPriceUsd) : ""], ["lotNo", String(f0.lotNo ?? "")], ["auctionName", String(f0.auctionName ?? "")]]));
   const [err, setErr] = useState<string | null>(null);
   const costJpy = COST_FIELDS.reduce((a, [k]) => a + (Number(f[k]) || 0), 0);
   const fx = Number(f.fxRate);
-  const costUsd = fx > 0 ? costJpy / fx : null;
+  const inUsd = f.currency === "USD";
+  const costUsd = inUsd ? (f.costUsd ? Number(f.costUsd) : null) : fx > 0 ? costJpy / fx : null;
   const profit = costUsd != null && f.sellingPriceUsd ? Number(f.sellingPriceUsd) - costUsd : null;
   return (
     <Modal
@@ -470,7 +494,7 @@ function CostModal({ u, onClose, onDone }: { u: UnitsData["units"][number]; onCl
             onClick={async () => {
               setErr(null);
               try {
-                await api.put(`/api/crm/units/${u.unit.id}/financials`, { ...Object.fromEntries(COST_FIELDS.map(([k]) => [k, Number(f[k]) || 0])), fxRate: f.fxRate ? Number(f.fxRate) : null, sellingPriceUsd: f.sellingPriceUsd ? Number(f.sellingPriceUsd) : null, lotNo: f.lotNo || null, auctionName: f.auctionName || null });
+                await api.put(`/api/crm/units/${u.unit.id}/financials`, { ...Object.fromEntries(COST_FIELDS.map(([k]) => [k, Number(f[k]) || 0])), currency: f.currency, costUsd: f.costUsd ? Number(f.costUsd) : null, fxRate: f.fxRate ? Number(f.fxRate) : null, sellingPriceUsd: f.sellingPriceUsd ? Number(f.sellingPriceUsd) : null, lotNo: f.lotNo || null, auctionName: f.auctionName || null });
                 onDone();
                 onClose();
               } catch (ex) {
@@ -483,6 +507,14 @@ function CostModal({ u, onClose, onDone }: { u: UnitsData["units"][number]; onCl
         </>
       }
     >
+      <div className="mb-3 w-56">
+        <Field label="Cost in">
+          <Select value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })}>
+            <option value="JPY">Yen, line by line</option>
+            <option value="USD">One figure in USD</option>
+          </Select>
+        </Field>
+      </div>
       <div className="grid gap-3 sm:grid-cols-4">
         <Field label="Lot no.">
           <Input value={f.lotNo} onChange={(e) => setF({ ...f, lotNo: e.target.value })} />
@@ -490,14 +522,22 @@ function CostModal({ u, onClose, onDone }: { u: UnitsData["units"][number]; onCl
         <Field label="Auction" className="sm:col-span-3">
           <Input value={f.auctionName} onChange={(e) => setF({ ...f, auctionName: e.target.value })} />
         </Field>
-        {COST_FIELDS.map(([k, label]) => (
-          <Field key={k} label={`${label} (¥)`}>
-            <Input type="number" min={0} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
+        {inUsd ? (
+          <Field label="Cost (USD)">
+            <Input type="number" min={0} step={0.01} value={f.costUsd} onChange={(e) => setF({ ...f, costUsd: e.target.value })} />
           </Field>
-        ))}
-        <Field label="Exchange rate (JPY/USD)" hint="Blank = profit not calculated">
-          <Input type="number" step={0.01} value={f.fxRate} onChange={(e) => setF({ ...f, fxRate: e.target.value })} />
-        </Field>
+        ) : (
+          <>
+            {COST_FIELDS.map(([k, label]) => (
+              <Field key={k} label={`${label} (¥)`}>
+                <Input type="number" min={0} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
+              </Field>
+            ))}
+            <Field label="Exchange rate (JPY/USD)" hint="Blank = profit not calculated">
+              <Input type="number" step={0.01} value={f.fxRate} onChange={(e) => setF({ ...f, fxRate: e.target.value })} />
+            </Field>
+          </>
+        )}
         <Field label="Selling price (USD)">
           <Input type="number" step={0.01} value={f.sellingPriceUsd} onChange={(e) => setF({ ...f, sellingPriceUsd: e.target.value })} />
         </Field>

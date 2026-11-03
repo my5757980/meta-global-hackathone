@@ -36,15 +36,40 @@ async function invoiceForCustomer(invId: string) {
   const total = Number(inv.totalCnfUsd);
   const paid = Math.round(payments.reduce((a, p) => a + Number(p.amountUsd), 0) * 100) / 100;
   const vs = [];
+  // a payment covers the cars in invoice order, so each car can say what is still owed on it
+  let unallocated = paid;
   for (const v of vehicles) {
     const progress = await db().select({ stage: s.vehicleProgress.stage, date: s.vehicleProgress.stageDate, note: s.vehicleProgress.note }).from(s.vehicleProgress).where(eq(s.vehicleProgress.invoiceVehicleId, v.id)).orderBy(s.vehicleProgress.createdAt);
     const [unit] = await db().select({ id: s.units.id }).from(s.units).where(eq(s.units.invoiceVehicleId, v.id)).limit(1);
     const docs = unit
-      ? await db().select({ id: s.unitDocuments.id, folder: s.unitDocuments.folder, fileId: s.unitDocuments.fileId, name: s.files.originalName, mime: s.files.mime, size: s.files.size }).from(s.unitDocuments).innerJoin(s.files, eq(s.files.id, s.unitDocuments.fileId)).where(eq(s.unitDocuments.unitId, unit.id)).orderBy(s.unitDocuments.folder)
+      ? await db().select({ id: s.unitDocuments.id, folder: s.unitDocuments.folder, fileId: s.unitDocuments.fileId, name: s.files.originalName, mime: s.files.mime, size: s.files.size, createdAt: s.unitDocuments.createdAt }).from(s.unitDocuments).innerJoin(s.files, eq(s.files.id, s.unitDocuments.fileId)).where(eq(s.unitDocuments.unitId, unit.id)).orderBy(s.unitDocuments.folder)
       : [];
-    vs.push({ id: v.id, label: `${v.year ?? ""} ${v.unitLabel}`.trim(), color: v.color, chassisNo: v.chassisNo, transmission: v.transmission, fuel: v.fuel, cnfUsd: Number(v.cnfUsd), progress, documents: docs });
+    const cnf = Number(v.cnfUsd);
+    const paidHere = Math.round(Math.min(cnf, Math.max(0, unallocated)) * 100) / 100;
+    unallocated -= paidHere;
+    vs.push({ paidUsd: paidHere, remainingUsd: Math.round((cnf - paidHere) * 100) / 100, id: v.id, label: `${v.year ?? ""} ${v.unitLabel}`.trim(), color: v.color, chassisNo: v.chassisNo, transmission: v.transmission, fuel: v.fuel, cnfUsd: Number(v.cnfUsd), progress, documents: docs });
   }
+  // the running story the buyer reads on the invoice: each payment with its balance, each new file, each stage
+  let running = 0;
+  const paymentRows = payments.map((p) => {
+    running += Number(p.amountUsd);
+    return { date: p.receivedDate, amountUsd: Number(p.amountUsd), balanceAfter: Math.round((total - running) * 100) / 100, at: p.createdAt };
+  });
+  const timeline: { at: string; kind: string; text: string }[] = [];
+  if (inv.approvedAt) timeline.push({ at: new Date(inv.approvedAt).toISOString(), kind: "invoice", text: `Invoice ${inv.number} approved.` });
+  if (inv.sentAt) timeline.push({ at: new Date(inv.sentAt).toISOString(), kind: "invoice", text: `Invoice ${inv.number} sent to you.` });
+  for (const r of paymentRows) timeline.push({ at: new Date(r.at).toISOString(), kind: "payment", text: `Payment received on ${r.date}: $${r.amountUsd.toLocaleString("en-US", { minimumFractionDigits: 2 })}. Balance remaining: $${r.balanceAfter.toLocaleString("en-US", { minimumFractionDigits: 2 })}.` });
+  for (const v of vs) {
+    for (const d of v.documents) timeline.push({ at: new Date(d.createdAt).toISOString(), kind: "document", text: `New document added, ${d.folder}: ${d.name ?? "file"}` });
+    for (const g of v.progress) timeline.push({ at: new Date(`${g.date}T12:00:00Z`).toISOString(), kind: "stage", text: `${v.label}: ${g.stage}${g.note ? `. ${g.note}` : ""}` });
+  }
+  timeline.sort((x, y) => y.at.localeCompare(x.at));
+  const firstPicture = vs.flatMap((v) => v.documents).find((d) => d.mime.startsWith("image/"));
   return {
+    orderState: total > 0 && total - paid <= 0.01 ? "Completed" : paid > 0 ? "Processing" : "On hold",
+    salesperson: inv.salesperson ?? null,
+    thumbnail: firstPicture ? `/api/account/files/${firstPicture.fileId}` : null,
+    timeline,
     id: inv.id,
     number: inv.number,
     status: inv.status === "pending" ? "awaiting_approval" : inv.status,
@@ -54,7 +79,7 @@ async function invoiceForCustomer(invId: string) {
     port: port?.name ?? null,
     advancePercent: inv.advancePercent,
     totals: { total, advance: Math.round(((total * inv.advancePercent) / 100) * 100) / 100, paid, balance: Math.round((total - paid) * 100) / 100 },
-    payments: payments.map((p) => ({ date: p.receivedDate, amountUsd: Number(p.amountUsd) })),
+    payments: paymentRows.map(({ date, amountUsd, balanceAfter }) => ({ date, amountUsd, balanceAfter })),
     vehicles: vs,
     demoSlips: env.DEMO_MODE, // the demo has no bank, so it can print a slip to send
   };

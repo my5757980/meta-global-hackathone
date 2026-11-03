@@ -100,7 +100,7 @@ export const WORKERS: WorkerDef[] = [
     doesNotOwn: ["Quoting prices", "Invoices"],
     checkedBy: "Duplicate leads are refused by the server. Answers carry no price.",
     stopsWhen: "A message is a complaint or a legal matter.",
-    tools: ["get_contact_message", "reply_contact_message", "find_or_create_lead", "add_lead_note", "first_contact_lead", "escalate_to_chief"],
+    tools: ["get_contact_message", "reply_contact_message", "find_or_create_lead", "add_lead_note", "first_contact_lead", "reassign_lead", "escalate_to_chief"],
     tasks: [
       { key: "crm.leads", label: "Imported leads", level: 4, levels: PLAIN },
       { key: "crm.contact", label: "Contact messages", level: 4, levels: PLAIN },

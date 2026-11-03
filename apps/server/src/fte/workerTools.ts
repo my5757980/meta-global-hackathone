@@ -8,7 +8,7 @@ import { PROGRESS_STAGES, UNIT_FOLDERS } from "@autofte/shared";
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { audit } from "../services/audit";
-import { addLeadNote, approveInvoice, correctConsignee, editInvoice, findOrCreateLead, getInvoiceFull, rejectInvoice, requestInvoice, type Actor } from "../services/crm";
+import { addLeadNote, approveInvoice, correctConsignee, editInvoice, findOrCreateLead, getInvoiceFull, reassignLead, rejectInvoice, requestInvoice, type Actor } from "../services/crm";
 import { emit, eventsMuted } from "../services/events";
 import { getFile, saveFile } from "../services/files";
 import { invoicePdf } from "../services/invoiceDocs";
@@ -363,6 +363,18 @@ const AUCTION_TOOLS: ToolDef[] = [
 
 // ---------- Yuki: the CRM desk ----------
 const CRM_TOOLS: ToolDef[] = [
+  {
+    name: "reassign_lead",
+    description: "Move one lead to another member of staff or Digital FTE when its owner has left or the Chief of Staff asked for it. Its invoices and units follow. Say why.",
+    input: { lead_id: idArg, to_name: z.string().min(2).max(80), reason: z.string().min(5).max(300) },
+    async run(a, ctx) {
+      const [to] = await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind }).from(s.users).where(and(sql`lower(${s.users.name}) = lower(${String(a.to_name)})`, eq(s.users.isActive, true), inArray(s.users.kind, ["staff", "fte"]))).limit(1);
+      if (!to) throw new ToolError("No active member of staff by that name");
+      const r = await reassignLead(String(a.lead_id), to.id, actorOf(ctx), String(a.reason));
+      if (r.moved && to.kind === "staff") await notify([to.id], { type: "lead", title: "A lead is now yours", body: `${r.customerName}: ${String(a.reason)}`, link: `/crm/leads/${String(a.lead_id)}` });
+      return { moved: r.moved, to: to.name };
+    },
+  },
   {
     name: "first_contact_lead",
     description: "Write the first message to a new imported lead. It goes by e-mail if the lead has an address and the company has a mail server; otherwise it stays on the lead for a person. Never state a price.",

@@ -323,6 +323,38 @@ export async function deleteInvoice(id: string, actor: Actor) {
 }
 
 /** The copy the buyer receives. It goes on an approved invoice, and Mark as sent waits for it. */
+/** One lead moves to another agent; what that agent's predecessor raised on it follows. */
+export async function reassignLead(leadId: string, toUserId: string, actor: Actor, reason?: string | null) {
+  const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, leadId)).limit(1);
+  if (!lead) throw notFound("Lead not found");
+  const [to] = await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind, isActive: s.users.isActive }).from(s.users).where(eq(s.users.id, toUserId)).limit(1);
+  if (!to || !to.isActive || (to.kind !== "staff" && to.kind !== "fte")) throw bad("The new owner must be an active member of staff");
+  if (lead.ownerUserId === to.id) return { moved: false, to: to.name };
+  const from = lead.ownerUserId;
+  await db().transaction(async (tx) => {
+    await tx.update(s.leads).set({ ownerUserId: to.id, updatedAt: new Date() }).where(eq(s.leads.id, lead.id));
+    if (from) {
+      await tx.update(s.invoices).set({ requestedBy: to.id }).where(and(eq(s.invoices.leadId, lead.id), eq(s.invoices.requestedBy, from)));
+      await tx.update(s.units).set({ createdBy: to.id }).where(and(eq(s.units.createdBy, from), sql`${s.units.invoiceId} in (select id from invoices where lead_id = ${lead.id})`));
+    }
+    await audit(tx, { actorUserId: actor.userId, actorKind: actor.kind, action: "lead.reassigned", entity: "lead", entityId: lead.id, summary: `${actor.name} reassigned ${lead.customerName} to ${to.name}${reason ? `: ${reason}` : ""}` });
+  });
+  return { moved: true, to: to.name, toKind: to.kind, toId: to.id, customerName: lead.customerName };
+}
+
+/** The final PDF comes off again before the invoice goes out; once sent, the buyer already holds it. */
+export async function removeFinalPdf(id: string, actor: Actor) {
+  return db().transaction(async (tx) => {
+    const [inv] = await tx.select().from(s.invoices).where(eq(s.invoices.id, id)).limit(1);
+    if (!inv) throw notFound("Invoice not found");
+    if (inv.status !== "approved") throw conflict("The final PDF can only be removed before the invoice is sent");
+    if (!inv.finalPdfFileId) throw conflict("This invoice has no final PDF");
+    await tx.update(s.invoices).set({ finalPdfFileId: null }).where(eq(s.invoices.id, id));
+    await audit(tx, { actorUserId: actor.userId, actorKind: actor.kind, action: "invoice.final_pdf_removed", entity: "invoice", entityId: id, summary: `${actor.name} removed the final PDF of invoice ${inv.number}` });
+    return { ok: true };
+  });
+}
+
 export async function attachFinalPdf(id: string, fileId: string, how: "Uploaded" | "Generated", actor: Actor) {
   return db().transaction(async (tx) => {
     const [inv] = await tx.select().from(s.invoices).where(eq(s.invoices.id, id)).limit(1);

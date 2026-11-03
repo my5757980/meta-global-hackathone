@@ -18,8 +18,12 @@ export interface CustomerInvoice {
   port: string | null;
   advancePercent: number;
   totals: { total: number; advance: number; paid: number; balance: number };
-  payments: { date: string; amountUsd: number }[];
-  vehicles: { id: string; label: string; color: string; chassisNo: string; transmission: string | null; fuel: string | null; cnfUsd: number; progress: { stage: string; date: string; note: string | null }[]; documents: { id: string; folder: string; fileId: string; name: string; mime: string; size: number }[] }[];
+  payments: { date: string; amountUsd: number; balanceAfter: number }[];
+  orderState: string;
+  salesperson: string | null;
+  thumbnail: string | null;
+  timeline: { at: string; kind: string; text: string }[];
+  vehicles: { paidUsd: number; remainingUsd: number; id: string; label: string; color: string; chassisNo: string; transmission: string | null; fuel: string | null; cnfUsd: number; progress: { stage: string; date: string; note: string | null }[]; documents: { id: string; folder: string; fileId: string; name: string; mime: string; size: number }[] }[];
 }
 
 export const STATUS: Record<string, { label: string; tone: "amber" | "green" | "blue" | "gray" }> = {
@@ -27,6 +31,8 @@ export const STATUS: Record<string, { label: string; tone: "amber" | "green" | "
   approved: { label: "Approved — pay advance", tone: "green" },
   sent: { label: "Confirmed", tone: "blue" },
 };
+
+export const ORDER_TONE: Record<string, "amber" | "green" | "blue" | "gray"> = { "On hold": "amber", Processing: "blue", Completed: "green" };
 
 export default function AccountInvoices() {
   const { me, loading } = useAuth();
@@ -46,7 +52,8 @@ export default function AccountInvoices() {
               <Link key={inv.id} to={`/account/invoices/${inv.id}`} className="block">
                 <Card className="transition hover:shadow-md">
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    {inv.thumbnail && <img src={inv.thumbnail} alt="" loading="lazy" className="h-16 w-24 shrink-0 rounded-lg object-cover ring-1 ring-slate-200" />}
+                    <div className="min-w-0 flex-1">
                       <p className="flex items-center gap-2 font-bold text-slate-900">
                         <FileText className="size-4 text-brand-600" /> Invoice {inv.number}
                       </p>
@@ -55,7 +62,10 @@ export default function AccountInvoices() {
                       </p>
                       <p className="mt-1 text-xs text-slate-500">Issued {date(inv.approvedAt ?? inv.createdAt)}</p>
                     </div>
-                    <Badge tone={STATUS[inv.status]?.tone ?? "gray"}>{STATUS[inv.status]?.label ?? inv.status}</Badge>
+                    <span className="flex flex-wrap gap-1.5">
+                      {inv.status !== "awaiting_approval" && <Badge tone={ORDER_TONE[inv.orderState] ?? "gray"}>{inv.orderState}</Badge>}
+                      <Badge tone={STATUS[inv.status]?.tone ?? "gray"}>{STATUS[inv.status]?.label ?? inv.status}</Badge>
+                    </span>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                     <div>

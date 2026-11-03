@@ -66,6 +66,7 @@ export const vehicles = pgTable(
     location: text().notNull().default("Yokohama"),
     originCountry: text().notNull().default("Japan"),
     features: text().array().notNull().default([]),
+    specRows: jsonb().notNull().default([]), // free rows: [{name:"Sunroof type", value:"Panorama"}]
     tags: text().array().notNull().default([]),
     homeSections: text().array().notNull().default([]),
     featured: boolean().notNull().default(false),
@@ -230,6 +231,12 @@ export const webOrders = pgTable("web_orders", {
   paidAt: timestamp({ withTimezone: true }),
   invoiceId: text(), // the invoice this order became
   totalUsd: usd().notNull(),
+  countryCode: text(),
+  city: text(),
+  port: text(),
+  payPercent: integer(), // the share of the total paid now
+  payNowUsd: usd(),
+  paidUsd: usd(),
   notes: text(),
   createdAt: createdAt(),
 });

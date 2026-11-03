@@ -220,7 +220,7 @@ export async function seedAuction(db: DB, rng: Rng, now: Date, userIds: Record<s
   for (let i = 0; i < 46; i++) {
     const lot = rng.pick(upcoming);
     const who = rng.chance(0.85) ? userIds[rng.pick(customerKeys)]! : userIds[rng.pick(["agent", "agent2"])]!;
-    bids.push({ lotId: lot.id, userId: who, amountJpy: rng.round(lot.startPriceJpy * (1.1 + rng.next() * 0.4), 1000), status: "active", createdAt: addDays(now, -rng.int(0, 3)) });
+    bids.push({ lotId: lot.id, userId: who, amountJpy: rng.round(lot.startPriceJpy * (1.1 + rng.next() * 0.4), 1000), status: "placed", createdAt: addDays(now, -rng.int(0, 3)) });
   }
   await chunkInsert(db, s.auctionBids, bids);
   const year = now.getUTCFullYear();

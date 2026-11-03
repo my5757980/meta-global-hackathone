@@ -1,14 +1,33 @@
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { PROGRESS_STAGES, UNIT_FOLDERS } from "@autofte/shared";
-import { Check, ChevronLeft, Download, FileText, Image as ImageIcon, Printer, Upload } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Download, FileText, Image as ImageIcon, Printer, Upload, X } from "lucide-react";
 import { api } from "../lib/api";
 import { date, usd2 } from "../lib/format";
 import { useSite } from "../lib/site";
 import { Badge, Button, Card, Empty, Skeleton, clsx } from "../ui";
 import { AccountShell } from "./Account";
-import { STATUS, type CustomerInvoice } from "./AccountInvoices";
+import { ORDER_TONE, STATUS, type CustomerInvoice } from "./AccountInvoices";
+
+/** The car's pictures at full size, one at a time. */
+function PhotoViewer({ urls, at, onClose }: { urls: string[]; at: number; onClose: () => void }) {
+  const [i, setI] = useState(at);
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4" role="dialog" aria-label="Vehicle photos" onClick={onClose}>
+      <img src={urls[i]} alt="" className="max-h-full max-w-full object-contain" onClick={(e) => e.stopPropagation()} />
+      <button aria-label="Close" className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white" onClick={onClose}><X className="size-5" /></button>
+      {urls.length > 1 && (
+        <>
+          <button aria-label="Previous" className="absolute top-1/2 left-3 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white" onClick={(e) => { e.stopPropagation(); setI((i - 1 + urls.length) % urls.length); }}><ChevronLeft className="size-6" /></button>
+          <button aria-label="Next" className="absolute top-1/2 right-3 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white" onClick={(e) => { e.stopPropagation(); setI((i + 1) % urls.length); }}><ChevronRight className="size-6" /></button>
+        </>
+      )}
+    </div>,
+    document.body,
+  );
+}
 
 /** Paying is done at the buyer's bank. The slip comes here, and the accounts desk reads it. */
 function SendSlip({ inv }: { inv: CustomerInvoice }) {
@@ -63,6 +82,7 @@ function SendSlip({ inv }: { inv: CustomerInvoice }) {
 export default function AccountInvoice() {
   const { id } = useParams();
   const site = useSite();
+  const [viewer, setViewer] = useState<{ urls: string[]; at: number } | null>(null);
   const q = useQuery({ queryKey: ["my-invoice", id], queryFn: () => api.get<CustomerInvoice>(`/api/account/invoices/${id}`), refetchInterval: 8000 });
   if (q.isLoading) return <AccountShell title="Invoice"><Skeleton className="h-64" /></AccountShell>;
   if (!q.data) return <AccountShell title="Invoice"><Empty title="Invoice not found" /></AccountShell>;
@@ -84,8 +104,10 @@ export default function AccountInvoice() {
                 <p className="text-sm text-slate-500">Consignee</p>
                 <p className="font-semibold text-slate-900">{inv.consigneeName}</p>
                 {inv.port && <p className="text-sm text-slate-600">Port of discharge: {inv.port}</p>}
+                {inv.salesperson && <p className="text-sm text-slate-600">Sales person: {inv.salesperson}</p>}
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                {inv.status !== "awaiting_approval" && <Badge tone={ORDER_TONE[inv.orderState] ?? "gray"}>{inv.orderState}</Badge>}
                 <Badge tone={STATUS[inv.status]?.tone ?? "gray"}>{STATUS[inv.status]?.label ?? inv.status}</Badge>
                 {inv.status === "approved" || inv.status === "sent" ? (
                   <a href={`/api/account/invoices/${inv.id}/pdf`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
@@ -110,10 +132,11 @@ export default function AccountInvoice() {
                       Chassis {v.chassisNo} · {v.color} · {v.transmission}
                     </p>
                   </div>
-                  <p className="text-right">
-                    <span className="block text-xs text-slate-500">C&F</span>
-                    <span className="font-bold text-slate-900">{usd2(v.cnfUsd)}</span>
-                  </p>
+                  <dl className="grid grid-cols-3 gap-3 text-right text-sm">
+                    <div><dt className="text-xs text-slate-500">C&F</dt><dd className="font-bold text-slate-900">{usd2(v.cnfUsd)}</dd></div>
+                    <div><dt className="text-xs text-slate-500">Paid</dt><dd className="font-semibold text-emerald-700">{usd2(v.paidUsd)}</dd></div>
+                    <div><dt className="text-xs text-slate-500">Remaining</dt><dd className="font-semibold text-slate-900">{usd2(v.remainingUsd)}</dd></div>
+                  </dl>
                 </div>
                 <p className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Shipping progress</p>
                 <ol className="relative space-y-3 border-l-2 border-slate-200 pl-5">
@@ -134,6 +157,18 @@ export default function AccountInvoice() {
                     );
                   })}
                 </ol>
+                {v.documents.some((d) => d.mime.startsWith("image/")) && (
+                  <>
+                    <p className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Vehicle photos</p>
+                    <div className="flex flex-wrap gap-2">
+                      {v.documents.filter((d) => d.mime.startsWith("image/")).map((d, i, all) => (
+                        <button key={d.id} aria-label={`Open picture ${i + 1}`} onClick={() => setViewer({ urls: all.map((x) => `/api/account/files/${x.fileId}`), at: i })}>
+                          <img src={`/api/account/files/${d.fileId}`} alt="" loading="lazy" className="h-16 w-24 rounded-lg object-cover ring-1 ring-slate-200" />
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
                 <p className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Documents & photos</p>
                 {v.documents.length ? (
                   <div className="space-y-3">
@@ -172,15 +207,21 @@ export default function AccountInvoice() {
             </dl>
             {inv.payments.length > 0 && (
               <div className="mt-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Payments received</p>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {inv.payments.map((p, i) => (
-                    <li key={i} className="flex justify-between">
-                      <span className="text-slate-600">{date(p.date)}</span>
-                      <span className="font-semibold">{usd2(p.amountUsd)}</span>
-                    </li>
-                  ))}
-                </ul>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Payment history</p>
+                <table className="mt-2 w-full text-sm">
+                  <thead className="text-left text-xs text-slate-500">
+                    <tr><th className="py-1 font-medium">Date</th><th className="py-1 text-right font-medium">Amount</th><th className="py-1 text-right font-medium">Balance after</th></tr>
+                  </thead>
+                  <tbody>
+                    {inv.payments.map((p, i) => (
+                      <tr key={i} className="border-t border-slate-100">
+                        <td className="py-1 text-slate-600">{date(p.date)}</td>
+                        <td className="py-1 text-right font-semibold">{usd2(p.amountUsd)}</td>
+                        <td className="py-1 text-right">{usd2(p.balanceAfter)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </Card>
@@ -198,8 +239,22 @@ export default function AccountInvoice() {
             </Card>
           )}
           {inv.totals.balance > 0 && inv.status !== "awaiting_approval" && <SendSlip inv={inv} />}
+          {inv.timeline.length > 0 && (
+            <Card>
+              <p className="font-semibold text-slate-900">Order notes</p>
+              <ol className="mt-3 space-y-2 border-l-2 border-slate-100 pl-3">
+                {inv.timeline.map((n, i) => (
+                  <li key={i} className="text-sm">
+                    <p className="text-slate-800">{n.text}</p>
+                    <p className="text-[11px] text-slate-400">{date(n.at)}</p>
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          )}
         </div>
       </div>
+      {viewer && <PhotoViewer urls={viewer.urls} at={viewer.at} onClose={() => setViewer(null)} />}
     </AccountShell>
   );
 }

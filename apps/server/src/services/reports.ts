@@ -6,7 +6,7 @@ import * as s from "../db/schema";
 
 const range = (from: string, to: string) => ({ start: new Date(`${from}T00:00:00Z`), end: new Date(new Date(`${to}T00:00:00Z`).getTime() + 86400_000) });
 
-export async function reportData(from: string, to: string) {
+export async function reportData(from: string, to: string, opts: { allLeads?: boolean } = {}) {
   const { start, end } = range(from, to);
   const leads = await db()
     .select({ id: s.leads.id, customer: s.leads.customerName, contact: s.leads.contactPerson, country: s.leads.countryCode, status: s.leads.status, createdAt: s.leads.createdAt, agent: s.users.name, agentKind: s.users.kind, agentId: s.users.id })
@@ -21,37 +21,75 @@ export async function reportData(from: string, to: string) {
     .where(and(gte(s.invoices.createdAt, start), lt(s.invoices.createdAt, end)))
     .orderBy(desc(s.invoices.createdAt));
   const units = await db()
-    .select({ id: s.units.id, make: s.units.make, model: s.units.model, chassis: s.units.chassis, color: s.units.color, createdAt: s.units.createdAt, invoice: s.invoices.number })
+    .select({ id: s.units.id, make: s.units.make, model: s.units.model, chassis: s.units.chassis, color: s.units.color, createdAt: s.units.createdAt, invoice: s.invoices.number, agentId: s.users.id, agent: s.users.name, agentKind: s.users.kind })
     .from(s.units)
     .innerJoin(s.invoices, eq(s.invoices.id, s.units.invoiceId))
+    .leftJoin(s.users, eq(s.users.id, s.units.createdBy))
     .where(and(gte(s.units.createdAt, start), lt(s.units.createdAt, end)));
   const payments = await db()
     .select({ total: sql<number>`coalesce(sum(${s.payments.amountUsd}),0)::float` })
     .from(s.payments)
     .where(and(gte(s.payments.createdAt, start), lt(s.payments.createdAt, end)));
-  const agents = new Map<string, { name: string; kind: string; leads: number; invoices: number; value: number }>();
+  const agents = new Map<string, { name: string; kind: string; leads: number; invoices: number; units: number; value: number }>();
   for (const l of leads) {
     if (!l.agentId) continue;
-    const a = agents.get(l.agentId) ?? { name: l.agent ?? "", kind: l.agentKind ?? "staff", leads: 0, invoices: 0, value: 0 };
+    const a = agents.get(l.agentId) ?? { name: l.agent ?? "", kind: l.agentKind ?? "staff", leads: 0, invoices: 0, units: 0, value: 0 };
     a.leads++;
     agents.set(l.agentId, a);
   }
   for (const i of invoices) {
     if (!i.agentId) continue;
-    const a = agents.get(i.agentId) ?? { name: i.agent ?? "", kind: i.agentKind ?? "staff", leads: 0, invoices: 0, value: 0 };
+    const a = agents.get(i.agentId) ?? { name: i.agent ?? "", kind: i.agentKind ?? "staff", leads: 0, invoices: 0, units: 0, value: 0 };
     a.invoices++;
     if (i.status !== "rejected") a.value += Number(i.total);
     agents.set(i.agentId, a);
+  }
+  for (const u of units) {
+    if (!u.agentId) continue;
+    const a = agents.get(u.agentId) ?? { name: u.agent ?? "", kind: u.agentKind ?? "staff", leads: 0, invoices: 0, units: 0, value: 0 };
+    a.units++;
+    agents.set(u.agentId, a);
   }
   return {
     from,
     to,
     totals: { leads: leads.length, invoices: invoices.length, units: units.length, invoicedValue: Math.round(invoices.filter((i) => i.status !== "rejected").reduce((x, i) => x + Number(i.total), 0) * 100) / 100, received: Math.round((payments[0]?.total ?? 0) * 100) / 100 },
     perAgent: [...agents.entries()].map(([id, a]) => ({ id, ...a, value: Math.round(a.value * 100) / 100 })).sort((x, y) => y.value - x.value),
-    leads: leads.slice(0, 300),
+    leads: opts.allLeads ? leads : leads.slice(0, 300),
     invoices,
     units,
   };
+}
+
+/** One agent's work in a period: what the drill-down opens. */
+export async function reportDetail(userId: string, from: string, to: string) {
+  const d = await reportData(from, to, { allLeads: true });
+  return { leads: d.leads.filter((x) => x.agentId === userId), invoices: d.invoices.filter((x) => x.agentId === userId), units: d.units.filter((x) => x.agentId === userId) };
+}
+
+const csvCell = (v: unknown) => {
+  const t = v == null ? "" : v instanceof Date ? v.toISOString().slice(0, 10) : String(v);
+  // a cell starting with these opens as a formula in a spreadsheet
+  const safe = /^[=+\-@]/.test(t) ? `'${t}` : t;
+  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+};
+const csvRows = (rows: unknown[][]) => rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
+
+/** The period as CSV: everyone's totals, or one agent's leads, invoices and units. */
+export async function reportCsv(from: string, to: string, userId?: string) {
+  const d = await reportData(from, to);
+  if (!userId) {
+    const rows: unknown[][] = [["Agent", "Leads", "Invoices", "Units", "Value (C&F USD)"]];
+    for (const a of d.perAgent) rows.push([a.name, a.leads, a.invoices, a.units, a.value]);
+    rows.push(["Total", d.totals.leads, d.totals.invoices, d.totals.units, d.totals.invoicedValue]);
+    return `\ufeff${csvRows(rows)}`;
+  }
+  const one = await reportDetail(userId, from, to);
+  const rows: unknown[][] = [["Kind", "Reference", "Customer or vehicle", "Status", "Value (USD)", "Date"]];
+  for (const l of one.leads) rows.push(["Lead", "", l.customer, l.status, "", l.createdAt]);
+  for (const i of one.invoices) rows.push(["Invoice", i.number, i.consignee, i.status, i.total, i.createdAt]);
+  for (const u of one.units) rows.push(["Unit", u.chassis ?? "", `${u.make} ${u.model}`, "", "", u.createdAt]);
+  return `\ufeff${csvRows(rows)}`;
 }
 
 function sheet(wb: ExcelJS.Workbook, name: string, cols: { header: string; key: string; width?: number }[], rows: Record<string, unknown>[]) {

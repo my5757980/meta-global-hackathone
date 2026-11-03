@@ -41,6 +41,10 @@ export const auctionLots = pgTable(
     resultPriceJpy: integer(),
     highBidJpy: integer(),
     photoCount: integer().notNull().default(6),
+    saleTime: text(), // "10:30" Tokyo time; empty when the hall publishes none
+    engineHp: integer(),
+    modelGrade: text(), // the trim: "Z Black Rally", not the auction grade
+    feed: text().notNull().default("A"), // which demo feed brought it in
     photoUrls: jsonb().notNull().default([]), // a lot imported with its own photos; empty = drawn pictures
     sheetUrl: text(), // null = the demo sheet drawn from this row; "" = imported with no sheet; else the real sheet's address
     damage: jsonb().notNull().default([]), // [{code:"A1", part:"front bumper"}]
@@ -66,9 +70,12 @@ export const auctionBids = pgTable(
     userId: text()
       .notNull()
       .references(() => users.id),
+    bidNo: text(),
     amountJpy: integer().notNull(),
-    status: text().notNull().default("active"), // active | won | lost | cancelled
-    note: text(),
+    overBidJpy: integer(),
+    message: text(), // the bidder's own message to the desk
+    status: text().notNull().default("placed"), // placed | under review | accepted | won | rejected | lost
+    note: text(), // the desk's note
     createdAt: createdAt(),
   },
   (t) => [index("bids_lot_idx").on(t.lotId), index("bids_user_idx").on(t.userId, t.createdAt)],
@@ -102,7 +109,7 @@ export const auctionEnquiries = pgTable("auction_enquiries", {
   message: text().notNull(),
   reply: text(),
   repliedBy: text().references(() => users.id),
-  status: text().notNull().default("open"),
+  status: text().notNull().default("new"), // new | open | answered | closed
   createdAt: createdAt(),
   repliedAt: timestamp({ withTimezone: true }),
 });

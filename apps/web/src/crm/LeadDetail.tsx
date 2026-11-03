@@ -18,6 +18,8 @@ interface LeadFull {
   port: { name: string } | null;
   owner: { name: string; kind: string } | null;
   account: { id: string; email: string | null; kind: string; mustChangePassword: boolean; lastSeenAt: string | null } | null;
+  duplicateBy: string | null;
+  staff: { id: string; name: string; kind: string }[];
 }
 
 export default function LeadDetail() {
@@ -82,6 +84,31 @@ export default function LeadDetail() {
               <option value="closed">Closed</option>
             </Select>
           )}
+          {can("crm.leads.reassign") && (
+            <Select
+              className="w-48"
+              aria-label="Reassign to"
+              value=""
+              onChange={async (e) => {
+                const to = q.data?.staff.find((x) => x.id === e.target.value);
+                if (!to || !window.confirm(`Give ${lead.customerName} to ${to.name}? Its invoices and units move too.`)) return;
+                setActErr(null);
+                try {
+                  await api.post(`/api/crm/leads/${lead.id}/reassign`, { userId: to.id });
+                  await qc.invalidateQueries();
+                } catch (ex) {
+                  setActErr((ex as Error).message);
+                }
+              }}
+            >
+              <option value="">Reassign to…</option>
+              {q.data.staff.filter((x) => x.id !== lead.ownerUserId).map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}{x.kind === "fte" ? " (Digital FTE)" : ""}
+                </option>
+              ))}
+            </Select>
+          )}
           {can("crm.invoices.request") && (lead.status === "in_progress" || lead.status === "new") && (lead.ownerUserId === me?.id || can("crm.leads.view_all")) && (
             <Button onClick={() => setReq(true)}>
               <FilePlus2 className="size-4" /> Request invoice
@@ -90,6 +117,7 @@ export default function LeadDetail() {
         </div>
       </div>
       {actErr && <p className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{actErr}</p>}
+      {q.data.duplicateBy && <p className="mb-4 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">{q.data.duplicateBy} tried to add this client as a new lead. It stays with its owner.</p>}
       {editing && (
         <EditLeadModal
           lead={lead}

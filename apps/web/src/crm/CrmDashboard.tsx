@@ -33,16 +33,21 @@ export default function CrmDashboard() {
         </div>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
             <Link to="/crm/leads" className="block rounded-2xl hover:opacity-90">
-              <Stat label="Leads" value={leadTotal.toLocaleString("en-US")} icon={<Users className="size-5" />} />
+              <Stat label="Lead pipeline" value={leadTotal.toLocaleString("en-US")} hint="every lead, by status below" icon={<Users className="size-5" />} />
             </Link>
             <Link to="/crm/leads?customers=1" className="block rounded-2xl hover:opacity-90">
-              <Stat label="Customers" value={(d?.customers ?? 0).toLocaleString("en-US")} hint="with an approved invoice" icon={<Handshake className="size-5" />} />
+              <Stat label="Total customers" value={(d?.customers ?? 0).toLocaleString("en-US")} hint="with an approved invoice" icon={<Handshake className="size-5" />} />
             </Link>
-            <Stat label="Waiting for approval" value={inv("pending")?.n ?? 0} hint={usd(inv("pending")?.total ?? 0) + " C&F"} icon={<Hourglass className="size-5" />} />
+            <Link to="/crm/invoices" className="block rounded-2xl hover:opacity-90">
+              <Stat label="Total invoices" value={(d?.invoices ?? []).reduce((a, i) => a + i.n, 0)} hint={usd((d?.invoices ?? []).filter((i) => i.status !== "rejected").reduce((a, i) => a + i.total, 0)) + " C&F"} icon={<FileText className="size-5" />} />
+            </Link>
+            <Link to="/crm/invoices?status=pending" className="block rounded-2xl hover:opacity-90">
+              <Stat label="Pending invoices" value={inv("pending")?.n ?? 0} hint={usd(inv("pending")?.total ?? 0) + " C&F"} icon={<Hourglass className="size-5" />} />
+            </Link>
             <Stat label="Approved / sent" value={(inv("approved")?.n ?? 0) + (inv("sent")?.n ?? 0)} hint={usd((inv("approved")?.total ?? 0) + (inv("sent")?.total ?? 0)) + " C&F"} icon={<FileText className="size-5" />} />
-            <Stat label={`${fte}'s invoice requests`} value={d?.recent.filter((r) => r.requestedKind === "fte").length ?? 0} hint="in the latest 8" icon={<Bot className="size-5" />} />
+            <Stat label="FTE invoice requests" value={d?.recent.filter((r) => r.requestedKind === "fte").length ?? 0} hint="in the latest 8" icon={<Bot className="size-5" />} />
           </div>
           <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_1.4fr]">
             <Card>
