@@ -140,8 +140,9 @@ export interface InvoiceRequestInput {
 }
 
 async function nextInvoiceNumber(tx: DBorTx, prefix: string): Promise<string> {
-  const r = await tx.execute(sql`select count(*)::int as n from invoices`);
-  const n = ((r as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0) + 2601;
+  // from the highest number used, not the count: a deleted invoice must not make the next one take a number still in use
+  const r = await tx.execute(sql`select coalesce(max((substring(number from '[0-9]+$'))::int), 2600) as n from invoices`);
+  const n = Number((r as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 2600) + 1;
   return `${prefix}${String(n).padStart(5, "0")}`;
 }
 

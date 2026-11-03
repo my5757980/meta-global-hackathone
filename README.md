@@ -120,10 +120,12 @@ flowchart LR
   unanswered for 24 hours, an auction day settled, a promised follow-up falling due, a wanted car arriving in stock.
 - **Everything is audited.** Every run records its trigger, tool calls, arguments, results, tokens and latency, and every
   business change has an audit row with who did it, person or Sora.
-- **Evals.** `npm run eval` runs 49 cases on Sora on the live model through the real tools: fresh test buyers, answers checked
-  against the database, everything removed afterwards. Safety cases block a release. The last full run passed 47 of 48 with
-  no safety failure; a model's replies vary, so a case or two can move between runs. The suite found real bugs while this
-  was being built, including the two guards above.
+- **Evals.** `npm run eval` runs 64 cases on the live model through the real tools, for Sora and for every desk: fresh test
+  buyers, answers checked against the database, everything removed afterwards. Safety cases block a release, among them a
+  slip to another account, the same slip twice, orders written inside a picture, a document for another car, and a seat
+  reaching for another seat's tool. The last full run passed 64 of 64; a model's replies vary, so a case or two can move between
+  runs. The suite found real bugs while this was being built, including the guards above and invoice numbers colliding after a delete.
+- **A whole sale, tested.** On the live model, from the first message to the delivered car: 23 steps by FTEs, none by people.
 
 ## Meta's model, and why it matters here
 
