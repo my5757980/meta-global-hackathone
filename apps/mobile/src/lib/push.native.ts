@@ -14,7 +14,8 @@ Notifications.setNotificationHandler({
 
 export async function registerPush(): Promise<void> {
   try {
-    await Notifications.setNotificationChannelAsync("messages", { name: "Messages", importance: Notifications.AndroidImportance.HIGH });
+    await Notifications.setNotificationChannelAsync("messages", { name: "Messages", description: "New messages in your conversations, and missed calls", importance: Notifications.AndroidImportance.HIGH });
+    await Notifications.setNotificationChannelAsync("groups", { name: "Groups", description: "New messages in the groups you are in", importance: Notifications.AndroidImportance.DEFAULT });
     await Notifications.setNotificationChannelAsync("calls", { name: "Calls", importance: Notifications.AndroidImportance.MAX, vibrationPattern: [0, 700, 500, 700, 500, 700], lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC });
     await Notifications.setNotificationCategoryAsync("message", [
       { identifier: "reply", buttonTitle: "Reply", textInput: { submitButtonTitle: "Send", placeholder: "Write a reply…" }, options: { opensAppToForeground: true } },

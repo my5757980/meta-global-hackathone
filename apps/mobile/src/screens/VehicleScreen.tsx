@@ -12,6 +12,7 @@ import { useShop } from "../lib/shop";
 import { C, useColors, useSite } from "../lib/site";
 import type { VehicleCard, VehicleDetail } from "../lib/types";
 import { Badge, Button, Card, Chip, ErrorBox, Markdown, Price, Screen, SectionTitle, Skeleton, StatusBadge, T, VehicleTile } from "../ui";
+import { PictureViewer } from "./ChatScreen";
 
 export default function VehicleScreen() {
   const nav = useNavigation<any>();
@@ -22,6 +23,7 @@ export default function VehicleScreen() {
   const q = useFetch<{ vehicle: VehicleDetail; related: VehicleCard[] }>(`/api/public/vehicles/${encodeURIComponent(route.params?.slug ?? "")}`);
   const v = q.data?.vehicle;
   const [shot, setShot] = useState(0);
+  const [viewer, setViewer] = useState<number | null>(null);
 
   useEffect(() => {
     if (v)
@@ -78,6 +80,7 @@ export default function VehicleScreen() {
 
   return (
     <Screen padded={false} onRefresh={q.reload} refreshing={q.refreshing}>
+      {viewer !== null && images.length ? <PictureViewer shots={images} at={Math.min(viewer, images.length - 1)} onClose={() => setViewer(null)} /> : null}
       <View>
         <FlatList
           horizontal
@@ -86,7 +89,7 @@ export default function VehicleScreen() {
           keyExtractor={(u, i) => `${i}${u}`}
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={(e) => setShot(Math.round(e.nativeEvent.contentOffset.x / width))}
-          renderItem={({ item }) => <Image source={{ uri: absUrl(item) }} style={{ width, aspectRatio: 16 / 10, backgroundColor: "#e2e8f0" }} contentFit="cover" transition={150} />}
+          renderItem={({ item, index }) => <Pressable accessibilityRole="imagebutton" accessibilityLabel="Open the picture" onPress={() => setViewer(index)}><Image source={{ uri: absUrl(item) }} style={{ width, aspectRatio: 16 / 10, backgroundColor: "#e2e8f0" }} contentFit="cover" transition={150} /></Pressable>}
         />
         {images.length > 1 ? (
           <View style={st.counter}>

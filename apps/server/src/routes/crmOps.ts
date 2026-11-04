@@ -288,7 +288,7 @@ crmOps.post(
     const files = (req.files as Express.Multer.File[]) ?? [];
     if (!files.length) throw bad("No file");
     for (const f of files) {
-      if (!/^(image\/(png|jpeg|webp|svg\+xml)|application\/pdf)$/.test(f.mimetype)) throw bad(`${f.originalname}: only images or PDF`);
+      if (!/^(image\/(png|jpeg|webp|svg\+xml)|application\/(pdf|zip|x-zip-compressed|msword|vnd\.ms-excel|vnd\.openxmlformats-officedocument\.[\w.]+)|text\/(plain|csv))$/.test(f.mimetype)) throw bad(`${f.originalname}: use a picture, PDF, Word, Excel, ZIP or text file`);
       const saved = await saveFile(f.buffer, { kind: "unit-docs", mime: f.mimetype, originalName: f.originalname, ownerUserId: u.id });
       await db().insert(s.unitDocuments).values({ unitId: un.id, folder, fileId: saved.id });
     }
@@ -381,9 +381,15 @@ crmOps.post(
     if (b.fromUserId === b.toUserId) throw bad("Choose two different agents");
     const [to] = await db().select().from(s.users).where(eq(s.users.id, b.toUserId)).limit(1);
     if (!to || !to.isActive || (to.kind !== "staff" && to.kind !== "fte")) throw bad("The receiving agent must be an active staff member");
-    const r = await db().update(s.leads).set({ ownerUserId: b.toUserId, updatedAt: new Date() }).where(eq(s.leads.ownerUserId, b.fromUserId)).returning({ id: s.leads.id });
-    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "lead.transfer", summary: `${u.name} moved ${r.length} lead(s) to ${to.name}` });
-    return { moved: r.length };
+    const moved = await db().transaction(async (tx) => {
+      const leads = await tx.update(s.leads).set({ ownerUserId: b.toUserId, updatedAt: new Date() }).where(eq(s.leads.ownerUserId, b.fromUserId)).returning({ id: s.leads.id });
+      await tx.update(s.leads).set({ duplicateAttemptBy: b.toUserId }).where(eq(s.leads.duplicateAttemptBy, b.fromUserId));
+      const invoices = await tx.update(s.invoices).set({ requestedBy: b.toUserId }).where(eq(s.invoices.requestedBy, b.fromUserId)).returning({ id: s.invoices.id });
+      const units = await tx.update(s.units).set({ createdBy: b.toUserId }).where(eq(s.units.createdBy, b.fromUserId)).returning({ id: s.units.id });
+      return { leads: leads.length, invoices: invoices.length, units: units.length };
+    });
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "lead.transfer", summary: `${u.name} moved ${moved.leads} lead(s), ${moved.invoices} invoice(s) and ${moved.units} unit(s) to ${to.name}` });
+    return { moved: moved.leads, invoices: moved.invoices, units: moved.units };
   }),
 );
 
@@ -836,7 +842,7 @@ crmOps.post(
     ws.eachRow({ includeEmpty: false }, (row, n) => {
       if (n > 1) raw.push({ n, v: row.values as unknown[] });
     });
-    if (raw.length > 1000) throw bad("Up to 1,000 rows per file");
+    if (raw.length > 2000) throw bad("Up to 2,000 rows per file");
     const [countries, ports] = await Promise.all([db().select().from(s.countries), db().select().from(s.ports)]);
     const { findLeadByContact } = await import("../services/crm");
     const seen = new Set<string>();

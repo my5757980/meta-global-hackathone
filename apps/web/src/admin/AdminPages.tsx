@@ -840,6 +840,9 @@ export function AdminSettings() {
               <Field label="Instagram link"><Input value={t("socialInstagram")} onChange={(e) => setF({ ...f, socialInstagram: e.target.value })} /></Field>
               <Field label="YouTube link"><Input value={t("socialYoutube")} onChange={(e) => setF({ ...f, socialYoutube: e.target.value })} /></Field>
               <Field label="X link"><Input value={t("socialX")} onChange={(e) => setF({ ...f, socialX: e.target.value })} /></Field>
+              <Field label="LinkedIn link"><Input value={t("socialLinkedin")} onChange={(e) => setF({ ...f, socialLinkedin: e.target.value })} /></Field>
+              <Field label="Copyright line" hint="leave empty for the year and the company name"><Input value={t("copyrightLine")} onChange={(e) => setF({ ...f, copyrightLine: e.target.value })} /></Field>
+              <Field label="Footer sentence" className="sm:col-span-2"><Input value={t("footerSentence")} onChange={(e) => setF({ ...f, footerSentence: e.target.value })} /></Field>
             </div>
           </Card>
           <Card>

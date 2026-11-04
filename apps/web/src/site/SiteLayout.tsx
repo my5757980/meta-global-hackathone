@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, ChevronDown, Clock, Facebook, Heart, Instagram, LayoutDashboard, LogOut, Mail, Menu, MessageCircle, Phone, Search, ShoppingCart, Twitter, User, X, Youtube } from "lucide-react";
+import { Bot, ChevronDown, Clock, Facebook, Heart, Instagram, LayoutDashboard, Linkedin, LogOut, Mail, Menu, MessageCircle, Phone, Search, ShoppingCart, Twitter, User, X, Youtube } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth, usePresencePing } from "../lib/auth";
 import { useLiveStream } from "../lib/sse";
@@ -366,6 +366,7 @@ function Footer() {
     { href: site?.socialInstagram, label: "Instagram", icon: <Instagram className="size-4" /> },
     { href: site?.socialYoutube, label: "YouTube", icon: <Youtube className="size-4" /> },
     { href: site?.socialX, label: "X", icon: <Twitter className="size-4" /> },
+    { href: site?.socialLinkedin, label: "LinkedIn", icon: <Linkedin className="size-4" /> },
   ].filter((x) => x.href);
   return (
     <footer className="mt-16 bg-slate-900 text-slate-300">
@@ -382,7 +383,7 @@ function Footer() {
         <div>
           <Logo name={site?.companyName} light />
           <p className="mt-3 text-sm text-slate-400">{site?.tagline}</p>
-          <p className="mt-3 text-xs text-slate-500">Demo company for the AutoFTE hackathon project. All data is fictional.</p>
+          {site?.footerSentence ? <p className="mt-3 text-xs text-slate-500">{site.footerSentence}</p> : null}
           {social.length > 0 && (
             <div className="mt-4 flex gap-2">
               {social.map((x) => (
@@ -447,7 +448,7 @@ function Footer() {
         </div>
       </div>
       <div className="border-t border-white/10 py-4 text-center text-xs text-slate-500">
-        © {new Date().getFullYear()} {site?.companyName ?? "Hikari Motors"} (demo) · Powered by AutoFTE · <Link to="/terms" className="hover:text-slate-300">Terms</Link> · <Link to="/privacy" className="hover:text-slate-300">Privacy</Link> · <Link to="/credits" className="hover:text-slate-300">Photo credits</Link> · <Link to="/app" className="hover:text-slate-300">Android app</Link>
+        {site?.copyrightLine || `© ${new Date().getFullYear()} ${site?.companyName ?? "Hikari Motors"} (demo)`} · Powered by AutoFTE · <Link to="/terms" className="hover:text-slate-300">Terms</Link> · <Link to="/privacy" className="hover:text-slate-300">Privacy</Link> · <Link to="/credits" className="hover:text-slate-300">Photo credits</Link> · <Link to="/app" className="hover:text-slate-300">Android app</Link>
       </div>
     </footer>
   );

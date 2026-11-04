@@ -183,8 +183,8 @@ crmRouter.delete(
     const u = requirePerm(req, "crm.leads.delete");
     const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, String(req.params.id))).limit(1);
     if (!lead || (!can(u, "crm.leads.view_all") && lead.ownerUserId !== u.id)) throw notFound();
-    const [live] = await db().select({ number: s.invoices.number }).from(s.invoices).where(and(eq(s.invoices.leadId, lead.id), inArray(s.invoices.status, ["approved", "sent"]))).limit(1);
-    if (live) throw conflict(`Invoice ${live.number} is approved, so this lead cannot be deleted`);
+    const [live] = await db().select({ number: s.invoices.number }).from(s.invoices).where(and(eq(s.invoices.leadId, lead.id), inArray(s.invoices.status, ["pending", "awaiting_approval", "approved", "sent"]))).limit(1);
+    if (live) throw conflict(`This lead still has invoice ${live.number} against it. Remove that first`);
     const held = await db().select({ vehicleId: s.invoiceVehicles.vehicleId }).from(s.invoiceVehicles).innerJoin(s.invoices, eq(s.invoices.id, s.invoiceVehicles.invoiceId)).where(eq(s.invoices.leadId, lead.id));
     const vehIds = held.map((v) => v.vehicleId).filter(Boolean) as string[];
     await db().transaction(async (tx) => {

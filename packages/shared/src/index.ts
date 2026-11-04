@@ -234,6 +234,9 @@ export const SiteSettingsSchema = z.object({
   socialInstagram: z.string().default("https://www.instagram.com/"),
   socialYoutube: z.string().default("https://www.youtube.com/"),
   socialX: z.string().default("https://x.com/"),
+  socialLinkedin: z.string().default("https://www.linkedin.com/"),
+  footerSentence: z.string().default("Demo company for the AutoFTE hackathon project. All data is fictional."),
+  copyrightLine: z.string().default(""),
   invoicePrefix: z.string().default("HK"),
   bank: z
     .object({

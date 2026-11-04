@@ -53,7 +53,7 @@ function callLine(m: ChatMsg, mine: boolean) {
 }
 
 /** A picture, opened: every picture in the conversation a swipe away, and "2 / 5" says how many there are. */
-function PictureViewer({ shots, at, onClose }: { shots: string[]; at: number; onClose: () => void }) {
+export function PictureViewer({ shots, at, onClose }: { shots: string[]; at: number; onClose: () => void }) {
   const { width, height } = useWindowDimensions();
   const [i, setI] = useState(at);
   return (

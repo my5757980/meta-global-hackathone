@@ -485,7 +485,7 @@ function TransferModal({ users, onClose, onDone }: { users: { id: string; name: 
     <Modal
       open
       onClose={onClose}
-      title="Transfer all leads from one agent to another"
+      title="Transfer all leads, invoices and units from one agent to another"
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -495,8 +495,8 @@ function TransferModal({ users, onClose, onDone }: { users: { id: string; name: 
             disabled={!from || !to || from === to}
             onClick={async () => {
               try {
-                const r = await api.post<{ moved: number }>("/api/crm/leads/transfer", { fromUserId: from, toUserId: to });
-                setMsg(`${r.moved} lead(s) moved.`);
+                const r = await api.post<{ moved: number; invoices: number; units: number }>("/api/crm/leads/transfer", { fromUserId: from, toUserId: to });
+                setMsg(`${r.moved} lead(s), ${r.invoices} invoice(s) and ${r.units} unit(s) moved.`);
                 onDone();
               } catch (ex) {
                 setMsg((ex as Error).message);

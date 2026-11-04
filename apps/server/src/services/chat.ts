@@ -101,7 +101,7 @@ export async function postMessage(m: PostMessage, tx: DBorTx = db()) {
   if (m.senderUserId && (m.kind ?? "text") !== "system" && pushConfigured()) {
     const away = [...(await conversationMembers(m.conversationId))].filter((id) => id !== m.senderUserId && !isOnline(id));
     const what = (m.body ?? "").trim() || (m.kind === "voice" ? "Voice note" : m.kind === "image" ? "Picture" : "New message");
-    if (away.length) void pushToUsers(away, { kind: "message", title: sender?.name ?? "New message", body: what, data: { conversationId: m.conversationId } });
+    if (away.length) void pushToUsers(away, { kind: "message", title: sender?.name ?? "New message", body: what, group: cv?.kind === "group", data: { conversationId: m.conversationId } });
   }
   return out;
 }

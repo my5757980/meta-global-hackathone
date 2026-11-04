@@ -54,6 +54,8 @@ export interface PushNote {
   title: string;
   body: string;
   data?: Record<string, string>;
+  /** Group chatter has its own channel, so a phone can silence it alone. */
+  group?: boolean;
 }
 
 /** Returns how many phones Firebase accepted it for. Never throws: a push must not break what triggered it. */
@@ -75,7 +77,7 @@ export async function pushToUsers(userIds: string[], note: PushNote): Promise<nu
             ? {
                 // data only: the phone's own notification service draws it, and only then can it carry buttons
                 token,
-                data: { kind: note.kind, ...note.data, title: note.title.slice(0, 80), message: note.body.slice(0, 180), channelId: note.kind === "call" ? "calls" : "messages", categoryId: note.kind === "call" ? "call" : "message", body: JSON.stringify({ kind: note.kind, ...note.data }) },
+                data: { kind: note.kind, ...note.data, title: note.title.slice(0, 80), message: note.body.slice(0, 180), channelId: note.kind === "call" ? "calls" : note.group ? "groups" : "messages", categoryId: note.kind === "call" ? "call" : "message", body: JSON.stringify({ kind: note.kind, ...note.data }) },
                 android: { priority: "HIGH", ttl: note.kind === "call" ? "45s" : "3600s" },
               }
             : {
@@ -84,7 +86,7 @@ export async function pushToUsers(userIds: string[], note: PushNote): Promise<nu
                 android: {
                   priority: "HIGH",
                   ttl: note.kind === "call" ? "45s" : "3600s",
-                  notification: { channel_id: note.kind === "call" ? "calls" : "messages", title: note.title.slice(0, 80), body: note.body.slice(0, 180), sound: "default", tag: note.data?.conversationId },
+                  notification: { channel_id: note.kind === "call" ? "calls" : note.group ? "groups" : "messages", title: note.title.slice(0, 80), body: note.body.slice(0, 180), sound: "default", tag: note.data?.conversationId },
                 },
               },
         }),
