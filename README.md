@@ -3,6 +3,9 @@
 **A used-car exporter's whole business on one platform, run from the first chat to the delivered car by a team of eight AI employees.**
 Built with **Muse Spark Open**, Meta's open-weight model. MIT licensed. Demo data only (a fictional exporter, Hikari Motors).
 
+**Live demo: https://100.53.110.244**: this repo's Docker image on a small AWS server, with the eight FTEs on the live model.
+It is shared and public: try anything, even Admin, and it puts itself back every 3 hours. `/login` has one-click demo sign-ins.
+
 Japanese used-car exporters sell to buyers in Africa, the Caribbean, the Gulf and Asia. Every sale is pushed by hand: an
 agent answers chats at all hours, searches auction lists, reads hand-written Japanese auction sheets, works out the landed
 price to a far-off port, and raises the invoice. Buyers who message at 2 a.m. are lost by morning.
