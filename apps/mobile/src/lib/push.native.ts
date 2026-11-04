@@ -29,8 +29,10 @@ export async function registerPush(): Promise<void> {
     if (!granted) return;
     token = String((await Notifications.getDevicePushTokenAsync()).data);
     await api.post("/api/chat/push-token", { token, platform: Platform.OS });
-  } catch {
+    console.log("[push] registered");
+  } catch (e) {
     /* no Firebase in this build, or offline: the next start tries again */
+    console.warn("[push] not registered:", (e as Error).message);
   }
 }
 

@@ -91,9 +91,12 @@ export async function pushToUsers(userIds: string[], note: PushNote): Promise<nu
         signal: AbortSignal.timeout(15_000),
       });
       if (r.ok) sent += 1;
-      else if (r.status === 404 || r.status === 400) await db().delete(s.pushTokens).where(eq(s.pushTokens.token, token)); // uninstalled, or a stale token
-      else console.warn(`[push] Firebase answered ${r.status}`);
+      else if (r.status === 404 || r.status === 400) {
+        console.warn(`[push] Firebase refused a phone (${r.status}): token removed`);
+        await db().delete(s.pushTokens).where(eq(s.pushTokens.token, token)); // uninstalled, or a stale token
+      } else console.warn(`[push] Firebase answered ${r.status}`);
     }
+    console.log(`[push] ${note.kind}: sent to ${sent} of ${rows.length} phone(s)`);
     return sent;
   } catch (e) {
     console.warn("[push]", (e as Error).message);

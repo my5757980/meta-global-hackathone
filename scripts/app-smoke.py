@@ -136,6 +136,14 @@ if box:
     check("Sora answered on the phone, with real cars", bool(answer), (answer or "")[:200])
 
     # ---------- away from the app: Sora's next answer arrives as a notification ----------
+    gms = re.search(r"versionName=(\S+)", adb("shell", "dumpsys", "package", "com.google.android.gms").stdout)
+    print("google play services:", gms.group(1) if gms else "none", flush=True)
+    # Play services on a fresh emulator need a few minutes before they give a token: open the app again, it asks again
+    time.sleep(60)
+    adb("shell", "am", "force-stop", PKG)
+    adb("shell", "monkey", "-p", PKG, "-c", "android.intent.category.LAUNCHER", "1")
+    wait_for(r"^Home$", 120)
+    time.sleep(30)
     adb("shell", "input", "keyevent", "KEYCODE_HOME")
     time.sleep(45)  # the server sees the phone go away
     ck = api("POST", "/api/auth/demo/customer")[1]
@@ -154,7 +162,7 @@ if box:
 
 # ---------- nothing crashed ----------
 log = adb("logcat", "-d", "-t", "6000", timeout=60).stdout
-for line in [l for l in log.splitlines() if re.search(r"FirebaseMessaging|FirebaseInstallations|Notifications:|SERVICE_NOT_AVAILABLE|FIS_", l)][:15]:
+for line in [l for l in log.splitlines() if re.search(r"\[push\]|Firebase|FCM|SERVICE_NOT_AVAILABLE|FIS_|expo.notifications", l)][:30]:
     print("push:", line[-200:], flush=True)
 crash = [l for l in log.splitlines() if "FATAL EXCEPTION" in l or (PKG in l and "has died" in l)]
 check("no crash in the log", not crash, crash[:3])
