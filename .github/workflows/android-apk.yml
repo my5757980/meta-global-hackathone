@@ -1,0 +1,65 @@
+# Builds the Android app from this repo and publishes it as a release.
+# Run it by pushing a tag: git tag app-v3.0.0 && git push <repo> app-v3.0.0
+# Firebase is optional: with no GOOGLE_SERVICES_B64 secret the app builds and works, with no push notifications.
+name: Android APK
+
+on:
+  push:
+    tags: ["app-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      EXPO_PUBLIC_API_URL: https://100.53.110.244
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install the app's packages
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund
+
+      - name: Firebase config, if there is one
+        env:
+          GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_B64 }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_B64" ]; then
+            echo "$GOOGLE_SERVICES_B64" | base64 -d > apps/mobile/google-services.json
+            echo "push: on"
+          else
+            echo "push: off (no secret)"
+          fi
+
+      - name: Generate the Android project
+        working-directory: apps/mobile
+        env:
+          CI: 1
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Build the release APK
+        working-directory: apps/mobile/android
+        env:
+          NODE_ENV: production
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk out/AutoFTE.apk
+          ls -la out
+          gh release create "$GITHUB_REF_NAME" out/AutoFTE.apk --title "Android app ($GITHUB_REF_NAME)" --notes "The AutoFTE buyer app, connected to the live demo at $EXPO_PUBLIC_API_URL. Android 7 or newer. Demo data only (a fictional exporter)."
