@@ -41,6 +41,8 @@ jobs:
           api-level: 30
           target: google_apis
           arch: x86_64
+          profile: pixel_3a
+          cores: 3
           ram-size: 3072M
           disk-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
@@ -53,5 +55,7 @@ jobs:
         if: always()
         with:
           name: screens
-          path: out/app-*.png
+          path: |
+            out/app-*.png
+            out/rec*.mp4
           retention-days: 7
