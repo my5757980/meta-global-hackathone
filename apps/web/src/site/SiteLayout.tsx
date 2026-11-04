@@ -250,7 +250,7 @@ export function SiteLayout() {
               <div className="group relative">
                 <button className="flex items-center gap-1 rounded-xl px-2 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
                   <User className="size-5" />
-                  <span className="hidden max-w-28 truncate sm:inline">{me.name.split(" ")[0]}</span>
+                  <span className="hidden max-w-28 truncate xl:inline">{me.name.split(" ")[0]}</span>
                   <ChevronDown className="size-4" />
                 </button>
                 <div className="invisible absolute right-0 mt-1 w-56 rounded-2xl border border-slate-200 bg-white p-2 opacity-0 shadow-lg transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">

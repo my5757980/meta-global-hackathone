@@ -612,7 +612,10 @@ crmOps.delete(
         await audit(tx, { actorUserId: u.id, actorKind: "human", action: "user.deleted", entity: "user", summary: `${u.name} removed the login of ${target.name}` });
       });
     } catch (e) {
-      if ((e as { code?: string }).code === "23503" || /foreign key/i.test(String((e as Error).message))) throw conflict(`${target.name} has work on record, so the login cannot be removed. Switch it off instead`);
+      // the driver puts the database error one level down, under `cause`, so look there too
+      const chain = e as { code?: string; message?: string; cause?: { code?: string; message?: string } };
+      const text = `${chain.message ?? ""} ${chain.cause?.message ?? ""}`;
+      if (chain.code === "23503" || chain.cause?.code === "23503" || /foreign key/i.test(text)) throw conflict(`${target.name} has work on record, so the login cannot be removed. Switch it off instead`);
       throw e;
     }
     return { ok: true };
