@@ -42,3 +42,27 @@ export const offeredSomethingElse = (reply: string) => /(other|another|similar|
 const ASKS_AGAIN = /\b(?:shall i|should i|would you like me to|do you want me to|want me to|may i|can i go ahead|do you confirm|please confirm|are you sure|just to confirm|did you mean)\b[^?؟]*[?؟]/i;
 const ASKS_AGAIN_OTHER = /(کیا میں|کروں\s*[?؟]|kar doon\s*\?|kar dun\s*\?|karun\s*\?)/i;
 export const asksPermissionAgain = (reply: string) => ASKS_AGAIN.test(reply) || ASKS_AGAIN_OTHER.test(reply);
+
+function editDistance(a: string, b: string): number {
+  let row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j++) next[j] = Math.min(next[j - 1]! + 1, row[j]! + 1, row[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    row = next;
+  }
+  return row[b.length]!;
+}
+
+/**
+ * Is the beneficiary read off a slip the company itself? Vision can misread a letter ("Hikiri" for "Hikari"), so up to two wrong letters pass.
+ * This is only ever asked together with an exact account number, which is what decides where the money went.
+ */
+export function sameCompanyName(read: string | null | undefined, company: string): boolean {
+  const norm = (x: string | null | undefined) => (x ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const a = norm(read);
+  const b = norm(company);
+  if (!a || !b) return false;
+  if (a.includes(b.slice(0, 10))) return true;
+  const head = b.slice(0, 16);
+  return editDistance(a.slice(0, head.length), head) <= 2;
+}

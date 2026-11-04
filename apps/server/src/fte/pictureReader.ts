@@ -69,6 +69,10 @@ export async function readSlip(fileId: string): Promise<SlipReading> {
   return reading;
 }
 
+/** A second look, when the first reading would turn a buyer away: vision can misread one digit. It does not replace the first reading. */
+export const lookAgainAtSlip = (fileId: string) => readPicture<SlipReading>(fileId, SLIP_PROMPT, { is_payment_slip: false, unreadable: ["The picture could not be read."] });
+export const lookAgainAtDocument = (fileId: string) => readPicture<DocReading>(fileId, DOC_PROMPT, { document_type: "Other", unreadable: ["The picture could not be read."] });
+
 export async function readDocument(fileId: string): Promise<DocReading> {
   const hit = docCache.get(fileId);
   if (hit) return hit;

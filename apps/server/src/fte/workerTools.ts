@@ -21,7 +21,8 @@ import { priceHistory } from "../services/auction";
 import { chassisLookup, chassisParts, fobEstimate, ourStock } from "../services/auctionExtras";
 import { envelope, now, pricingPolicy, siteSettings } from "../services/settings";
 import { ToolError } from "./errors";
-import { docReadingOf, readDocument, readSlip, slipReadingOf } from "./pictureReader";
+import { docReadingOf, lookAgainAtDocument, lookAgainAtSlip, readDocument, readSlip, slipReadingOf } from "./pictureReader";
+import { sameCompanyName } from "./guards";
 import type { ToolCtx, ToolDef } from "./tools";
 import { levelOf, workerUser } from "./workforce";
 
@@ -103,7 +104,9 @@ async function slipProblems(fileId: string, invoiceId: string, amount: number, r
   if (Math.abs(Number(reading.amount) - amount) > 0.01) out.push(`The slip says ${reading.amount}, not ${amount}.`);
   if ((reading.currency ?? "USD").toUpperCase() !== "USD") out.push(`The slip is in ${reading.currency}.`);
   const site = await siteSettings();
-  if (digits(reading.beneficiary_account) !== digits(site.bank.accountNo) || !clean(reading.beneficiary_name).includes(clean(site.bank.accountName).slice(0, 10))) out.push(`The slip does not show the company's account: it says "${reading.beneficiary_name}", account "${reading.beneficiary_account}".`);
+  const isOurs = (r: typeof reading) => digits(r.beneficiary_account) === digits(site.bank.accountNo) && sameCompanyName(r.beneficiary_name, site.bank.accountName);
+  // before telling a buyer the money went elsewhere, look at the picture once more: vision can misread one digit
+  if (!isOurs(reading) && !(reading.is_payment_slip !== false && isOurs(await lookAgainAtSlip(fileId)))) out.push(`The slip does not show the company's account: it says "${reading.beneficiary_name}", account "${reading.beneficiary_account}".`);
   if (!reference.trim() || clean(reading.reference) !== clean(reference)) out.push(`The slip's transaction reference is "${reading.reference ?? ""}".`);
   const [used] = await db().select({ id: s.payments.id }).from(s.payments).where(eq(s.payments.slipReference, reference.trim())).limit(1);
   if (used) out.push(`Reference ${reference} was recorded before: this slip has already been used.`);
@@ -286,7 +289,7 @@ const OPS_TOOLS: ToolDef[] = [
       if (!reading) throw new ToolError("Read the document with read_document first.");
       const [u] = await db().select().from(s.units).where(eq(s.units.id, String(a.unit_id))).limit(1);
       if (!u) throw new ToolError("No such unit");
-      if (reading.chassis && clean(reading.chassis) !== clean(u.chassis)) throw new ToolError(`This document is for chassis ${reading.chassis}, but the unit is ${u.chassis}. Do not file it. Pass it up with escalate_to_chief.`);
+      if (reading.chassis && clean(reading.chassis) !== clean(u.chassis) && clean((await lookAgainAtDocument(fileId)).chassis) !== clean(u.chassis)) throw new ToolError(`This document is for chassis ${reading.chassis}, but the unit is ${u.chassis}. Do not file it. Pass it up with escalate_to_chief.`);
       const [dup] = await db().select({ id: s.unitDocuments.id }).from(s.unitDocuments).where(and(eq(s.unitDocuments.unitId, u.id), eq(s.unitDocuments.fileId, fileId))).limit(1);
       if (dup) return { already_filed: true };
       await db().transaction(async (tx) => {

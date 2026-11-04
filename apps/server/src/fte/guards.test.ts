@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { asksPermissionAgain, promisesPerson, promisesWork, saidYes } from "./guards";
+import { asksPermissionAgain, promisesPerson, promisesWork, sameCompanyName, saidYes } from "./guards";
+
+describe("sameCompanyName: the beneficiary on a slip", () => {
+  const ours = "Hikari Motors Co., Ltd. (demo)";
+  it.each(["Hikari Motors Co., Ltd. (demo)", "HIKARI MOTORS CO LTD", "Hikiri Motors Co., Ltd. (demo)", "Hikari Motor Co., Ltd.", "Beneficiary: Hikari Motors"])("ours: %s", (x) => expect(sameCompanyName(x, ours)).toBe(true));
+  it.each(["Quick Cash Traders", "Hikawa Trading Co., Ltd.", "Motors Co., Ltd.", "", null])("not ours: %s", (x) => expect(sameCompanyName(x, ours)).toBe(false));
+});
 
 describe("promisesPerson — a reply that says a person is joining", () => {
   it.each([
