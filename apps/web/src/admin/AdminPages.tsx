@@ -35,6 +35,45 @@ export function Denied() {
 }
 
 /** Pick pictures from the computer; the server stores them and answers with their public addresses. */
+/** A car's video as a file: MP4, WebM or OGV. */
+function VideoUpload({ onDone, hasOne, onRemove }: { onDone: (url: string) => void; hasOne: boolean; onRemove: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div>
+      <p className="mb-1 text-sm font-medium text-slate-700">Video file (optional)</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="file"
+          aria-label="Upload a video"
+          accept="video/mp4,video/webm,video/ogg"
+          disabled={busy}
+          className="text-sm"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            setBusy(true);
+            setErr(null);
+            try {
+              const fd = new FormData();
+              fd.append("file", file);
+              onDone((await api.post<{ url: string }>("/api/admin/uploads/video", fd)).url);
+            } catch (ex) {
+              setErr(ex instanceof ApiError ? ex.message : "Upload failed");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+        {busy ? <span className="text-sm text-slate-500">Uploading…</span> : null}
+        {hasOne ? <Button type="button" size="sm" variant="ghost" onClick={onRemove}>Remove the video</Button> : null}
+      </div>
+      {err ? <p className="mt-1 text-xs font-medium text-rose-600">{err}</p> : null}
+    </div>
+  );
+}
+
 export function UploadButton({ onUploaded, multiple, label = "Upload" }: { onUploaded: (urls: string[]) => void; multiple?: boolean; label?: string }) {
   const ref = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -550,6 +589,7 @@ function VehicleForm({ meta, id, onClose, onSaved, onError }: { meta: Meta; id: 
           <section>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Video & SEO</p>
             <div className="grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2"><VideoUpload onDone={(url) => set("videoUrl", url)} hasOne={!!f.videoUrl} onRemove={() => set("videoUrl", "")} /></div>
               <Field label="Video URL" hint="YouTube link or an .mp4 file" className="sm:col-span-2"><Input value={String(f.videoUrl)} onChange={(e) => set("videoUrl", e.target.value)} placeholder="https://www.youtube.com/watch?v=…" /></Field>
               <Field label="SEO title" hint="browser tab and search results"><Input value={String(f.seoTitle)} onChange={(e) => set("seoTitle", e.target.value)} /></Field>
               <Field label="SEO keywords" hint="comma separated"><Input value={String(f.seoKeywords)} onChange={(e) => set("seoKeywords", e.target.value)} /></Field>
@@ -747,19 +787,19 @@ export function AdminPagesList() {
 }
 
 function PageForm({ id, onClose, onSaved, onError }: { id: string | null; onClose: () => void; onSaved: () => void; onError: (e: unknown) => void }) {
-  const [f, setF] = useState({ slug: "", title: "", body: "", seoTitle: "", seoDescription: "", published: true });
+  const [f, setF] = useState({ slug: "", title: "", subtitle: "", imageUrl: "", body: "", seoTitle: "", seoDescription: "", seoKeywords: "", published: true });
   const [loading, setLoading] = useState(!!id);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!id) return;
     let live = true;
-    void api.get<Record<string, unknown>>(`/api/admin/pages/${id}`).then((p) => { if (live) setF({ slug: String(p.slug ?? ""), title: String(p.title ?? ""), body: String(p.body ?? ""), seoTitle: String(p.seoTitle ?? ""), seoDescription: String(p.seoDescription ?? ""), published: !!p.published }); }).catch(onError).finally(() => live && setLoading(false));
+    void api.get<Record<string, unknown>>(`/api/admin/pages/${id}`).then((p) => { if (live) setF({ slug: String(p.slug ?? ""), title: String(p.title ?? ""), subtitle: String(p.subtitle ?? ""), imageUrl: String(p.imageUrl ?? ""), seoKeywords: String(p.seoKeywords ?? ""), body: String(p.body ?? ""), seoTitle: String(p.seoTitle ?? ""), seoDescription: String(p.seoDescription ?? ""), published: !!p.published }); }).catch(onError).finally(() => live && setLoading(false));
     return () => { live = false; };
   }, [id, onError]);
   const submit = async () => {
     setSaving(true);
     try {
-      const body = { slug: f.slug.trim(), title: f.title.trim(), body: f.body, seoTitle: f.seoTitle.trim() || null, seoDescription: f.seoDescription.trim() || null, published: f.published };
+      const body = { slug: f.slug.trim(), title: f.title.trim(), subtitle: f.subtitle.trim() || null, imageUrl: f.imageUrl || null, seoKeywords: f.seoKeywords.trim() || null, body: f.body, seoTitle: f.seoTitle.trim() || null, seoDescription: f.seoDescription.trim() || null, published: f.published };
       if (id) await api.patch(`/api/admin/pages/${id}`, body);
       else await api.post("/api/admin/pages", body);
       onSaved();
@@ -773,10 +813,20 @@ function PageForm({ id, onClose, onSaved, onError }: { id: string | null; onClos
             <Field label="Title"><Input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
             <Field label="Path (slug)" hint="lowercase, dashes — e.g. how-to-buy"><Input value={f.slug} onChange={(e) => setF({ ...f, slug: e.target.value })} disabled={!!id} /></Field>
           </div>
+          <Field label="Subtitle"><Input value={f.subtitle} onChange={(e) => setF({ ...f, subtitle: e.target.value })} /></Field>
+          <div>
+            <p className="mb-1 text-sm font-medium text-slate-700">Page image</p>
+            <div className="flex flex-wrap items-center gap-2">
+              {f.imageUrl ? <img src={f.imageUrl} alt="" className="size-10 rounded-lg object-cover ring-1 ring-slate-200" /> : null}
+              <UploadButton onUploaded={(urls) => setF({ ...f, imageUrl: urls[0] ?? "" })} />
+              {f.imageUrl ? <Button type="button" size="sm" variant="ghost" onClick={() => setF({ ...f, imageUrl: "" })}>Remove</Button> : null}
+            </div>
+          </div>
           <Field label="Body" hint="Markdown supported"><Textarea rows={10} value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} /></Field>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="SEO title"><Input value={f.seoTitle} onChange={(e) => setF({ ...f, seoTitle: e.target.value })} /></Field>
             <Field label="SEO description"><Input value={f.seoDescription} onChange={(e) => setF({ ...f, seoDescription: e.target.value })} /></Field>
+            <Field label="SEO keywords" hint="separated by commas" className="sm:col-span-2"><Input value={f.seoKeywords} onChange={(e) => setF({ ...f, seoKeywords: e.target.value })} /></Field>
           </div>
           <label className="flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked={f.published} onChange={(e) => setF({ ...f, published: e.target.checked })} className="size-4 rounded" /> Published</label>
         </div>

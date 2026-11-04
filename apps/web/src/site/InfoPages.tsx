@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Building2, Check, ChevronRight, ClipboardCheck, Clock, Copy, Car, FileText, Gavel, Headphones, Landmark, Mail, MapPin, Phone, Ship } from "lucide-react";
@@ -22,9 +22,27 @@ export function PageShell({ title, subtitle, children }: { title: string; subtit
 }
 
 export function ContentPageView({ slug }: { slug: string }) {
-  const q = useQuery({ queryKey: ["page", slug], queryFn: () => api.get<{ title: string; body: string }>(`/api/public/pages/${slug}`) });
+  const q = useQuery({ queryKey: ["page", slug], queryFn: () => api.get<{ title: string; subtitle: string | null; imageUrl: string | null; body: string; seoTitle: string | null; seoDescription: string | null; seoKeywords: string | null }>(`/api/public/pages/${slug}`) });
+  const page = q.data;
+  useEffect(() => {
+    if (!page) return;
+    const before = document.title;
+    if (page.seoTitle) document.title = page.seoTitle;
+    const metas = ([["description", page.seoDescription], ["keywords", page.seoKeywords]] as const).filter(([, v]) => v).map(([name, v]) => {
+      const m = document.createElement("meta");
+      m.name = name;
+      m.content = v!;
+      document.head.appendChild(m);
+      return m;
+    });
+    return () => {
+      document.title = before;
+      metas.forEach((m) => m.remove());
+    };
+  }, [page]);
   return (
-    <PageShell title={q.data?.title ?? "…"}>
+    <PageShell title={page?.title ?? "…"} subtitle={page?.subtitle ?? undefined}>
+      {page?.imageUrl ? <img src={page.imageUrl} alt={page.title} className="mb-4 max-h-80 w-full max-w-3xl rounded-2xl object-cover" /> : null}
       <Card className="prose-lite max-w-3xl text-slate-700">{q.isLoading ? <Skeleton className="h-40" /> : <div dangerouslySetInnerHTML={{ __html: miniMarkdown(q.data?.body ?? "") }} />}</Card>
     </PageShell>
   );
@@ -34,15 +52,16 @@ const SERVICE_ICONS: Record<string, ReactNode> = { Gavel: <Gavel />, Car: <Car /
 
 export function ServicesView() {
   const fte = useFte();
-  const q = useQuery({ queryKey: ["services"], queryFn: () => api.get<{ title: string; body: string; icon: string }[]>("/api/public/services") });
+  const q = useQuery({ queryKey: ["services"], queryFn: () => api.get<{ title: string; body: string; icon: string; imageUrl: string | null; ctaLabel: string | null }[]>("/api/public/services") });
   return (
     <PageShell title="Our services" subtitle={`From the auction hall in Japan to your port — one team, one record, and ${fte} answering 24/7.`}>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {q.data?.map((s) => (
           <Card key={s.title}>
-            <div className="mb-3 inline-flex rounded-xl bg-brand-50 p-2.5 text-brand-600 [&_svg]:size-6">{SERVICE_ICONS[s.icon]}</div>
+            {s.imageUrl ? <img src={s.imageUrl} alt={s.title} loading="lazy" className="mb-3 aspect-video w-full rounded-xl object-cover" /> : <div className="mb-3 inline-flex rounded-xl bg-brand-50 p-2.5 text-brand-600 [&_svg]:size-6">{SERVICE_ICONS[s.icon]}</div>}
             <p className="font-semibold text-slate-900">{s.title}</p>
             <p className="mt-1 text-sm text-slate-600">{s.body}</p>
+            {s.ctaLabel ? <Link to="/contact" className="mt-3 inline-block text-sm font-semibold text-brand-700 hover:underline">{s.ctaLabel}</Link> : null}
           </Card>
         ))}
       </div>

@@ -202,7 +202,7 @@ function VehicleVideo({ url }: { url: string }) {
       <h2 className="mb-3 text-lg font-semibold text-slate-900">Video</h2>
       {youtube ? (
         <iframe className="aspect-video w-full rounded-xl" src={`https://www.youtube-nocookie.com/embed/${youtube}`} title="Vehicle video" loading="lazy" allowFullScreen />
-      ) : /\.(mp4|webm)(\?|$)/i.test(url) ? (
+      ) : /\.(mp4|webm|ogv)(\?|$)/i.test(url) || url.startsWith("/api/media/site/") ? (
         <video className="aspect-video w-full rounded-xl bg-black" src={url} controls preload="metadata" />
       ) : (
         <a href={url} target="_blank" rel="noreferrer" className="font-semibold text-brand-700 hover:underline">Watch the video</a>

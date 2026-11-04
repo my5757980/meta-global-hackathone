@@ -71,6 +71,13 @@
       "when": 1793700957914,
       "tag": "0009_chat_forced",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793833706318,
+      "tag": "0010_tricky_thunderbolt_ross",
+      "breakpoints": true
     }
   ]
 }

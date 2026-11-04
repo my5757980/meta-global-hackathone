@@ -48,7 +48,7 @@ interface Collection {
 const COLLECTIONS: Record<string, Collection> = {
   services: {
     table: s.services,
-    schema: z.object({ title: z.string().trim().min(2).max(120), body: z.string().trim().min(2).max(2000), icon: z.enum(SERVICE_ICONS).nullable().optional(), sort: z.number().int().optional() }) as never,
+    schema: z.object({ title: z.string().trim().min(2).max(120), body: z.string().trim().min(2).max(2000), imageUrl: z.string().max(500).nullable().optional(), ctaLabel: z.string().max(60).nullable().optional(), icon: z.enum(SERVICE_ICONS).nullable().optional(), sort: z.number().int().optional() }) as never,
     label: (r) => String(r.title),
     order: () => [asc(s.services.sort), asc(s.services.title)],
   },
@@ -547,7 +547,17 @@ adminContentRouter.get(
     const f = parse(z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(48) }), req.query);
     const rows = await db().select().from(s.files).where(eq(s.files.kind, "site-image")).orderBy(desc(s.files.createdAt), asc(s.files.id)).limit(f.pageSize).offset((f.page - 1) * f.pageSize);
     const n = countOf((await db().select({ n: sql<number>`count(*)::int` }).from(s.files).where(eq(s.files.kind, "site-image"))) as { n: number }[]);
-    return { items: rows.map((r) => ({ id: r.id, url: `/api/media/site/${r.id}`, name: r.originalName, mime: r.mime, size: r.size, createdAt: r.createdAt })), total: n, page: f.page, pageSize: f.pageSize };
+    return { items: rows.map((r) => ({ id: r.id, url: `/api/media/site/${r.id}`, name: r.originalName, altText: r.altText, caption: r.caption, mime: r.mime, size: r.size, createdAt: r.createdAt })), total: n, page: f.page, pageSize: f.pageSize };
+  }),
+);
+adminContentRouter.patch(
+  "/media/:id",
+  h(async (req) => {
+    requireMedia(req);
+    const b = parse(z.object({ altText: z.string().max(200).nullable().optional(), caption: z.string().max(300).nullable().optional() }), req.body);
+    const r = await db().update(s.files).set(b).where(and(eq(s.files.id, String(req.params.id)), eq(s.files.kind, "site-image"))).returning({ id: s.files.id });
+    if (!r.length) throw notFound();
+    return { ok: true };
   }),
 );
 adminContentRouter.delete(
@@ -577,6 +587,20 @@ adminContentRouter.delete(
 
 // ---------- pictures for the site (car photos, logo, guide covers) ----------
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 20 } });
+// a car's video: 100 MB, as on the real site; a shared public demo on a small server takes less
+const videoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: (env.PUBLIC_DEMO ? 25 : 100) * 1024 * 1024, files: 1 } });
+adminContentRouter.post(
+  "/uploads/video",
+  videoUpload.single("file"),
+  h(async (req) => {
+    const u = requirePerm(req, "website.vehicles.manage");
+    const f = req.file;
+    if (!f) throw bad("No file");
+    if (!/^video\/(mp4|webm|ogg)$/.test(f.mimetype)) throw bad("Use an MP4, WebM or OGV video");
+    const saved = await saveFile(f.buffer, { kind: "site-video", mime: f.mimetype, originalName: f.originalname, ownerUserId: u.id });
+    return { url: `/api/media/site/${saved.id}` };
+  }),
+);
 
 adminContentRouter.post(
   "/uploads",

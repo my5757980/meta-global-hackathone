@@ -333,9 +333,12 @@ const pageBody = z.object({
     .max(80)
     .regex(/^[a-z0-9-]+$/, "Use lowercase letters, numbers and dashes only"),
   title: z.string().trim().min(1).max(160),
+  subtitle: z.string().max(300).nullable().optional(),
+  imageUrl: z.string().max(500).nullable().optional(),
   body: z.string().max(100_000).optional(),
   seoTitle: z.string().max(200).nullable().optional(),
   seoDescription: z.string().max(400).nullable().optional(),
+  seoKeywords: z.string().max(400).nullable().optional(),
   published: z.boolean().optional(),
 });
 const pageUpdate = pageBody.partial();
@@ -367,7 +370,7 @@ adminRouter.post(
     if (hit) throw conflict("A page with that slug already exists");
     const id = genId();
     await db().transaction(async (tx) => {
-      await tx.insert(s.pages).values({ id, slug: b.slug, title: b.title, body: b.body ?? "", seoTitle: b.seoTitle ?? null, seoDescription: b.seoDescription ?? null, published: b.published ?? true, updatedAt: new Date() });
+      await tx.insert(s.pages).values({ id, slug: b.slug, title: b.title, subtitle: b.subtitle ?? null, imageUrl: b.imageUrl ?? null, body: b.body ?? "", seoTitle: b.seoTitle ?? null, seoDescription: b.seoDescription ?? null, seoKeywords: b.seoKeywords ?? null, published: b.published ?? true, updatedAt: new Date() });
       await audit(tx, { actorUserId: u.id, actorKind: "human", action: "page.created", entity: "page", entityId: id, summary: `Created page /${b.slug}` });
     });
     return { id, slug: b.slug };

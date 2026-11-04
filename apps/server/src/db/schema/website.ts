@@ -106,9 +106,12 @@ export const pages = pgTable("pages", {
   id: id(),
   slug: text().notNull().unique(),
   title: text().notNull(),
+  subtitle: text(),
+  imageUrl: text(),
   body: text().notNull().default(""),
   seoTitle: text(),
   seoDescription: text(),
+  seoKeywords: text(),
   published: boolean().notNull().default(true),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
@@ -130,6 +133,8 @@ export const services = pgTable("services", {
   title: text().notNull(),
   body: text().notNull(),
   icon: text(),
+  imageUrl: text(),
+  ctaLabel: text(),
   sort: integer().notNull().default(0),
 });
 

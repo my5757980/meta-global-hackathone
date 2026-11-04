@@ -217,7 +217,7 @@ mediaRouter.get(
   "/site/:id",
   h(async (req, res) => {
     const f = await getFile(String(req.params.id));
-    if (!f || f.kind !== "site-image") throw notFound();
+    if (!f || (f.kind !== "site-image" && f.kind !== "site-video")) throw notFound();
     res.setHeader("Content-Type", f.mime);
     res.setHeader("Cache-Control", "public, max-age=604800, immutable");
     res.sendFile(f.abs, { dotfiles: "allow" }); // stored under .data/ — send() treats dot-folders as missing by default

@@ -124,6 +124,8 @@ export const files = pgTable("files", {
   path: text().notNull(),
   originalName: text(),
   ownerUserId: text(),
+  altText: text(),
+  caption: text(),
   createdAt: createdAt(),
 });
 

@@ -77,6 +77,8 @@ const COLLS: Coll[] = [
         ],
       },
       { name: "body", label: "Text", kind: "area", rows: 4, required: true, wide: true },
+      { name: "imageUrl", label: "Image", kind: "image", nullable: true },
+      { name: "ctaLabel", label: "Button text", nullable: true, hint: "it opens the contact page; empty for no button" },
       ORDER,
     ],
     title: (r) => String(r.title),
@@ -651,7 +653,7 @@ export function AdminMedia() {
   const flash = useFlash();
   const [page, setPage] = useState(1);
   const allowed = can("website.vehicles.manage") || can("website.content.manage") || can("website.settings.manage");
-  const q = useQuery({ queryKey: ["admin/media", page], queryFn: () => api.get<{ items: { id: string; url: string; name: string | null; size: number; createdAt: string }[]; total: number; page: number; pageSize: number }>("/api/admin/media" + qs({ page })), enabled: allowed });
+  const q = useQuery({ queryKey: ["admin/media", page], queryFn: () => api.get<{ items: { id: string; url: string; name: string | null; altText: string | null; caption: string | null; size: number; createdAt: string }[]; total: number; page: number; pageSize: number }>("/api/admin/media" + qs({ page })), enabled: allowed });
   if (!allowed) return <Denied />;
   return (
     <div>
@@ -679,10 +681,12 @@ export function AdminMedia() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
             {q.data.items.map((m) => (
               <Card key={m.id} padded={false} className="overflow-hidden">
-                <img src={m.url} alt={m.name ?? ""} loading="lazy" className="aspect-[4/3] w-full bg-slate-100 object-cover" />
+                <img src={m.url} alt={m.altText ?? m.name ?? ""} loading="lazy" className="aspect-[4/3] w-full bg-slate-100 object-cover" />
                 <div className="p-3">
                   <p className="truncate text-xs font-medium text-slate-800" title={m.name ?? ""}>{m.name ?? "Picture"}</p>
                   <p className="text-[11px] text-slate-500">{Math.max(1, Math.round(m.size / 1024))} KB · {date(m.createdAt)}</p>
+                  <input aria-label="Alternate text" placeholder="Alternate text" defaultValue={m.altText ?? ""} onBlur={(e) => { if (e.target.value !== (m.altText ?? "")) void api.patch(`/api/admin/media/${m.id}`, { altText: e.target.value || null }).then(() => flash.ok("Saved")); }} className="mt-2 h-8 w-full rounded-lg border border-slate-200 px-2 text-xs" />
+                  <input aria-label="Caption" placeholder="Caption" defaultValue={m.caption ?? ""} onBlur={(e) => { if (e.target.value !== (m.caption ?? "")) void api.patch(`/api/admin/media/${m.id}`, { caption: e.target.value || null }).then(() => flash.ok("Saved")); }} className="mt-1 h-8 w-full rounded-lg border border-slate-200 px-2 text-xs" />
                   <div className="mt-2 flex items-center gap-1">
                     <Button
                       size="sm"
