@@ -1,4 +1,4 @@
-# Tries the released APK on an emulator against the live demo (scripts/app-smoke.py) and adds its screenshots to the release.
+# Tries the released APK on an emulator against the live demo (scripts/app-smoke.py). Its screenshots are the run's artifact.
 # Run it by pushing a tag: git tag app-try-1 && git push <repo> app-try-1
 name: Try the APK
 
@@ -7,7 +7,7 @@ on:
     tags: ["app-try-*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   try:
@@ -49,11 +49,9 @@ jobs:
             adb install -r out/AutoFTE.apk
             python3 scripts/app-smoke.py out
 
-      - name: Add the screenshots to the release
+      - uses: actions/upload-artifact@v4
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          ls -la out || true
-          latest=$(gh release view --json tagName -q .tagName)
-          for f in out/app-*.png; do [ -f "$f" ] && gh release upload "$latest" "$f" --clobber; done
+        with:
+          name: screens
+          path: out/app-*.png
+          retention-days: 7
