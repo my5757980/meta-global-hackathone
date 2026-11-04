@@ -169,7 +169,7 @@ Other commands: `npm run build && npm start` (one process serves the site, API a
 ## What it does not do
 
 - All data is fictional. Import rules per country are demo data, and the screen says so.
-- PayPal at checkout needs your keys (`PAYPAL_CLIENT_ID`, `PAYPAL_SECRET` in `.env`). Without them, demo mode has a stand-in page that moves no money and says so. The PayPal path was tested against a local fake of its API, not against PayPal itself. Most buyers pay by bank transfer, and Ren records it from the slip.
+- Buyers pay by **bank transfer**, the way used-car exporters are paid. Checkout places an order request, the website desk FTE turns it into an invoice, and Ren (accounts) reads the bank slip picture and records the payment. There is no online card payment.
 - The bank, the yard and the shipping line are simulated in demo mode: slips and documents are printed by the server and marked as demo, and yard signals play on the demo clock. What the FTEs do with them is real. A real company would connect its own feeds.
 - The auction lots are made up. Two demo feeds add lots through the day (`DEMO_FEED_MINUTES`, 0 turns them off); a real company would connect its own, under its own contract. The production-year lookup answers from a demo table and says so.
 - Language on the auction pages is translated by Muse Spark Open on request and held in memory, so a first change of language takes some seconds.
