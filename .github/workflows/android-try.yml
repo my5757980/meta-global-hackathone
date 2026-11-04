@@ -9,9 +9,6 @@ on:
 permissions:
   contents: write
 
-env:
-  RELEASE: app-v3.0.0
-
 jobs:
   try:
     runs-on: ubuntu-latest
@@ -29,7 +26,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p out
-          gh release download "$RELEASE" -p AutoFTE.apk -D out
+          gh release download -p AutoFTE.apk -D out
           ls -la out
 
       - name: Let the emulator use KVM
@@ -58,4 +55,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la out || true
-          for f in out/app-*.png; do [ -f "$f" ] && gh release upload "$RELEASE" "$f" --clobber; done
+          latest=$(gh release view --json tagName -q .tagName)
+          for f in out/app-*.png; do [ -f "$f" ] && gh release upload "$latest" "$f" --clobber; done
