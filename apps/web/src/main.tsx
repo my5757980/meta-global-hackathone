@@ -48,7 +48,6 @@ const shopPages = () => import("./site/ShopPages");
 const Wishlist = lazy(() => shopPages().then((m) => ({ default: m.WishlistView })));
 const Cart = lazy(() => shopPages().then((m) => ({ default: m.CartView })));
 const Checkout = lazy(() => shopPages().then((m) => ({ default: m.CheckoutView })));
-const PayPage = lazy(() => import("./site/PayPage"));
 
 const CrmDashboard = lazy(() => import("./crm/CrmDashboard"));
 const Leads = lazy(() => import("./crm/Leads"));
@@ -130,7 +129,6 @@ const router = createBrowserRouter([
       { path: "/wishlist", element: page(<Wishlist />) },
       { path: "/cart", element: page(<Cart />) },
       { path: "/checkout", element: page(<Checkout />) },
-      { path: "/pay/:id", element: page(<PayPage />) },
       { path: "*", element: page(<NotFound />) },
     ],
   },

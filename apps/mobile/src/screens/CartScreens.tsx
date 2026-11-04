@@ -125,7 +125,6 @@ export function CheckoutScreen() {
   const { site } = useSite();
   const { me, refresh: refreshMe } = useAuth();
   const shop = useShop();
-  const options = useFetch<{ provider: "paypal" | "demo" | null }>("/api/shop/pay-options");
   const countries = useFetch<{ code: string; name: string; ports: { id: string; name: string }[] }[]>("/api/public/countries");
   const [f, setF] = useState({ name: me?.name ?? "", email: me?.email ?? "", phone: me?.phone ?? "", countryCode: "", city: "", port: "", notes: "", password: "", confirm: "" });
   const [percent, setPercent] = useState(100);
@@ -164,7 +163,7 @@ export function CheckoutScreen() {
   const remaining = Math.round((subtotal - payNow) * 100) / 100;
   const country = countries.data?.find((c) => c.code === f.countryCode);
   const canSend = !!(f.name.trim() && f.email.trim() && f.phone.trim() && f.countryCode && (me || f.password.length >= 8));
-  const submit = async (pay?: "online") => {
+  const submit = async () => {
     setErr(null);
     if (!me && f.password !== f.confirm) {
       setErr("The two passwords are not the same");
@@ -174,7 +173,6 @@ export function CheckoutScreen() {
     try {
       const r = await api.post<{ orderId: string; orderNo: string; totalUsd: number; items: number; sessionToken?: string }>("/api/shop/checkout", {
         notes: f.notes.trim() || undefined,
-        pay,
         name: f.name.trim(),
         email: f.email.trim(),
         phone: f.phone.trim(),
@@ -191,10 +189,6 @@ export function CheckoutScreen() {
         await refreshMe();
       }
       void shop.refresh();
-      if (pay) {
-        nav.replace("Pay", { id: r.orderId });
-        return;
-      }
       setDone(r);
     } catch (e) {
       setErr(errText(e));
@@ -263,77 +257,7 @@ export function CheckoutScreen() {
         {asked < floor ? <T style={{ color: C.amber, fontSize: 12, marginTop: 4 }}>For orders of $3,000 or less, the least you can pay now is 25%.</T> : null}
         <T style={{ color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 6 }}>The final invoice can add freight, inspection, documents and destination charges once our team confirms your route.</T>
         {err ? <View style={{ marginTop: 12 }}><ErrorBox text={err} /></View> : null}
-        {options.data?.provider ? <Button title={options.data.provider === "paypal" ? "Pay with PayPal or card" : "Pay online (demo)"} icon="card-outline" disabled={busy || !canSend} onPress={() => void submit("online")} style={{ marginTop: 14 }} /> : null}
-        <Button title="Submit order for checking" icon="paper-plane-outline" variant={options.data?.provider ? "secondary" : "primary"} loading={busy} disabled={!canSend} onPress={() => void submit()} style={{ marginTop: 10 }} />
-      </Card>
-    </Screen>
-  );
-}
-
-/* ============================== Paying online ============================== */
-export function PayScreen() {
-  const nav = useNavigation<any>();
-  const route = useRoute<any>();
-  const id = route.params?.id as string;
-  const q = useFetch<WebOrder>(`/api/shop/orders/${encodeURIComponent(id)}`);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const o = q.data;
-  const demo = o?.paymentMethod === "Online (demo)";
-  const start = async (open: boolean) => {
-    setBusy(true);
-    setErr(null);
-    try {
-      const p = await api.post<{ approveUrl: string | null }>(`/api/shop/orders/${encodeURIComponent(id)}/pay`, {});
-      q.reload();
-      if (p.approveUrl && open) await Linking.openURL(p.approveUrl);
-    } catch (e) {
-      setErr(errText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const capture = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      await api.post(`/api/shop/orders/${encodeURIComponent(id)}/capture`, {});
-      q.reload();
-    } catch (e) {
-      setErr(errText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  useEffect(() => {
-    if (o && !o.paidAt && !o.paymentRef) void start(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [o?.id]);
-  if (q.loading) return <Screen><Skeleton h={200} /></Screen>;
-  if (!o) return <Screen><ErrorBox text={q.error ?? "Order not found"} onRetry={q.reload} /></Screen>;
-  return (
-    <Screen>
-      <Card style={{ alignItems: "center", paddingVertical: 24 }}>
-        <Ionicons name={o.paidAt ? "checkmark-circle" : "card-outline"} size={52} color={o.paidAt ? C.green : C.muted} />
-        <T style={{ fontSize: 20, fontWeight: "800", color: C.ink, marginTop: 8 }}>{o.paidAt ? "Payment received" : `Pay order ${o.orderNo}`}</T>
-        <T style={{ fontSize: 24, fontWeight: "800", color: C.ink, marginTop: 4 }}>{usd(o.totalUsd)}</T>
-        {o.paidAt ? (
-          <>
-            <T style={{ textAlign: "center", marginTop: 8, color: C.muted, lineHeight: 20 }}>Your invoice is being prepared, and you will see it in the chat and in My invoices.</T>
-            <Button title="View my orders" onPress={() => nav.replace("Orders")} style={{ marginTop: 14, alignSelf: "stretch" }} />
-          </>
-        ) : demo ? (
-          <>
-            <T style={{ textAlign: "center", marginTop: 8, color: C.muted, lineHeight: 20 }}>This is a demo stand-in for the payment page. No money moves, and nothing is asked of you.</T>
-            <Button title="Approve demo payment" loading={busy} onPress={() => void capture()} style={{ marginTop: 14, alignSelf: "stretch" }} />
-          </>
-        ) : (
-          <>
-            <Button title="Pay with PayPal" icon="open-outline" loading={busy} onPress={() => void start(true)} style={{ marginTop: 14, alignSelf: "stretch" }} />
-            {o.paymentRef ? <Button title="I have paid" variant="secondary" disabled={busy} onPress={() => void capture()} style={{ marginTop: 8, alignSelf: "stretch" }} /> : null}
-          </>
-        )}
-        {err ? <View style={{ marginTop: 12, alignSelf: "stretch" }}><ErrorBox text={err} /></View> : null}
+        <Button title="Submit order for checking" icon="paper-plane-outline" variant="primary" loading={busy} disabled={!canSend} onPress={() => void submit()} style={{ marginTop: 14 }} />
       </Card>
     </Screen>
   );
@@ -393,7 +317,6 @@ export function OrdersScreen() {
               <View style={st.next}>
                 <T style={{ color: C.text, fontSize: 12 }}>{NEXT[o.status] ?? ""}</T>
               </View>
-              {o.paidAt ? <T style={{ color: C.green, fontSize: 12, fontWeight: "700", marginTop: 6 }}>Paid online · {o.paymentMethod}</T> : o.paymentMethod && o.paymentMethod !== "Order request" && o.status === "pending" ? <Button title="Pay now" small onPress={() => nav.navigate("Pay", { id: o.id })} style={{ marginTop: 8, alignSelf: "flex-start" }} /> : null}
               {o.notes ? <T style={{ color: C.muted, fontSize: 12, marginTop: 6 }}>Your note: {o.notes}</T> : null}
             </Card>
           ))}

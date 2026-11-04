@@ -58,9 +58,6 @@ const schema = z.object({
   TURN_USERNAME: z.string().optional(),
   TURN_PASSWORD: z.string().optional(),
   SMTP_URL: z.string().optional(),
-  PAYPAL_CLIENT_ID: z.string().optional(),
-  PAYPAL_SECRET: z.string().optional(),
-  PAYPAL_BASE_URL: z.string().default("https://api-m.sandbox.paypal.com"),
   MAIL_FROM: z.string().default("no-reply@hikari-motors.example"),
 });
 

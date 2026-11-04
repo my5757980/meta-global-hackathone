@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router";
+import { Link, Navigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, CheckCircle2, Heart, ShoppingCart, Trash2 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
@@ -155,8 +155,6 @@ function CheckoutInner() {
   const q = useCart();
   const qc = useQueryClient();
   const { me, refresh } = useAuth();
-  const nav = useNavigate();
-  const options = useQuery({ queryKey: ["pay-options"], queryFn: () => api.get<{ provider: "paypal" | "demo" | null }>("/api/shop/pay-options") });
   const countries = useQuery({ queryKey: ["countries"], queryFn: () => api.get<{ code: string; name: string; ports: { id: string; name: string }[] }[]>("/api/public/countries"), staleTime: 3600_000 });
   const profile = useQuery({ queryKey: ["profile"], queryFn: () => api.get<{ name: string; email: string; phone: string; countryCode: string | null; city: string | null }>("/api/account/profile"), enabled: !!me && me.kind === "customer" });
   const [f, setF] = useState({ name: "", email: "", phone: "", countryCode: "", city: "", port: "", notes: "", password: "", confirm: "" });
@@ -199,7 +197,7 @@ function CheckoutInner() {
   const remaining = Math.round((subtotal - payNow) * 100) / 100;
   const raised = asked < floor;
   const ports = countries.data?.find((c) => c.code === f.countryCode)?.ports ?? [];
-  const submit = async (pay?: "online") => {
+  const submit = async () => {
     setErr(null);
     if (!me && f.password !== f.confirm) {
       setErr("The two passwords are not the same");
@@ -209,7 +207,6 @@ function CheckoutInner() {
     try {
       const body = {
         notes: f.notes.trim() || undefined,
-        pay,
         name: f.name || undefined,
         email: f.email || undefined,
         phone: f.phone || undefined,
@@ -233,12 +230,6 @@ function CheckoutInner() {
       }
       void qc.invalidateQueries({ queryKey: ["shop"] });
       void qc.invalidateQueries({ queryKey: ["my-orders"] });
-      if (pay) {
-        const p = await api.post<{ approveUrl: string | null }>(`/api/shop/orders/${r.orderId}/pay`, {});
-        if (p.approveUrl) window.location.assign(p.approveUrl);
-        else nav(`/pay/${r.orderId}`);
-        return;
-      }
       setDone(r);
     } catch (e) {
       setErr(errText(e));
@@ -313,12 +304,7 @@ function CheckoutInner() {
             {raised && <p className="mt-2 rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-800">For orders of $3,000 or less, the least you can pay now is 25%.</p>}
             <p className="mt-2 text-xs text-slate-500">The final invoice can add freight, inspection, documents and destination charges once our team confirms your route.</p>
             {err && <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{err}</p>}
-            {options.data?.provider && (
-              <Button size="lg" className="mt-4 w-full" disabled={busy || !canSend} onClick={() => void submit("online")}>
-                {options.data.provider === "paypal" ? "Pay with PayPal or card" : "Pay online (demo)"}
-              </Button>
-            )}
-            <Button size="lg" variant={options.data?.provider ? "secondary" : "primary"} className="mt-2 w-full" loading={busy} disabled={!canSend} onClick={() => void submit()}>Submit order for checking</Button>
+            <Button size="lg" variant="primary" className="mt-4 w-full" loading={busy} disabled={!canSend} onClick={() => void submit()}>Submit order for checking</Button>
             <p className="mt-2 text-xs text-slate-500">Submitting sends the order with nothing to pay yet. We confirm the cars, then send the invoice with bank details.</p>
           </Card>
         </div>

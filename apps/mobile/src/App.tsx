@@ -17,7 +17,7 @@ import HomeScreen from "./screens/HomeScreen";
 import ShopScreen from "./screens/ShopScreen";
 import VehicleScreen from "./screens/VehicleScreen";
 import ChatScreen from "./screens/ChatScreen";
-import { CartScreen, CheckoutScreen, OrdersScreen, PayScreen, WishlistScreen } from "./screens/CartScreens";
+import { CartScreen, CheckoutScreen, OrdersScreen, WishlistScreen } from "./screens/CartScreens";
 import { AuthScreen, BankScreen, BlogPostScreen, BlogScreen, ContactScreen, FaqScreen, InvoiceScreen, InvoicesScreen, MenuScreen, PageScreen, ProfileScreen, ServerScreen, ServicesScreen, ForgotScreen, ResetPasswordScreen, PartnersScreen, LocationsScreen } from "./screens/MenuScreens";
 import { CallProvider } from "./lib/calls";
 import { onCallAnswered } from "./lib/calls";
@@ -71,7 +71,6 @@ function shared(S: ReturnType<typeof createNativeStackNavigator>) {
       <S.Screen name="GroupInfo" component={GroupInfoScreen} options={{ title: "Group" }} />
       <S.Screen name="Auth" component={AuthScreen} options={{ title: "Sign in" }} />
       <S.Screen name="Checkout" component={CheckoutScreen} options={{ title: "Checkout" }} />
-      <S.Screen name="Pay" component={PayScreen} options={{ title: "Pay" }} />
       <S.Screen name="Orders" component={OrdersScreen} options={{ title: "My orders" }} />
       <S.Screen name="Wishlist" component={WishlistScreen} options={{ title: "Saved cars" }} />
       <S.Screen name="Invoices" component={InvoicesScreen} options={{ title: "My invoices" }} />
