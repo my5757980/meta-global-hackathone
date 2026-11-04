@@ -591,6 +591,15 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 *
 const videoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: (env.PUBLIC_DEMO ? 25 : 100) * 1024 * 1024, files: 1 } });
 adminContentRouter.post(
   "/uploads/video",
+  (req, _res, next) => {
+    // who may upload is asked first: a large body is not read for anyone else
+    try {
+      requirePerm(req, "website.vehicles.manage");
+      next();
+    } catch (e) {
+      next(e);
+    }
+  },
   videoUpload.single("file"),
   h(async (req) => {
     const u = requirePerm(req, "website.vehicles.manage");
