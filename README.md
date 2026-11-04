@@ -162,10 +162,11 @@ fallback. "Listen" in the chat uses the browser's own speech, not a model.
 | **Android app** | The whole website (home with every section, shop with every filter, car pages, cart, checkout, account, guides, FAQ, newsletter, forgotten and changed passwords, sending a bank slip) and the same chat with Sora and the team, voice and video calls with a flip camera, push notifications with Reply and Answer buttons, a desk for staff on the phone (agents, buyers, groups). No CRM and no auction screens (`apps/mobile`, Expo). The site has a download page at `/app` |
 | **Digital workforce console** | The roster with each FTE's role card and autonomy dials, what needs the owner with the chief of staff's opinion, the signed decision ledger with overrule, daily reports, the team room, every run and tool call, limits, evals, and a button to watch one whole sale |
 
-**[Download the Android app](../../releases/latest/download/AutoFTE.apk)** (Android 7 or newer). It opens on the live demo. The released APK has no
-push notifications, because they need your own Firebase project (see below). To use your own server, set it in Menu, Server address, for
-example `http://192.168.1.20:8787` after `npm run build && npm start` on a laptop on the same Wi-Fi. To build it yourself:
-`cd apps/mobile && npm install && npx expo run:android`.
+**[Download the Android app](../../releases/latest/download/AutoFTE.apk)** (Android 7 or newer). It opens on the live demo, with push
+notifications. To use your own server, set it in Menu, Server address, for example `http://192.168.1.20:8787` after
+`npm run build && npm start` on a laptop on the same Wi-Fi (push then needs your own Firebase project, see below). To build it yourself:
+`cd apps/mobile && npm install && npx expo run:android`. A tag builds it on GitHub Actions, and another installs that release on an
+emulator and uses it against the live demo: home, shop, a question to Sora, a push with the app closed (`scripts/app-smoke.py`).
 
 Other commands: `npm run build && npm start` (one process serves the site, API and MCP on :8787), `npm test`, `npm run typecheck`,
 `npm run lint:secrets`. Set `DATABASE_URL` to use your own Postgres; the demo and all tests ran on the embedded one.
