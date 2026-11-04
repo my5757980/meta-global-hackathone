@@ -55,7 +55,11 @@ export async function startCall(u: AuthUser, conversationId: string, media: "aud
   if (conv.kind === "group") throw bad("Group calls are not available — call one colleague");
   let callee: string | null = null;
   if (conv.kind === "staff_dm") callee = (await conversationMembers(conv.id)).find((m) => m !== u.id) ?? null;
-  else if (isStaff(u)) callee = conv.customerUserId;
+  else if (isStaff(u)) {
+    // a colleague rings a buyer from their own conversation: reading another agent's thread gives no phone
+    if (conv.holder === "human" && conv.assignedUserId && conv.assignedUserId !== u.id) throw forbidden("This buyer is with another agent. Only they can call from this conversation.");
+    callee = conv.customerUserId;
+  }
   else {
     // a buyer calling while the AI employee holds the chat reaches her; with the desks off, or holding a person's chat, as before
     if (conv.holder === "fte" && !(await deskManual("sales", "sales.chat"))) return answerAsFte(u, conv.id, media);
@@ -69,16 +73,8 @@ export async function startCall(u: AuthUser, conversationId: string, media: "aud
   const [row] = await db().insert(s.chatCalls).values({ conversationId: conv.id, callerId: u.id, calleeId: callee, media }).returning();
   const c: Live = { id: row!.id, conversationId: conv.id, callerId: u.id, calleeId: callee, media, answeredAt: null, timer: null };
   live.set(c.id, c);
-  if (!isOnline(callee)) {
-    // away, but a phone with the app can be rung
-    const rung = await pushToUsers([callee], { kind: "call", title: `${u.name} is calling`, body: media === "video" ? "Video call: tap to answer" : "Voice call: tap to answer", data: { callId: c.id, conversationId: conv.id } });
-    if (!rung) {
-      await finish(c, "missed");
-      throw conflict(`${them?.name ?? "They"} ${them ? "is" : "are"} offline — they will see a missed call in the chat`);
-    }
-  }
-  // a colleague calling a buyer takes the thread from Sora, as writing to them would
-  if (conv.kind === "customer" && isStaff(u) && u.kind === "staff" && conv.holder === "fte") await setHolder(conv.id, "human", { id: u.id, name: u.name });
+  // Being away does not stop a call, as with a telephone: it rings their phone, and if nobody picks up it ends itself as a missed call in the chat.
+  if (!isOnline(callee)) await pushToUsers([callee], { kind: "call", title: `${u.name} is calling`, body: media === "video" ? "Video call: tap to answer" : "Voice call: tap to answer", data: { callId: c.id, conversationId: conv.id } });
   c.timer = setTimeout(() => void finish(c, "missed").catch(() => {}), RING_MS);
   publish([callee], "call", { type: "ring", callId: c.id, conversationId: conv.id, media, from: { id: u.id, name: u.name } });
   return { callId: c.id, media, peer: { id: callee, name: them?.name ?? "" } };
@@ -109,13 +105,14 @@ export async function signalCall(u: AuthUser, callId: string, type: string, data
       await db().update(s.chatCalls).set({ status: "active", answeredAt: new Date() }).where(eq(s.chatCalls.id, c.id));
       publish([other], "call", { type: "accept", callId });
       publish([u.id], "call", { type: "taken", callId }); // the callee's other tabs stop ringing
+      await takeFromFte(c);
       return { ok: true };
     case "decline":
       if (u.id !== c.calleeId) throw forbidden();
       await finish(c, "declined");
       return { ok: true };
     case "end":
-      await finish(c, c.answeredAt ? "ended" : u.id === c.callerId ? "missed" : "declined");
+      await finish(c, (data as { failed?: boolean } | undefined)?.failed ? "failed" : c.answeredAt ? "ended" : u.id === c.callerId ? "cancelled" : "declined");
       return { ok: true };
     case "offer":
     case "answer":
@@ -127,13 +124,21 @@ export async function signalCall(u: AuthUser, callId: string, type: string, data
   }
 }
 
-async function finish(c: Live, status: "ended" | "missed" | "declined") {
+/** A buyer who answers a colleague's call is talking to that colleague: the thread moves from the FTE, as writing to them would. A call nobody answers leaves it where it was. */
+async function takeFromFte(c: Live) {
+  const [conv] = await db().select({ kind: s.chatConversations.kind, holder: s.chatConversations.holder }).from(s.chatConversations).where(eq(s.chatConversations.id, c.conversationId)).limit(1);
+  if (conv?.kind !== "customer" || conv.holder !== "fte") return;
+  const [caller] = await db().select({ id: s.users.id, name: s.users.name, kind: s.users.kind }).from(s.users).where(eq(s.users.id, c.callerId)).limit(1);
+  if (caller?.kind === "staff") await setHolder(c.conversationId, "human", { id: caller.id, name: caller.name });
+}
+
+async function finish(c: Live, status: "ended" | "missed" | "declined" | "cancelled" | "failed") {
   if (!live.delete(c.id)) return; // already finished
   if (c.timer) clearTimeout(c.timer);
   const seconds = c.answeredAt ? Math.round((Date.now() - c.answeredAt) / 1000) : 0;
   await db().update(s.chatCalls).set({ status, endedAt: new Date() }).where(eq(s.chatCalls.id, c.id));
   publish([c.callerId, c.calleeId], "call", { type: "ended", callId: c.id, status, seconds });
   const what = c.media === "video" ? "video call" : "voice call";
-  const body = status === "ended" ? `${what[0]!.toUpperCase()}${what.slice(1)} · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : status === "declined" ? `Declined ${what}` : `Missed ${what}`;
+  const body = status === "ended" ? `${what[0]!.toUpperCase()}${what.slice(1)} · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : status === "declined" ? `Declined ${what}` : status === "failed" ? `${what[0]!.toUpperCase()}${what.slice(1)} could not connect` : `Missed ${what}`;
   await postMessage({ conversationId: c.conversationId, senderUserId: c.callerId, kind: "call", body, meta: { callId: c.id, media: c.media, status, seconds } });
 }

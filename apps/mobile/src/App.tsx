@@ -20,6 +20,8 @@ import ChatScreen from "./screens/ChatScreen";
 import { CartScreen, CheckoutScreen, OrdersScreen, PayScreen, WishlistScreen } from "./screens/CartScreens";
 import { AuthScreen, BankScreen, BlogPostScreen, BlogScreen, ContactScreen, FaqScreen, InvoiceScreen, InvoicesScreen, MenuScreen, PageScreen, ProfileScreen, ServerScreen, ServicesScreen, ForgotScreen, ResetPasswordScreen, PartnersScreen, LocationsScreen } from "./screens/MenuScreens";
 import { CallProvider } from "./lib/calls";
+import { onCallAnswered } from "./lib/calls";
+import { watchForChime } from "./lib/chime";
 import { onPushOpened, registerPush } from "./lib/push";
 import { reportCrash, watchCrashes } from "./lib/crash";
 import { DeskThreadScreen, GroupInfoScreen, NewGroupScreen } from "./screens/DeskScreen";
@@ -128,6 +130,17 @@ const navRef = createNavigationContainerRef<any>();
 /** Signed in: this phone can be reached. A tapped notification opens the chat. */
 function PushBridge() {
   const { me } = useAuth();
+  useEffect(() => (me ? watchForChime(me.id) : undefined), [me?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(
+    () =>
+      onCallAnswered((conversationId) => {
+        if (!navRef.isReady()) return;
+        // answering opens the caller's conversation, the way a phone does
+        if (me?.kind === "staff") navRef.navigate("ChatTab", { screen: "DeskThread", params: { id: conversationId, name: "Call", kind: "customer" } });
+        else navRef.navigate("ChatTab", { screen: "Chat", pop: true });
+      }),
+    [me?.kind], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   useEffect(() => {
     if (me) void registerPush();
   }, [me?.id]); // eslint-disable-line react-hooks/exhaustive-deps

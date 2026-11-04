@@ -18,6 +18,7 @@ type Media = "audio" | "video";
 type Phase = "ringing" | "incoming" | "connecting" | "active" | "ended";
 interface Call {
   id: string;
+  conversationId?: string;
   media: Media;
   peerName: string;
   role: "caller" | "callee";
@@ -28,6 +29,7 @@ interface Call {
 }
 interface Ring {
   callId: string;
+  conversationId?: string;
   media: Media;
   from?: { id: string; name: string };
 }
@@ -35,6 +37,18 @@ type Signal = Ring & { type: string; data?: unknown; status?: string };
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const Ctx = createContext<{ startCall: (conversationId: string, media: Media, peerName: string, opts?: { fte?: boolean }) => Promise<void> }>({ startCall: async () => {} });
+/** What the screen says when a call is over. */
+const endNote = (status: string | undefined, role: "caller" | "callee") =>
+  ({ ended: "Call ended", declined: role === "caller" ? "They are busy right now" : "Call declined", cancelled: role === "callee" ? "Missed call" : "Call cancelled", missed: role === "callee" ? "Missed call" : "No answer", failed: "The call could not connect." })[status ?? "ended"] ?? "Call ended";
+
+let answeredListener: ((conversationId: string) => void) | null = null;
+export const onCallAnswered = (fn: (conversationId: string) => void) => {
+  answeredListener = fn;
+  return () => {
+    if (answeredListener === fn) answeredListener = null;
+  };
+};
+
 export const useCalls = () => useContext(Ctx);
 
 export function CallProvider({ children }: { children: ReactNode }) {
@@ -43,6 +57,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [muted, setMuted] = useState(false);
   const [camOff, setCamOff] = useState(false);
   const [speaker, setSpeaker] = useState(false);
+  const [front, setFront] = useState(true);
   const [now, setNow] = useState(Date.now());
   const [remote, setRemote] = useState<any>(null);
   const [mine, setMine] = useState<any>(null);
@@ -67,6 +82,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setMuted(false);
     setCamOff(false);
     setSpeaker(false);
+    setFront(true);
     holdLive(false);
   }, []);
 
@@ -104,8 +120,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCall((c) => (c ? { ...c, phase: "active", startedAt: c.startedAt ?? Date.now() } : c));
       }
       if (p.connectionState === "failed") {
-        void signal(id, "end");
-        endShown("The call could not connect. The network may block direct calls.");
+        void signal(id, "end", { failed: true });
+        endShown("The call could not connect. Their network may block calls — try a message.");
       }
     });
     local.current?.getTracks().forEach((t: any) => p.addTrack(t, local.current));
@@ -121,7 +137,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const showRing = useCallback((r: Ring) => {
     if (current.current) return; // already in a call: the caller hears no answer
-    setCall({ id: r.callId, media: r.media ?? "audio", peerName: r.from?.name || "Caller", role: "callee", phase: "incoming" });
+    setCall({ id: r.callId, conversationId: r.conversationId, media: r.media ?? "audio", peerName: r.from?.name || "Caller", role: "callee", phase: "incoming" });
     holdLive(true);
     callSound.ringing();
   }, []);
@@ -139,7 +155,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (e.type === "ended") {
-        endShown(e.status === "ended" ? "Call ended" : e.status === "declined" ? (c.role === "caller" ? `${c.peerName} declined the call` : "Call declined") : c.role === "caller" ? "No answer" : "Missed call");
+        endShown(endNote(e.status, c.role));
         return;
       }
       try {
@@ -164,7 +180,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           await flushIce();
         }
       } catch {
-        void signal(c.id, "end");
+        void signal(c.id, "end", { failed: true });
         endShown("The call could not connect.");
       }
     },
@@ -228,6 +244,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCall({ ...call, phase: "connecting" });
     makePc(call.id, call.media);
     void signal(call.id, "accept");
+    if (call.conversationId) answeredListener?.(call.conversationId);
   };
   const decline = () => {
     if (!call) return;
@@ -252,6 +269,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
     callSound.speaker(!speaker);
     setSpeaker(!speaker);
   };
+  const flipCamera = () => {
+    const track: any = local.current?.getVideoTracks()[0];
+    if (!track) return;
+    // a phone with one camera refuses: the picture simply stays as it is
+    Promise.resolve(track.applyConstraints({ facingMode: front ? "environment" : "user" }))
+      .then(() => setFront(!front))
+      .catch(() => undefined);
+  };
 
   return (
     <Ctx.Provider value={value}>
@@ -261,24 +286,25 @@ export function CallProvider({ children }: { children: ReactNode }) {
           <FteCallScreen conversationId={call.fte.conversationId} name={call.peerName} greeting={call.fte.greeting} onHangUp={hangUp} onEnded={(note) => { void signal(call.id, "end"); endShown(note); }} />
         </Modal>
       ) : call ? (
-        <CallScreen call={call} now={now} remote={remote} mine={mine} muted={muted} camOff={camOff} speaker={speaker} onAccept={() => void accept()} onDecline={decline} onHangUp={hangUp} onMute={toggleMute} onCam={toggleCam} onSpeaker={toggleSpeaker} />
+        <CallScreen call={call} now={now} remote={remote} mine={mine} muted={muted} camOff={camOff} speaker={speaker} front={front} onFlip={flipCamera} onAccept={() => void accept()} onDecline={decline} onHangUp={hangUp} onMute={toggleMute} onCam={toggleCam} onSpeaker={toggleSpeaker} />
       ) : null}
     </Ctx.Provider>
   );
 }
 
-function CallScreen(p: { call: Call; now: number; remote: any; mine: any; muted: boolean; camOff: boolean; speaker: boolean; onAccept: () => void; onDecline: () => void; onHangUp: () => void; onMute: () => void; onCam: () => void; onSpeaker: () => void }) {
+function CallScreen(p: { call: Call; now: number; remote: any; mine: any; muted: boolean; camOff: boolean; speaker: boolean; front: boolean; onFlip: () => void; onAccept: () => void; onDecline: () => void; onHangUp: () => void; onMute: () => void; onCam: () => void; onSpeaker: () => void }) {
   const { call } = p;
   const insets = useSafeAreaInsets();
   const secs = call.startedAt ? Math.max(0, Math.round((p.now - call.startedAt) / 1000)) : 0;
   const what = call.media === "video" ? "video" : "voice";
   const status = call.phase === "incoming" ? `Incoming ${what} call` : call.phase === "ringing" ? "Ringing…" : call.phase === "connecting" ? "Connecting…" : call.phase === "active" ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}` : (call.note ?? "Call ended");
   const showVideo = call.media === "video" && (call.phase === "active" || call.phase === "connecting");
+  const five = call.media === "video" && call.phase !== "incoming"; // five round buttons on one line, down to a 320 wide phone
   return (
     <Modal visible animationType="fade" statusBarTranslucent onRequestClose={() => (call.phase === "incoming" ? p.onDecline() : undefined)}>
       <View style={st.screen} accessibilityLabel="Call">
         {showVideo && p.remote ? <RTCView {...(streamProp(p.remote) as object)} style={StyleSheet.absoluteFill} objectFit="cover" /> : null}
-        {showVideo && p.mine ? <RTCView {...(streamProp(p.mine) as object)} style={[st.pip, { top: insets.top + 16 }]} objectFit="cover" mirror zOrder={1} /> : null}
+        {showVideo && p.mine ? <RTCView {...(streamProp(p.mine) as object)} style={[st.pip, { top: insets.top + 16 }]} objectFit="cover" mirror={p.front} zOrder={1} /> : null}
         <View style={showVideo ? [st.who, st.whoOverVideo, { bottom: insets.bottom + 120 }] : [st.who, { paddingTop: insets.top + 96 }]}>
           {!showVideo ? (
             <View style={st.avatar}>
@@ -293,7 +319,7 @@ function CallScreen(p: { call: Call; now: number; remote: any; mine: any; muted:
           </View>
         </View>
         {call.phase !== "ended" ? (
-          <View style={[st.buttons, { paddingBottom: insets.bottom + 40 }]}>
+          <View style={[st.buttons, { paddingBottom: insets.bottom + 40 }, five ? { gap: 8, paddingHorizontal: 8 } : null]}>
             {call.phase === "incoming" ? (
               <>
                 <Round label="Decline" icon="call" color={C.red} tilt onPress={p.onDecline} />
@@ -301,10 +327,11 @@ function CallScreen(p: { call: Call; now: number; remote: any; mine: any; muted:
               </>
             ) : (
               <>
-                <Round label={p.muted ? "Unmute" : "Mute"} icon={p.muted ? "mic-off" : "mic"} color={p.muted ? "#d97706" : "rgba(255,255,255,0.18)"} onPress={p.onMute} />
-                <Round label={p.speaker ? "Speaker off" : "Speaker on"} icon={p.speaker ? "volume-high" : "volume-medium"} color={p.speaker ? "#2563eb" : "rgba(255,255,255,0.18)"} onPress={p.onSpeaker} />
-                {call.media === "video" ? <Round label={p.camOff ? "Camera on" : "Camera off"} icon={p.camOff ? "videocam-off" : "videocam"} color={p.camOff ? "#d97706" : "rgba(255,255,255,0.18)"} onPress={p.onCam} /> : null}
-                <Round label="Hang up" icon="call" color={C.red} tilt onPress={p.onHangUp} />
+                <Round small={five} label={p.muted ? "Unmute" : "Mute"} icon={p.muted ? "mic-off" : "mic"} color={p.muted ? "#d97706" : "rgba(255,255,255,0.18)"} onPress={p.onMute} />
+                <Round small={five} label={p.speaker ? "Speaker off" : "Speaker on"} icon={p.speaker ? "volume-high" : "volume-medium"} color={p.speaker ? "#2563eb" : "rgba(255,255,255,0.18)"} onPress={p.onSpeaker} />
+                {call.media === "video" ? <Round small={five} label={p.camOff ? "Camera on" : "Camera off"} icon={p.camOff ? "videocam-off" : "videocam"} color={p.camOff ? "#d97706" : "rgba(255,255,255,0.18)"} onPress={p.onCam} /> : null}
+                {call.media === "video" ? <Round small label="Flip camera" icon="camera-reverse" color="rgba(255,255,255,0.18)" onPress={p.onFlip} /> : null}
+                <Round small={five} label="Hang up" icon="call" color={C.red} tilt onPress={p.onHangUp} />
               </>
             )}
           </View>
@@ -314,9 +341,9 @@ function CallScreen(p: { call: Call; now: number; remote: any; mine: any; muted:
   );
 }
 
-function Round({ label, icon, color, tilt, onPress }: { label: string; icon: React.ComponentProps<typeof Ionicons>["name"]; color: string; tilt?: boolean; onPress: () => void }) {
+function Round({ label, icon, color, tilt, small, onPress }: { label: string; icon: React.ComponentProps<typeof Ionicons>["name"]; color: string; tilt?: boolean; small?: boolean; onPress: () => void }) {
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[st.round, { backgroundColor: color }]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[st.round, small ? st.roundSmall : null, { backgroundColor: color }]}>
       <Ionicons name={icon} size={26} color="#fff" style={tilt ? { transform: [{ rotate: "135deg" }] } : undefined} />
     </Pressable>
   );
@@ -332,4 +359,5 @@ const st = StyleSheet.create({
   pip: { position: "absolute", right: 16, width: 104, height: 148, borderRadius: 14, overflow: "hidden", backgroundColor: "#1e293b", zIndex: 2 },
   buttons: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", justifyContent: "center", gap: 18, paddingHorizontal: 16, flexWrap: "wrap" },
   round: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center" },
+  roundSmall: { width: 54, height: 54, borderRadius: 27 },
 });

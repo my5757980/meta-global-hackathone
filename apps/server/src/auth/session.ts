@@ -67,14 +67,17 @@ export async function loadAuthUser(userId: string): Promise<AuthUser | null> {
       countryCode: users.countryCode,
       mustChangePassword: users.mustChangePassword,
       recoveryKeyHash: users.recoveryKeyHash,
+      chatForced: users.chatForced,
     })
     .from(users)
     .leftJoin(roles, eq(roles.id, users.roleId))
     .where(eq(users.id, userId))
     .limit(1);
   if (!u || !u.isActive) return null;
-  const { recoveryKeyHash, ...rest } = u;
-  return { ...rest, hasRecoveryKey: !!recoveryKeyHash, perms: await permsForRole(u.roleId) };
+  const { recoveryKeyHash, chatForced, ...rest } = u;
+  const perms = await permsForRole(u.roleId);
+  // set by hand to "always show": this person answers on the chat desk whatever their role says
+  return { ...rest, hasRecoveryKey: !!recoveryKeyHash, perms: chatForced ? new Set([...perms, "chat.desk"]) : perms };
 }
 
 /** Returns the raw token. Only an app client is ever given it in JSON (see sessionFor); browsers keep the httpOnly cookie. */

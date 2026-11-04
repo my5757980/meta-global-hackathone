@@ -18,8 +18,8 @@ is above them.
 | Invoices | **Mei** | Checks each request against a rubric written in code, prices it, approves or rejects, sends the final PDF, corrects a name or address |
 | Accounts | **Ren** | Reads the bank slip **picture**, matches it to the invoice, records the money, fills the costing. Refuses a slip to the wrong account or one used before |
 | Operations | **Aoi** | Makes the unit, reads documents, checks the chassis on them, files them in six folders, moves the shipping stages |
-| Auction desk | **Kaito** | Answers enquiries from the lot's own sheet and past prices, handles orders on lots |
-| CRM | **Yuki** | Takes imported leads and writes to them first, answers the contact form, makes the lead |
+| Auction desk | **Kaito** | Reviews every bid and order on a lot and accepts or rejects it, answers enquiries from the lot's own sheet and past prices, watches the auction feed |
+| CRM | **Yuki** | Takes imported leads and writes to them first, answers the contact form, makes the lead, moves a lead to another agent, tells a Supervisor when an agent tries to add another agent's client |
 | Website | **Hana** | Turns website orders into invoice requests, writes listings for new cars |
 | Chief of staff | **Tomo** | Decides what is above a desk's limit, inside his own signed mandate. Sends the rest to the owner with his opinion. Writes the daily report |
 
@@ -67,7 +67,8 @@ To do it yourself:
    default applies: not approved. Turn a seat's dial to L1 and it proposes while you approve; to L0, and you do its job yourself.
 7. **Call her.** In the chat, press *Call Sora* and speak. She picks up, hears you through Muse Spark Open, and the browser reads her answer aloud. The call stays in the chat as text.
 8. **Auction.** As Customer, open Auction, pick a lot and press *Ask Sora to read the sheet*. The sheet is an image;
-   Muse Spark Open reads it. Ask Sora to bid: inside its limit it bids, above it Tomo or the owner must agree.
+   Muse Spark Open reads it. Make a bid, tick the terms, and Kaito reviews it against the lot's sheet and its past prices:
+   accepted or rejected, with his reason. Ask Sora to bid and the same limits apply: above them Tomo or the owner must agree.
 9. **Rebrand.** As Admin, open Branding, change the company, the AI's name, the logo and the colours. The site, the invoices
    and Sora's own words follow. *Reset demo* puts everything back in seconds.
 
@@ -84,7 +85,7 @@ flowchart LR
     O -->|stage, documents| S
     W[Website orders, contact form, new cars] --> H[Hana and Yuki]
     H --> M
-    A[Auction enquiries and orders] --> K[Kaito: auction desk]
+    A[Auction bids, orders, enquiries, feed] --> K[Kaito: auction desk]
     M & R & S -->|above their limit| T[Tomo: chief of staff]
     T -->|above his mandate, with an opinion| OW[The owner]
     OW -->|limits, dials, overrules| T
@@ -121,7 +122,7 @@ flowchart LR
   unanswered for 24 hours, an auction day settled, a promised follow-up falling due, a wanted car arriving in stock.
 - **Everything is audited.** Every run records its trigger, tool calls, arguments, results, tokens and latency, and every
   business change has an audit row with who did it, person or Sora.
-- **Evals.** `npm run eval` runs 67 cases on the live model through the real tools, for Sora and for every desk: fresh test
+- **Evals.** `npm run eval` runs 70 cases on the live model through the real tools, for Sora and for every desk: fresh test
   buyers, answers checked against the database, everything removed afterwards. Safety cases block a release, among them a
   slip to another account, the same slip twice, orders written inside a picture, a document for another car, and a seat
   reaching for another seat's tool. The last full run is in `evals/last-run.json`; a model's replies vary, so a case or two can move between
@@ -150,12 +151,12 @@ fallback. "Listen" in the chat uses the browser's own speech, not a model.
 
 | Part | What it does |
 | --- | --- |
-| **Website** | Home (19 editable sections), world clocks and the yen rate, shop with suggestions, filters and price range, car cards with save and add to cart, car pages with gallery and video, wishlist, cart, checkout with an order request or paying online, guides, FAQ, forgotten password by link, newsletter sign-up; customer account with invoices, sending a bank slip, shipping progress and documents |
-| **CRM** | Leads (filters, Excel import, assign by country, transfer, statuses), Customers view with invoiced, paid and balance, invoice request, Supervisor edit and approval, final PDF before sending, PDF and Excel on three letterheads, payments, units with six document folders and costing, shipping progress, reports in Excel and Word, users and roles, full backup workbook |
-| **Auction** | Lots across fictional halls with rendered sheets, Excel import of your own lots, a list that refreshes itself, bids and orders, past prices by hall, engine and date, enquiries, an admin side with every lot, a client-to-paid-order funnel, who did what, and a measured working signal |
-| **Live chat** | One thread on the site, desk and app: pictures, voice notes, one, two and blue ticks, links, emoji, talk to a person, take over and hand back, team DMs and groups, presence, voice and video calls; staff drill down agent then customers |
+| **Website** | Home (19 editable sections), world clocks and the yen rate, shop with suggestions, filters and price range, a currency converter and brand menu in the header, car cards with save and add to cart, car pages with gallery, video and Buy now, wishlist and cart that work before signing in, checkout that makes the account (country, city, port, part payment with a floor up to $3,000, an order for checking or paying online), three bank accounts, guides with search, FAQ, forgotten password by link, newsletter sign-up; customer account with a profile picture, invoices, per-car paid and remaining, payment history with the balance after each, order notes, sending a bank slip, shipping progress and documents |
+| **CRM** | Leads (filters, Excel import, assign by country, transfer, reassign one, another agent's client refused and reported), Customers view with invoiced, paid and balance, invoice request with several cars, Supervisor edit and approval, final PDF before sending, PDF and Excel on three letterheads, payments with receipts and a delete, a page per unit (cover, six document folders, ZIP, costing in yen or dollars, profit), shipping progress, reports by week, month or day with a drill-down per agent and CSV, Excel and Word, users, roles you can add yourself and permissions per action, full backup workbook |
+| **Auction** | Lots across fictional halls with rendered sheets, arriving by themselves from a demo feed, or by Excel import of your own lots; a table where every column sorts, several ticks per filter, time left to the sale in Tokyo time; lot page with a production-year lookup, a FOB calculator, the sheet's legend, print and PDF; bids with terms, states and numbers, orders, enquiries with their own page, past prices with an average and CSV; an admin side with every bid of the day and an export, every order and client, the feeds, the funnel, who did what, and a measured working signal |
+| **Live chat** | One thread on the site, desk and app: up to 20 pictures waiting in a tray before they go, a gallery of the whole conversation, voice notes, one, two and blue ticks, links, emoji, a card and a red number when a message arrives, talk to a person, take over and hand back, team DMs and groups, presence, voice and video calls that ring a phone when the person is away and leave a line in the thread; staff drill down agent then customers, and a person can be switched in or out of the chat |
 | **Website admin** | Vehicles, home sections, pages, guides, FAQ, brands and models, customers (one-time passwords in bulk, CRM customers with no e-mail), orders, messages, newsletter list, media library, branding, roles and permissions |
-| **Android app** | The whole website (home with every section, shop with every filter, car pages, cart, checkout and paying online, account, guides, FAQ, newsletter, forgotten and changed passwords, sending a bank slip) and the same chat with Sora and the team, voice and video calls, push notifications. No CRM and no auction screens (`apps/mobile`, Expo) |
+| **Android app** | The whole website (home with every section, shop with every filter, car pages, cart, checkout and paying online, account, guides, FAQ, newsletter, forgotten and changed passwords, sending a bank slip) and the same chat with Sora and the team, voice and video calls with a flip camera, push notifications with Reply and Answer buttons, a desk for staff on the phone (agents, buyers, groups). No CRM and no auction screens (`apps/mobile`, Expo). The site has a download page at `/app` |
 | **Digital workforce console** | The roster with each FTE's role card and autonomy dials, what needs the owner with the chief of staff's opinion, the signed decision ledger with overrule, daily reports, the team room, every run and tool call, limits, evals, and a button to watch one whole sale |
 
 The app is on the [Releases](../../releases) page. On first launch it asks for the server's address, for example
@@ -170,9 +171,11 @@ Other commands: `npm run build && npm start` (one process serves the site, API a
 - All data is fictional. Import rules per country are demo data, and the screen says so.
 - PayPal at checkout needs your keys (`PAYPAL_CLIENT_ID`, `PAYPAL_SECRET` in `.env`). Without them, demo mode has a stand-in page that moves no money and says so. The PayPal path was tested against a local fake of its API, not against PayPal itself. Most buyers pay by bank transfer, and Ren records it from the slip.
 - The bank, the yard and the shipping line are simulated in demo mode: slips and documents are printed by the server and marked as demo, and yard signals play on the demo clock. What the FTEs do with them is real. A real company would connect its own feeds.
+- The auction lots are made up. Two demo feeds add lots through the day (`DEMO_FEED_MINUTES`, 0 turns them off); a real company would connect its own, under its own contract. The production-year lookup answers from a demo table and says so.
+- Language on the auction pages is translated by Muse Spark Open on request and held in memory, so a first change of language takes some seconds.
 - A bank slip must be a picture (JPG, PNG or WebP), not a PDF.
 - A call with Sora takes turns. The buyer speaks; Muse Spark Open hears it through the voice-note path; the browser or phone reads her answer aloud with its own voice, not a model. She cannot be interrupted mid-sentence, she has no face on a video call, and a language with no voice on that device is shown as text. A buyer who asks for a person gets one, and calls with a person are ordinary voice and video calls.
-- A person, or the owner, still does what no FTE owns here: refunds, disputes, legal matters, setting the limits, importing auction lists, and writing the site's pages. An imported lead with no e-mail waits for a person to phone.
+- A person, or the owner, still does what no FTE owns here: refunds, disputes, legal matters, setting the limits, deleting a payment, and writing the site's pages. An imported lead with no e-mail waits for a person to phone.
 - Reset links go by e-mail only if you set `SMTP_URL`. Without it, demo mode shows the link on the page, and outside demo mode a person issues a one-time password.
 - The demo's client stories on the home page are pictures, because it has no real client films. Give a story a video link (Admin, Home sections) and it plays. A car's own video works the same way.
 - Calls across strict networks need a TURN relay (`TURN_URL` in `.env`). None is bundled.
@@ -183,6 +186,6 @@ Other commands: `npm run build && npm start` (one process serves the site, API a
 
 Everything here was written during the Meta Global AI Developer Hackathon, from 30 October 2026. The repo holds no code, data
 or assets from any earlier project. The flow it automates comes from what the author saw of a real used-car export business.
-Car photos are real photos from Wikimedia Commons under free licences (CC0, public domain, CC BY, CC BY-SA), resized only. Each photographer and licence is listed on the `/credits` page and in `apps/web/public/cars/credits.json`; the MIT licence covers the code, not those photos. Auction sheets and the extra car views are drawn by code (`services/carArt.ts`, `services/sheets.ts`). The yen rate on the site comes from the European Central Bank's public rates through frankfurter.dev, with no account; prices never use it. Claude Code was the coding tool; every model the product calls at runtime is Meta's. Specs, plans and tasks are in `specs/001-autofte-platform` and `specs/002-digital-workforce`.
+Car photos are real photos from Wikimedia Commons under free licences (CC0, public domain, CC BY, CC BY-SA), resized only. Each photographer and licence is listed on the `/credits` page and in `apps/web/public/cars/credits.json`; the MIT licence covers the code, not those photos. Auction sheets and the extra car views are drawn by code (`services/carArt.ts`, `services/sheets.ts`). The yen rate on the site comes from the European Central Bank's public rates through frankfurter.dev, with no account; prices never use it. Claude Code was the coding tool; every model the product calls at runtime is Meta's. Specs, plans and tasks are in `specs/001-autofte-platform`, `specs/002-digital-workforce` and `specs/003-full-flow`.
 
 Built on Express, Drizzle, PGlite, React, Vite, Tailwind, TanStack Query, Expo, the MCP TypeScript SDK, ExcelJS, PDFKit, docx, Nodemailer and resvg.

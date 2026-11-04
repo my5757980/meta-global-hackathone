@@ -20,7 +20,8 @@ Order: CRM, customer account, auction desk data model, auction buyer pages, auct
 - A unit's cover: chosen file, else its first picture. Deleting the cover falls back by itself.
 - Bid amount: any positive number. The auction desk judges it. Settlement counts placed, under review and accepted bids; rejected bids never win.
 - Demo feed is a timer inside the server, off during evals and tests that need a fixed lot count (DEMO_FEED=off or paused).
-- Language picker: uses the browser-side Google widget only when the visitor picks a language, nothing loads before that.
+- Language picker: translated by Muse Spark Open on request (every runtime model must be Meta's), only when the visitor picks a language; nothing loads before that. Only text nodes change.
+- An album is one chat message, not one per picture: the FTE answers once, and is told how many pictures there are and that it sees the first ones.
 
 ## FTE paths
 - Kaito (auction): review_bid, list_bids_to_review, plus a reflex on auction.bid.placed.

@@ -9,6 +9,7 @@ import { useLiveEvent, useLiveStream } from "../lib/sse";
 import { ago } from "../lib/format";
 import { askDesktopNotify, desktopNotifyState, notifyDesktop } from "../lib/desktopNotify";
 import { CallLayer } from "../chat/calls";
+import { MessageCards } from "../chat/ChatWidget";
 import { MustChangePassword, SecurityModal } from "../account/Security";
 import type { ChatMsg } from "../chat/ChatThread";
 import { Avatar, Spinner, clsx } from "../ui";
@@ -79,6 +80,7 @@ function TeamChatButton() {
 
 export function StaffLayout() {
   const { me, loading, can, logout } = useAuth();
+  const go = useNavigate();
   const [menu, setMenu] = useState(false);
   const [security, setSecurity] = useState(false);
   const loc = useLocation();
@@ -111,7 +113,7 @@ export function StaffLayout() {
     },
     {
       title: "Admin",
-      items: [{ to: "/crm/users", label: "Users", icon: <ShieldCheck className="size-4" />, show: can("crm.users.manage") }],
+      items: [{ to: "/crm/users", label: "Users", icon: <ShieldCheck className="size-4" />, show: can("crm.users.view") }],
     },
     {
       title: "Customers",
@@ -135,7 +137,7 @@ export function StaffLayout() {
         { to: "/admin/newsletter", label: "Newsletter", icon: <Newspaper className="size-4" />, show: can("website.content.manage") },
         { to: "/admin/media", label: "Media library", icon: <Images className="size-4" />, show: can("website.vehicles.manage") || can("website.content.manage") || can("website.settings.manage") },
         { to: "/admin/settings", label: "Branding", icon: <Palette className="size-4" />, show: can("website.settings.manage") },
-        { to: "/admin/roles", label: "Roles", icon: <KeyRound className="size-4" />, show: can("auction.roles.manage") },
+        { to: "/admin/roles", label: "Roles", icon: <KeyRound className="size-4" />, show: can("auction.roles.view") },
       ],
     },
     {
@@ -230,8 +232,9 @@ export function StaffLayout() {
           <Outlet />
         </main>
       </div>
-      <CallLayer />
+      <CallLayer desk />
       <TeamChatButton />
+      {me && can("chat.desk") && <MessageCards meId={me.id} shut peopleOnly skip={(c) => loc.pathname.startsWith("/desk") && new URLSearchParams(loc.search).get("c") === c} onOpen={(c) => go(`/desk?c=${c}`)} />}
       <SecurityModal open={security} onClose={() => setSecurity(false)} />
       <MustChangePassword />
     </div>

@@ -310,7 +310,7 @@ auctionRouter.post(
     const [o] = await db().insert(s.auctionOrders).values({ orderNo: `ORD-${year}-${String(100001 + n).padStart(6, "0")}`, lotId: l.id, userId: u.id, priceJpy: l.avgPriceJpy, note: b.note ?? null }).returning();
     await audit(db(), { actorUserId: u.id, actorKind: "human", action: "order.created", entity: "lot", entityId: l.id, summary: `${u.name} placed order ${o!.orderNo} on lot ${l.lotNo}` });
     await emit("auction.order.created", { orderId: o!.id });
-    if (await deskManual("auction", "auction.order")) await notify(await usersWithPerm("auction.orders.manage"), { type: "order", title: `New order ${o!.orderNo}`, body: `${u.name} · lot ${l.lotNo} ${l.make} ${l.model}`, link: `/auction/admin/orders` });
+    if (await deskManual("auction", "auction.order")) await notify(await usersWithPerm("auction.orders.status"), { type: "order", title: `New order ${o!.orderNo}`, body: `${u.name} · lot ${l.lotNo} ${l.make} ${l.model}`, link: `/auction/admin/orders` });
     return o;
   }),
 );
@@ -562,7 +562,7 @@ auctionRouter.get(
       deskKinds: (deskKinds as unknown as { rows: { action: string; n: number }[] }).rows,
       bidFlow: [...flow.values()].sort((a, b) => b.amount - a.amount).slice(0, 12),
       roleReach: (roleReach as unknown as { rows: { name: string; perms: number }[] }).rows,
-      feed: { status: signal.status === "working" ? "working" : "down", text: signal.text, detail: `${(lots?.upcoming ?? 0).toLocaleString("en-US")} lots on sale = ${((lots?.upcoming ?? 0) - (lots?.upcomingB ?? 0)).toLocaleString("en-US")} + ${(lots?.upcomingB ?? 0).toLocaleString("en-US")}`, newestAt: signal.feeds.map((f) => f.newestAt).filter(Boolean).sort().at(-1) ?? null },
+      feed: { status: signal.status === "working" ? "working" : "down", text: signal.text, sync: signal.sync, detail: `${(lots?.upcoming ?? 0).toLocaleString("en-US")} lots on sale = ${((lots?.upcoming ?? 0) - (lots?.upcomingB ?? 0)).toLocaleString("en-US")} + ${(lots?.upcomingB ?? 0).toLocaleString("en-US")}`, newestAt: signal.feeds.map((f) => f.newestAt).filter(Boolean).sort().at(-1) ?? null },
       canSee: { bids: can(u, "auction.bids.view"), feeds: can(u, "auction.lots.import") },
     };
   }),
@@ -573,8 +573,14 @@ auctionRouter.get(
   "/signal",
   h(async (req) => {
     requirePerm(req, "auction.admin");
+    if (req.query.for === "statistics") {
+      const [row] = await db().select({ n: sql<number>`count(*)::int`, newest: sql<string | null>`max(${s.auctionResults.saleDate})` }).from(s.auctionResults);
+      const days = row?.newest ? (Date.parse(await today()) - Date.parse(String(row.newest))) / 86_400_000 : Infinity;
+      const ok = (row?.n ?? 0) > 0 && days <= 31;
+      return { status: ok ? "working" : "down", text: ok ? "Statistics is working" : "Statistics is not working", sync: ok ? "fully synced" : undefined };
+    }
     const r = await feedSignal();
-    return { status: r.status, text: r.text };
+    return { status: r.status, text: r.text, sync: r.sync };
   }),
 );
 
@@ -585,7 +591,7 @@ auctionRouter.get(
     const u = requirePerm(req, "auction.admin");
     const t = await today();
     const [b] = can(u, "auction.bids.view") ? ((await db().select({ n: sql<number>`count(*)::int` }).from(s.auctionBids).where(and(sql`to_char(${s.auctionBids.createdAt}, 'YYYY-MM-DD') = ${t}`, can(u, "auction.bids.view_all") ? undefined : eq(s.auctionBids.userId, u.id)))) as [{ n: number }]) : [{ n: 0 }];
-    const [e] = can(u, "auction.enquiries.reply") ? ((await db().select({ n: sql<number>`count(*)::int` }).from(s.auctionEnquiries).where(eq(s.auctionEnquiries.status, "new"))) as [{ n: number }]) : [{ n: 0 }];
+    const [e] = can(u, "auction.enquiries.view") ? ((await db().select({ n: sql<number>`count(*)::int` }).from(s.auctionEnquiries).where(eq(s.auctionEnquiries.status, "new"))) as [{ n: number }]) : [{ n: 0 }];
     return { bids: b?.n ?? 0, enquiries: e?.n ?? 0 };
   }),
 );
@@ -594,14 +600,14 @@ auctionRouter.get(
 auctionRouter.get(
   "/admin/feeds",
   h(async (req) => {
-    requirePerm(req, "auction.lots.import");
+    requirePerm(req, "auction.feeds.manage");
     return feedSignal();
   }),
 );
 auctionRouter.put(
   "/admin/feeds/:key",
   h(async (req) => {
-    const u = requirePerm(req, "auction.lots.import");
+    const u = requirePerm(req, "auction.feeds.manage");
     const key = String(req.params.key);
     if (key !== "A" && key !== "B") throw notFound();
     const b = parse(z.object({ paused: z.boolean() }), req.body);
@@ -614,7 +620,7 @@ auctionRouter.put(
 auctionRouter.post(
   "/admin/feeds/:key/run",
   h(async (req) => {
-    requirePerm(req, "auction.lots.import");
+    requirePerm(req, "auction.feeds.manage");
     const key = String(req.params.key);
     if (key !== "A" && key !== "B") throw notFound();
     return { added: await runFeed(key) };
@@ -712,8 +718,10 @@ auctionRouter.get(
 auctionRouter.put(
   "/admin/bids/:id",
   h(async (req) => {
-    const u = requirePerm(req, "auction.bids.manage");
+    const u = requirePerm(req, "auction.bids.view");
     const b = parse(z.object({ status: z.enum(BID_STATES).optional(), note: z.string().max(200).optional() }), req.body);
+    if (b.status !== undefined && !can(u, "auction.bids.status")) throw forbidden("Your role cannot change a bid's status");
+    if (b.note !== undefined && !can(u, "auction.bids.note")) throw forbidden("Your role cannot leave a note on a bid");
     const [row] = await db().select().from(s.auctionBids).where(eq(s.auctionBids.id, String(req.params.id))).limit(1);
     if (!row) throw notFound("Bid not found");
     if (!can(u, "auction.bids.view_all") && row.userId !== u.id) throw forbidden("That bid was placed by somebody else");
@@ -726,7 +734,7 @@ auctionRouter.put(
 auctionRouter.delete(
   "/admin/bids/:id",
   h(async (req) => {
-    const u = requirePerm(req, "auction.bids.manage");
+    const u = requirePerm(req, "auction.bids.delete");
     const [b] = await db().select({ b: s.auctionBids, lotNo: s.auctionLots.lotNo, who: s.users.name }).from(s.auctionBids).innerJoin(s.auctionLots, eq(s.auctionLots.id, s.auctionBids.lotId)).innerJoin(s.users, eq(s.users.id, s.auctionBids.userId)).where(eq(s.auctionBids.id, String(req.params.id))).limit(1);
     if (!b) throw notFound("Bid not found");
     if (b.b.status === "won") throw conflict("A won bid has an order behind it, so it cannot be deleted. Change its status first");
@@ -740,7 +748,7 @@ auctionRouter.delete(
 auctionRouter.get(
   "/admin/vehicles",
   h(async (req) => {
-    requirePerm(req, "auction.admin");
+    requirePerm(req, "auction.vehicles.view");
     const q = parse(z.object({ q: z.string().trim().max(60).optional(), status: z.enum(["upcoming", "sold", "unsold", "withdrawn"]).optional(), hall: z.string().max(40).optional() }).passthrough(), req.query);
     const { pageSize, offset, page: pageNo } = page(req.query, 25, 100);
     const w: (SQL | undefined)[] = [];
@@ -770,7 +778,7 @@ export const ORDER_STATES = ["pending", "approved", "confirmed", "paid", "shippe
 auctionRouter.get(
   "/admin/orders",
   h(async (req) => {
-    requirePerm(req, "auction.orders.manage");
+    requirePerm(req, "auction.orders.view");
     const filter = (ORDER_STATES as readonly string[]).includes(String(req.query.status ?? "")) ? String(req.query.status) : "";
     const rows = await db().select({ o: s.auctionOrders, who: s.users.name, email: s.users.email, lotId: s.auctionLots.id, lotNo: s.auctionLots.lotNo, make: s.auctionLots.make, model: s.auctionLots.model, year: s.auctionLots.year }).from(s.auctionOrders).innerJoin(s.users, eq(s.users.id, s.auctionOrders.userId)).innerJoin(s.auctionLots, eq(s.auctionLots.id, s.auctionOrders.lotId)).where(filter ? eq(s.auctionOrders.status, filter) : undefined).orderBy(desc(s.auctionOrders.createdAt)).limit(300);
     const counts = await db().select({ status: s.auctionOrders.status, n: sql<number>`count(*)::int` }).from(s.auctionOrders).groupBy(s.auctionOrders.status);
@@ -781,7 +789,7 @@ auctionRouter.get(
 auctionRouter.put(
   "/admin/orders/:id",
   h(async (req) => {
-    const u = requirePerm(req, "auction.orders.manage");
+    const u = requirePerm(req, "auction.orders.status");
     const b = parse(z.object({ status: z.enum(ORDER_STATES) }), req.body);
     await db().update(s.auctionOrders).set({ status: b.status, updatedAt: new Date() }).where(eq(s.auctionOrders.id, String(req.params.id)));
     await audit(db(), { actorUserId: u.id, actorKind: "human", action: "order.status", entity: "order", entityId: String(req.params.id), summary: `${u.name} set an order to ${b.status}` });
@@ -794,7 +802,7 @@ const ENQUIRY_STATES = ["new", "open", "answered", "closed"] as const;
 auctionRouter.get(
   "/admin/enquiries",
   h(async (req) => {
-    requirePerm(req, "auction.enquiries.reply");
+    requirePerm(req, "auction.enquiries.view");
     const filter = (ENQUIRY_STATES as readonly string[]).includes(String(req.query.status ?? "")) ? String(req.query.status) : "";
     const rows = await db().select({ e: s.auctionEnquiries, who: s.users.name, email: s.users.email, lotNo: s.auctionLots.lotNo, make: s.auctionLots.make, model: s.auctionLots.model, lotId: s.auctionLots.id }).from(s.auctionEnquiries).innerJoin(s.users, eq(s.users.id, s.auctionEnquiries.userId)).innerJoin(s.auctionLots, eq(s.auctionLots.id, s.auctionEnquiries.lotId)).where(filter ? eq(s.auctionEnquiries.status, filter) : undefined).orderBy(desc(s.auctionEnquiries.createdAt)).limit(300);
     const counts = await db().select({ status: s.auctionEnquiries.status, n: sql<number>`count(*)::int` }).from(s.auctionEnquiries).groupBy(s.auctionEnquiries.status);
@@ -806,7 +814,7 @@ auctionRouter.get(
 auctionRouter.get(
   "/admin/enquiries/:id",
   h(async (req) => {
-    const u = requirePerm(req, "auction.enquiries.reply");
+    const u = requirePerm(req, "auction.enquiries.view");
     const [row] = await db().select({ e: s.auctionEnquiries, c: s.users, l: s.auctionLots, hall: s.auctionHalls.name }).from(s.auctionEnquiries).innerJoin(s.users, eq(s.users.id, s.auctionEnquiries.userId)).innerJoin(s.auctionLots, eq(s.auctionLots.id, s.auctionEnquiries.lotId)).innerJoin(s.auctionHalls, eq(s.auctionHalls.id, s.auctionLots.hallId)).where(eq(s.auctionEnquiries.id, String(req.params.id))).limit(1);
     if (!row) throw notFound("No enquiry with that number. It may have been removed");
     const others = await db().select({ id: s.auctionEnquiries.id, enqNo: s.auctionEnquiries.enqNo, status: s.auctionEnquiries.status, createdAt: s.auctionEnquiries.createdAt, make: s.auctionLots.make, model: s.auctionLots.model }).from(s.auctionEnquiries).innerJoin(s.auctionLots, eq(s.auctionLots.id, s.auctionEnquiries.lotId)).where(and(eq(s.auctionEnquiries.userId, row.e.userId), sql`${s.auctionEnquiries.id} <> ${row.e.id}`)).orderBy(desc(s.auctionEnquiries.createdAt)).limit(20);
@@ -830,8 +838,10 @@ auctionRouter.get(
 auctionRouter.post(
   "/admin/enquiries/:id/reply",
   h(async (req) => {
-    const u = requirePerm(req, "auction.enquiries.reply");
+    const u = requirePerm(req, "auction.enquiries.view");
     const b = parse(z.object({ reply: z.string().trim().max(2000).optional(), status: z.enum(ENQUIRY_STATES).optional() }), req.body);
+    if (b.reply && !can(u, "auction.enquiries.reply")) throw forbidden("Your role cannot reply to an enquiry");
+    if (b.status && !b.reply && !can(u, "auction.enquiries.status")) throw forbidden("Your role cannot change an enquiry's status");
     const [e] = await db().select().from(s.auctionEnquiries).where(eq(s.auctionEnquiries.id, String(req.params.id))).limit(1);
     if (!e) throw notFound();
     const text = b.reply ?? "";

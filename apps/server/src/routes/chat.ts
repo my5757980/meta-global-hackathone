@@ -6,7 +6,7 @@ import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, forbidden, h, notFound, parse, HttpError } from "../lib/http";
 import { isStaff, requireAuth, requirePerm } from "../auth/session";
-import { addToGroup, canSeeConversation, createGroup, deskAgents, deskConversations, ensureCustomerConversation, ensureStaffDm, listMessages, markRead, peopleForBuyers, postMessage, receiptsFor, removeFromGroup, renameGroup, setHolder, teamDirectory } from "../services/chat";
+import { addToGroup, canSeeConversation, createGroup, deskAgents, unreadTotal, deskConversations, ensureCustomerConversation, ensureStaffDm, listMessages, markRead, peopleForBuyers, postMessage, receiptsFor, removeFromGroup, renameGroup, setHolder, teamDirectory } from "../services/chat";
 import { iceServers, pendingCallFor, signalCall, startCall } from "../services/calls";
 import { isOnline } from "../services/sse";
 import { saveFile } from "../services/files";
@@ -20,7 +20,7 @@ import { env } from "../env";
 import { tooMany } from "../services/publicDemo";
 
 export const chatRouter = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024, files: 10 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024, files: 20 } });
 
 /** The signed-in buyer's own conversation (customer or visitor). */
 chatRouter.get(
@@ -54,8 +54,17 @@ chatRouter.get(
 chatRouter.get(
   "/desk-agents",
   h(async (req) => {
-    requirePerm(req, "chat.view_all");
-    return deskAgents();
+    const u = requirePerm(req, "chat.view_all");
+    return deskAgents(u.id);
+  }),
+);
+
+/** How many messages are waiting for this person: the red number on the chat button, the link and the tab title. */
+chatRouter.get(
+  "/unread",
+  h(async (req) => {
+    const u = requireAuth(req);
+    return { unread: await unreadTotal(u.id) };
   }),
 );
 
@@ -276,7 +285,7 @@ chatRouter.post(
 
 chatRouter.post(
   "/upload",
-  upload.array("files", 10),
+  upload.array("files", 20),
   h(async (req) => {
     const u = requireAuth(req);
     const files = (req.files as Express.Multer.File[]) ?? [];

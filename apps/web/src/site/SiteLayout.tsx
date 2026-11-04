@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, ChevronDown, Clock, Facebook, Heart, Instagram, LayoutDashboard, LogOut, Mail, Menu, Phone, Search, ShoppingCart, Twitter, User, X, Youtube } from "lucide-react";
+import { Bot, ChevronDown, Clock, Facebook, Heart, Instagram, LayoutDashboard, LogOut, Mail, Menu, MessageCircle, Phone, Search, ShoppingCart, Twitter, User, X, Youtube } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth, usePresencePing } from "../lib/auth";
 import { useLiveStream } from "../lib/sse";
 import { useBrandTheme, useSite } from "../lib/site";
 import { useGuestMerge, useShopCounts } from "../lib/shop";
 import { clsx } from "../ui";
-import { ChatWidget } from "../chat/ChatWidget";
+import { ChatWidget, DeskButton, openChatWith } from "../chat/ChatWidget";
+import { useChatUnread } from "../lib/chatUnread";
 import { CallLayer } from "../chat/calls";
 import { MustChangePassword } from "../account/Security";
 import { SearchBox } from "./SearchBox";
@@ -31,7 +32,7 @@ export function Logo({ name, light }: { name?: string; light?: boolean }) {
       <img src={site?.logoUrl || "/favicon.svg"} alt="" className="size-9 rounded-xl object-contain" />
       <span className="leading-tight">
         <span className={clsx("block text-base font-extrabold tracking-tight", light ? "text-white" : "text-slate-900")}>{name ?? ""}</span>
-        <span className={clsx("block text-[11px] font-medium", light ? "text-brand-200" : "text-slate-500")}>Japanese cars · to your port</span>
+        <span className={clsx("block text-[11px] font-medium lg:hidden xl:block", light ? "text-brand-200" : "text-slate-500")}>Japanese cars · to your port</span>
       </span>
     </span>
   );
@@ -124,6 +125,31 @@ function BrandMenu() {
 }
 
 /** World clocks and the yen rate, on every page. */
+/** Beside the account link on a desk, in the slide-out menu on a phone: "Live chat" for a buyer, "Chat desk" for staff, with what is waiting. */
+function LiveChatLink({ className, onGo }: { className?: string; onGo?: () => void }) {
+  const { me, can } = useAuth();
+  const staff = me?.kind === "staff";
+  const n = useChatUnread(!!me && (!staff || can("chat.desk")));
+  if (staff && !can("chat.desk")) return null;
+  return (
+    <Link
+      to={staff ? "/desk" : "/chat"}
+      title="Chat with a person online"
+      className={className}
+      onClick={(e) => {
+        onGo?.();
+        if (staff || e.metaKey || e.ctrlKey || e.shiftKey || window.location.pathname === "/chat") return;
+        e.preventDefault(); // an ordinary click stays on the page being read
+        openChatWith();
+      }}
+    >
+      <MessageCircle className="size-4" />
+      <span>{staff ? "Chat desk" : "Live chat"}</span>
+      {n > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[11px] font-bold text-white">{n > 99 ? "99+" : n}</span>}
+    </Link>
+  );
+}
+
 function TopBar() {
   const site = useSite();
   const now = useNow();
@@ -153,6 +179,7 @@ function TopBar() {
             </span>
           </div>
           <div className="flex items-center gap-4 whitespace-nowrap">
+            <LiveChatLink className="inline-flex items-center gap-1.5 font-semibold text-white hover:underline" />
             {CLOCKS.map(([city, zone], i) => (
               <span key={city} className={clsx(i > 1 && "hidden lg:inline")}>
                 {city} <strong className="font-semibold text-white">{timeIn(now, zone)}</strong>
@@ -193,22 +220,22 @@ export function SiteLayout() {
           </Link>
           <nav className="ml-4 hidden items-center gap-1 lg:flex">
             {NAV.slice(0, 2).map((n) => (
-              <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => clsx("rounded-lg px-3 py-2 text-sm font-semibold transition", isActive ? "text-brand-700" : "text-slate-600 hover:text-slate-900")}>
+              <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => clsx("rounded-lg px-2 py-2 text-sm font-semibold whitespace-nowrap transition xl:px-3", isActive ? "text-brand-700" : "text-slate-600 hover:text-slate-900")}>
                 {n.label}
               </NavLink>
             ))}
             <BrandMenu />
             {NAV.slice(2).map((n) => (
-              <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => clsx("rounded-lg px-3 py-2 text-sm font-semibold transition", isActive ? "text-brand-700" : "text-slate-600 hover:text-slate-900")}>
+              <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => clsx("rounded-lg px-2 py-2 text-sm font-semibold whitespace-nowrap transition xl:px-3", isActive ? "text-brand-700" : "text-slate-600 hover:text-slate-900")}>
                 {n.label}
               </NavLink>
             ))}
           </nav>
-          <div className="ml-auto hidden max-w-xs flex-1 md:block lg:hidden xl:block">
+          <div className="ml-auto hidden max-w-xs flex-1 md:block lg:hidden">
             <SearchBox placeholder="Search cars" inputClassName="bg-slate-50 focus:bg-white" listClassName="right-0 w-[26rem] max-w-[calc(100vw-2rem)]" onSearch={(q) => nav(`/shop?q=${encodeURIComponent(q)}`)} />
           </div>
-          <div className="ml-auto flex items-center gap-1 md:ml-2 lg:ml-auto xl:ml-2">
-            <Link to="/shop" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden lg:inline-flex xl:hidden" aria-label="Search">
+          <div className="ml-auto flex items-center gap-1 md:ml-2 lg:ml-auto">
+            <Link to="/shop" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden lg:inline-flex" aria-label="Search">
               <Search className="size-5" />
             </Link>
             <Link to="/wishlist" className="relative hidden rounded-lg p-2 text-slate-600 hover:bg-slate-100 sm:inline-flex" aria-label="Saved cars">
@@ -271,6 +298,7 @@ export function SiteLayout() {
                 {n.label}
               </NavLink>
             ))}
+            <LiveChatLink onGo={() => setOpen(false)} className="flex items-center gap-2 rounded-xl px-3 py-3 text-base font-semibold text-slate-700 hover:bg-slate-50" />
             <div className="mt-auto space-y-2">
               {me ? (
                 <Link to={me.kind === "staff" ? "/crm" : "/account"} className="block rounded-xl bg-brand-600 px-4 py-3 text-center font-semibold text-white">
@@ -289,7 +317,7 @@ export function SiteLayout() {
         <Outlet />
       </main>
       <Footer />
-      {loc.pathname !== "/chat" && (!me || me.kind !== "staff") && <ChatWidget />}
+      {loc.pathname !== "/chat" && (me?.kind === "staff" ? <DeskButton /> : <ChatWidget />)}
       {me && <CallLayer />}
       <MustChangePassword />
     </div>

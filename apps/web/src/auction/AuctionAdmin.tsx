@@ -29,7 +29,7 @@ export function AuctionAdmin() {
           signal ? (
             <span className={`inline-flex flex-wrap items-center gap-1.5 ${signal.status === "working" ? "text-emerald-700" : "text-rose-700"}`}>
               <span className={`size-2 rounded-full ${signal.status === "working" ? "bg-emerald-500" : "bg-rose-500"}`} /> {signal.text}
-              <span className="text-slate-500">· {signal.detail}{signal.newestAt ? ` · newest lot added ${ago(signal.newestAt)}` : ""}</span>
+              <span className="text-slate-500">· {signal.detail}{signal.sync ? ` · ${signal.sync}` : ""}{signal.newestAt ? ` · newest lot added ${ago(signal.newestAt)}` : ""}</span>
             </span>
           ) : undefined
         }
@@ -55,12 +55,12 @@ export function AuctionAdmin() {
           onChange={setTab}
           items={[
             { value: "overview", label: "Overview" },
-            { value: "vehicles", label: "Vehicles" },
+            ...(can("auction.vehicles.view") ? [{ value: "vehicles" as const, label: "Vehicles" }] : []),
             ...(can("auction.bids.view") ? [{ value: "bids" as const, label: `Bids${num(badges?.bids)}` }] : []),
-            ...(can("auction.enquiries.reply") ? [{ value: "enquiries" as const, label: `Enquiries${num(badges?.enquiries)}` }] : []),
-            ...(can("auction.orders.manage") ? [{ value: "orders" as const, label: "Orders" }] : []),
+            ...(can("auction.enquiries.view") ? [{ value: "enquiries" as const, label: `Enquiries${num(badges?.enquiries)}` }] : []),
+            ...(can("auction.orders.view") ? [{ value: "orders" as const, label: "Orders" }] : []),
             ...(can("auction.clients.view") ? [{ value: "clients" as const, label: "Clients" }] : []),
-            ...(can("auction.lots.import") ? [{ value: "feeds" as const, label: "Data sources" }] : []),
+            ...(can("auction.feeds.manage") ? [{ value: "feeds" as const, label: "Data sources" }] : []),
           ]}
         />
       </div>
@@ -100,7 +100,7 @@ interface OverviewData {
   deskKinds: { action: string; n: number }[];
   bidFlow: { name: string; counts: Record<string, number>; amount: number }[];
   roleReach: { name: string; perms: number }[];
-  feed: { status: string; text: string; detail: string; newestAt: string | null };
+  feed: { status: string; text: string; detail: string; sync?: string; newestAt: string | null };
 }
 
 function Vehicles() {
@@ -111,7 +111,7 @@ function Vehicles() {
     <div>
       <div className="mb-3 grid gap-2 sm:grid-cols-3">
         <Field label="Search">
-          <Input key="vehicles-search" placeholder="Make, model, lot no., chassis model or number" defaultValue={f.q} onKeyDown={(e) => e.key === "Enter" && setF({ ...f, q: (e.target as HTMLInputElement).value, page: 1 })} onBlur={(e) => e.target.value !== f.q && setF({ ...f, q: e.target.value, page: 1 })} />
+          <Input key="vehicles-search" placeholder="Make, model, lot or chassis" defaultValue={f.q} onKeyDown={(e) => e.key === "Enter" && setF({ ...f, q: (e.target as HTMLInputElement).value, page: 1 })} onBlur={(e) => e.target.value !== f.q && setF({ ...f, q: e.target.value, page: 1 })} />
         </Field>
         <Field label="Status">
           <Select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value, page: 1 })}>
@@ -568,9 +568,9 @@ function Bids() {
       {!d ? (
         <Skeleton className="h-60" />
       ) : !d.items.length ? (
-        <Empty title={d.total ? `No ${status} bids on this day` : d.isToday ? "No bids today" : `No bids on ${d.day}`} text={d.total ? undefined : "Pick another date above to look back."} />
+        <Empty title={d.total ? `No ${status} bids on this day` : d.isToday ? "No bids on current date" : `No bids on ${d.day}`} text={d.total ? undefined : "Pick another date above to look back."} />
       ) : (
-        <Table head={can("auction.bids.manage") ? ["Bid", "Bidder", "Lot", "Vehicle", "Amount", "Placed", "Status", "Note", ""] : ["Bid", "Bidder", "Lot", "Vehicle", "Amount", "Placed", "Status", "Note"]}>
+        <Table head={can("auction.bids.delete") ? ["Bid", "Bidder", "Lot", "Vehicle", "Amount", "Placed", "Status", "Note", ""] : ["Bid", "Bidder", "Lot", "Vehicle", "Amount", "Placed", "Status", "Note"]}>
           {d.items.map((b) => (
             <tr key={b.id}>
               <td className="px-4 py-2 text-xs font-semibold whitespace-nowrap">{b.bidNo ?? "—"}</td>
@@ -590,7 +590,7 @@ function Bids() {
               <td className="px-4 py-2 font-semibold whitespace-nowrap">{jpy(b.amountJpy)}{b.overBidJpy ? <span className="block text-xs font-normal text-slate-500">over {jpy(b.overBidJpy)}</span> : null}</td>
               <td className="px-4 py-2 text-xs whitespace-nowrap">{ago(b.createdAt)}</td>
               <td className="px-4 py-2">
-                {can("auction.bids.manage") ? (
+                {can("auction.bids.status") ? (
                   <Select
                     aria-label={`Status of ${b.bidNo ?? "this bid"}`}
                     className="min-w-32"
@@ -606,8 +606,8 @@ function Bids() {
                   <StatusBadge status={b.status} />
                 )}
               </td>
-              <td className="px-4 py-2">{can("auction.bids.manage") ? <BidNote key={`${b.id}-${b.note ?? ""}`} b={b} /> : <span className="text-xs text-slate-600">{b.note}</span>}</td>
-              {can("auction.bids.manage") && (
+              <td className="px-4 py-2">{can("auction.bids.note") ? <BidNote key={`${b.id}-${b.note ?? ""}`} b={b} /> : <span className="text-xs text-slate-600">{b.note}</span>}</td>
+              {can("auction.bids.delete") && (
                 <td className="px-4 py-2 text-right">
                   <Button
                     size="sm"
@@ -647,6 +647,7 @@ function Chips({ all, counts, value, onChange }: { all: number; counts: { status
 
 function Orders() {
   const qc = useQueryClient();
+  const { can } = useAuth();
   const [status, setStatus] = useState("");
   const q = useQuery({ queryKey: ["admin-orders", status], queryFn: () => api.get<{ total: number; counts: { status: string; n: number }[]; items: { id: string; orderNo: string; status: string; priceJpy: number | null; createdAt: string; who: string; email: string | null; lot: { id: string; lotNo: number; make: string; model: string; year: number } }[] }>(`/api/auction/admin/orders${qs({ status })}`), placeholderData: keepPreviousData });
   if (!q.data) return <Skeleton className="h-60" />;
@@ -667,7 +668,7 @@ function Orders() {
               <td className="px-4 py-2 whitespace-nowrap">{jpy(o.priceJpy)}</td>
               <td className="px-4 py-2 text-xs whitespace-nowrap">{ago(o.createdAt)}</td>
               <td className="px-4 py-2">
-                <Select
+                {!can("auction.orders.status") ? <StatusBadge status={o.status} /> : <Select
                   aria-label={`Status of ${o.orderNo}`}
                   className="min-w-36"
                   value={o.status}
@@ -679,7 +680,7 @@ function Orders() {
                   {["pending", "approved", "confirmed", "paid", "shipped", "delivered", "completed", "cancelled"].map((s) => (
                     <option key={s} value={s}>{s[0]!.toUpperCase() + s.slice(1)}</option>
                   ))}
-                </Select>
+                </Select>}
               </td>
             </tr>
           ))}
@@ -720,6 +721,7 @@ function Enquiries() {
 export function AuctionEnquiryPage() {
   const { id } = useParams();
   const qc = useQueryClient();
+  const { can } = useAuth();
   const q = useQuery({ queryKey: ["admin-enq-one", id], queryFn: () => api.get<{ enquiry: { id: string; enqNo: string; message: string; reply: string | null; status: string; createdAt: string; repliedAt: string | null }; repliedByName: string | null; repliedByKind: string | null; client: { name: string; email: string | null; phone: string | null }; lot: { id: string; lotNo: number; make: string; model: string; year: number; grade: string; hall: string; saleDate: string }; others: { id: string; enqNo: string; status: string; createdAt: string; make: string; model: string }[] }>(`/api/auction/admin/enquiries/${id}`) });
   const [text, setText] = useState("");
   const [status, setStatus] = useState("");
@@ -774,13 +776,13 @@ export function AuctionEnquiryPage() {
               }
             }}
           >
-            <Textarea aria-label="Reply" rows={4} value={text} onChange={(ev) => setText(ev.target.value)} placeholder={e.reply ? "Replace the reply…" : "Write your reply…"} />
+            {can("auction.enquiries.reply") && <Textarea aria-label="Reply" rows={4} value={text} onChange={(ev) => setText(ev.target.value)} placeholder={e.reply ? "Replace the reply…" : "Write your reply…"} />}
             <div className="flex flex-wrap items-center gap-2">
-              <div className="w-40">
+              {can("auction.enquiries.status") && <div className="w-40">
                 <Select aria-label="Status" value={status || e.status} onChange={(ev) => setStatus(ev.target.value)}>
                   {["open", "answered", "closed"].map((s) => <option key={s} value={s}>{s[0]!.toUpperCase() + s.slice(1)}</option>)}
                 </Select>
-              </div>
+              </div>}
               <Button type="submit" disabled={!text.trim() && !status}>Save</Button>
             </div>
           </form>
@@ -860,7 +862,7 @@ function Clients() {
 /** Where the lots come from. In this demo that is two made-up feeds; a real business would see its suppliers here. */
 function Feeds() {
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["admin-feeds"], queryFn: () => api.get<{ status: string; text: string; everyMinutes: number; feeds: { key: string; onSale: number; newestAt: string | null; paused: boolean; lastAt: string | null; added: number; working: boolean }[] }>("/api/auction/admin/feeds"), refetchInterval: 30_000 });
+  const q = useQuery({ queryKey: ["admin-feeds"], queryFn: () => api.get<{ status: string; text: string; sync?: string; everyMinutes: number; feeds: { key: string; onSale: number; newestAt: string | null; paused: boolean; lastAt: string | null; added: number; working: boolean }[] }>("/api/auction/admin/feeds"), refetchInterval: 30_000 });
   const [msg, setMsg] = useState<string | null>(null);
   if (!q.data) return <Skeleton className="h-40" />;
   const refresh = () => {
@@ -870,7 +872,7 @@ function Feeds() {
   return (
     <div className="space-y-3">
       <p className="text-sm text-slate-600">
-        <strong className={q.data.status === "working" ? "text-emerald-700" : "text-rose-700"}>{q.data.text}.</strong> Two demo feeds bring new lots of fictional cars {q.data.everyMinutes > 0 ? `every ${q.data.everyMinutes} minutes` : "only when you run them"}. A real business would connect its own auction suppliers here.
+        <strong className={q.data.status === "working" ? "text-emerald-700" : "text-rose-700"}>{q.data.text}{q.data.sync ? ` · ${q.data.sync}` : ""}.</strong> Two demo feeds bring new lots of fictional cars {q.data.everyMinutes > 0 ? `every ${q.data.everyMinutes} minutes` : "only when you run them"}. A real business would connect its own auction suppliers here.
       </p>
       {msg && <p role="status" className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p>}
       <div className="grid gap-4 md:grid-cols-2">

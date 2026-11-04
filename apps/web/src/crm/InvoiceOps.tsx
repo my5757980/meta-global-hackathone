@@ -23,6 +23,7 @@ interface UnitsData {
   units: { unit: { id: string; invoiceVehicleId: string; make: string; model: string; year: number; chassis: string; color: string; location: string }; documents: { id: string; folder: string; fileId: string; name: string; mime: string; size: number }[]; financials: Record<string, number | string | null> | null; profit: { costJpy: number; costUsd: number | null; sellingUsd: number | null; profitUsd: number | null; note: string | null } | null }[];
   progress: { id: string; invoiceVehicleId: string; stage: string; stageDate: string; note: string | null }[];
   canManage: boolean;
+  canCost: boolean;
   canProgress: boolean;
   canPay: boolean;
   folders: string[];
@@ -99,7 +100,7 @@ export function InvoiceOps({ invoiceId, status, vehicles, balance, finalPdfFileI
                 </a>
               </>
             )}
-            {d && d.units.some((u) => u.documents.length) && (
+            {d?.canManage && d.units.some((u) => u.documents.length) && (
               <a href={`/api/crm/invoices/${invoiceId}/documents.zip`} className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
                 <Download className="size-4" /> All files (ZIP)
               </a>
@@ -111,7 +112,7 @@ export function InvoiceOps({ invoiceId, status, vehicles, balance, finalPdfFileI
             )}
           </div>
         </div>
-        {finalPdfFileId && (
+        {finalPdfFileId && (status === "sent" || can("crm.invoices.view_all")) && (
           <p className="mt-3 flex flex-wrap items-center gap-3 text-sm text-emerald-800">
             <span>The final PDF is ready.</span>
             <a href={`/api/crm/files/${finalPdfFileId}`} target="_blank" rel="noreferrer" className="font-semibold underline">
@@ -230,10 +231,10 @@ export function InvoiceOps({ invoiceId, status, vehicles, balance, finalPdfFileI
                       })}
                     </div>
                   </div>
-                  <div>
+                  {d!.canCost && <div>
                     <div className="mb-2 flex items-center justify-between">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Costing & profit</p>
-                      {d!.canManage && (
+                      {d!.canCost && (
                         <Button size="sm" variant="ghost" onClick={() => setCostFor(u)}>
                           <Calculator className="size-4" /> Edit
                         </Button>
@@ -249,7 +250,7 @@ export function InvoiceOps({ invoiceId, status, vehicles, balance, finalPdfFileI
                     ) : (
                       <p className="text-sm text-slate-500">No costing yet.</p>
                     )}
-                  </div>
+                  </div>}
                 </div>
               )}
             </Card>
@@ -359,7 +360,7 @@ function PaymentModal({ open, onClose, invoiceId, balance, onDone }: { open: boo
 
 function UnitModal({ v, invoiceId, onClose, onDone }: { v: Vehicle; invoiceId: string; onClose: () => void; onDone: () => void }) {
   const [make, ...rest] = v.unitLabel.split(" ");
-  const [f, setF] = useState({ make: make ?? "", model: rest.join(" "), year: String(v.year ?? ""), color: v.color ?? "", chassis: v.chassisNo ?? "", engineCc: (v.engine ?? "").replace(/\D/g, ""), transmission: v.transmission ?? "", fuel: v.fuel ?? "", drive: "", mileageKm: "", steering: "Right", location: "Yokohama yard" });
+  const [f, setF] = useState({ make: make ?? "", model: rest.join(" "), year: String(v.year ?? ""), color: v.color ?? "", chassis: v.chassisNo ?? "", engineCc: (v.engine ?? "").replace(/\D/g, ""), transmission: v.transmission ?? "", fuel: v.fuel ?? "", drive: "", mileageKm: "", steering: "Right", doors: "", seats: "", location: "Yokohama yard" });
   const [err, setErr] = useState<string | null>(null);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const n = (x: string) => (x ? Number(x) : null);
@@ -375,10 +376,11 @@ function UnitModal({ v, invoiceId, onClose, onDone }: { v: Vehicle; invoiceId: s
             Cancel
           </Button>
           <Button
+            disabled={Object.values(f).some((x) => !String(x).trim())}
             onClick={async () => {
               setErr(null);
               try {
-                await api.post(`/api/crm/invoices/${invoiceId}/units`, { invoiceVehicleId: v.id, make: f.make, model: f.model, year: n(f.year), color: f.color || null, chassis: f.chassis || null, engineCc: n(f.engineCc), transmission: f.transmission || null, fuel: f.fuel || null, drive: f.drive || null, mileageKm: n(f.mileageKm), steering: f.steering || null, location: f.location || null });
+                await api.post(`/api/crm/invoices/${invoiceId}/units`, { invoiceVehicleId: v.id, make: f.make, model: f.model, year: n(f.year), color: f.color || null, chassis: f.chassis || null, engineCc: n(f.engineCc), transmission: f.transmission || null, fuel: f.fuel || null, drive: f.drive || null, mileageKm: n(f.mileageKm), steering: f.steering || null, doors: n(f.doors), seats: n(f.seats), location: f.location || null });
                 onDone();
                 onClose();
               } catch (ex) {
@@ -391,7 +393,7 @@ function UnitModal({ v, invoiceId, onClose, onDone }: { v: Vehicle; invoiceId: s
         </>
       }
     >
-      <p className="mb-3 text-sm text-slate-500">Pre-filled from the invoice — check it against the auction sheet and export certificate.</p>
+      <p className="mb-3 text-sm text-slate-500">Pre-filled from the invoice — check it against the auction sheet and export certificate. Every box is needed.</p>
       <div className="grid gap-3 sm:grid-cols-3">
         {(
           [
@@ -406,6 +408,8 @@ function UnitModal({ v, invoiceId, onClose, onDone }: { v: Vehicle; invoiceId: s
             ["drive", "Drive"],
             ["mileageKm", "Mileage (km)"],
             ["steering", "Steering"],
+            ["doors", "Doors"],
+            ["seats", "Seats"],
             ["location", "Location"],
           ] as [keyof typeof f, string][]
         ).map(([k, label]) => (

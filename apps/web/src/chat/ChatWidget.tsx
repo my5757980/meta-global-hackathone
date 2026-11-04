@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Maximize2, MessageCircle, UserRound, X } from "lucide-react";
+import { Bot, Maximize2, MessageCircle, MessagesSquare, UserRound, X } from "lucide-react";
 import { api } from "../lib/api";
+import { chime, useChatUnread } from "../lib/chatUnread";
 import { useAuth } from "../lib/auth";
 import { CompanyName, FteName } from "../lib/site";
 import { useLiveEvent, useLiveStream } from "../lib/sse";
-import { Avatar, Button, Field, Input, Spinner } from "../ui";
-import { Composer, MessageList, useConversation, type ChatMsg } from "./ChatThread";
+import { Avatar, Button, Field, Input } from "../ui";
+import { Composer, MessageList, SkeletonRows, useConversation, type ChatMsg } from "./ChatThread";
 import { CallButtons } from "./calls";
 import { CallFte } from "./FteCall";
 
@@ -21,9 +22,74 @@ export function openChatWith(text?: string) {
   else pending = text;
 }
 
+/** The cards that say who wrote, and what: up to three, only while that chat is shut. Each closes itself after eight seconds, and a click answers it. */
+export function MessageCards({ meId, shut, onOpen, skip, peopleOnly }: { meId: string; shut: boolean; onOpen: (conversationId: string) => void; skip?: (conversationId: string) => boolean; peopleOnly?: boolean }) {
+  const [cards, setCards] = useState<{ id: string; who: string; text: string; conversationId: string }[]>([]);
+  const onMessage = useCallback(
+    (m: ChatMsg) => {
+      if (!shut || !m.senderUserId || m.senderUserId === meId || m.kind === "system" || m.kind === "call") return;
+      if (peopleOnly && m.sender?.kind === "fte") return; // the desk is told what people write, not every line an FTE answers
+      if (skip?.(m.conversationId)) return;
+      const text = m.kind === "image" ? "Sent a photo" : m.kind === "voice" ? "Sent a voice message" : m.body.replace(/[*#_`>]/g, "").replace(/\s+/g, " ").trim().slice(0, 140);
+      const card = { id: m.id, who: m.sender?.name ?? "New message", text: text || "New message", conversationId: m.conversationId };
+      setCards((cs) => [card, ...cs.filter((c) => c.conversationId !== card.conversationId)].slice(0, 3));
+      chime();
+      setTimeout(() => setCards((cs) => cs.filter((c) => c.id !== card.id)), 8000);
+    },
+    [meId, shut, skip, peopleOnly],
+  );
+  useLiveEvent("message", onMessage);
+  useEffect(() => {
+    if (!shut) setCards([]);
+  }, [shut]);
+  if (!cards.length) return null;
+  return (
+    <div className="fixed right-4 bottom-20 z-40 flex w-[min(330px,calc(100vw-2rem))] flex-col gap-2 sm:right-5 sm:bottom-24 print:hidden">
+      {cards.map((card) => (
+        <div key={card.id} role="status" aria-live="polite" className="flex items-start gap-2 rounded-2xl border-l-4 border-rose-600 bg-white p-3 shadow-xl ring-1 ring-slate-200">
+          <button onClick={() => { setCards((cs) => cs.filter((c) => c.id !== card.id)); onOpen(card.conversationId); }} className="flex min-w-0 flex-1 items-start gap-2 text-left">
+            <Avatar name={card.who} size={36} />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold text-slate-900">{card.who}</span>
+              <span className="line-clamp-2 text-sm text-slate-600">{card.text}</span>
+            </span>
+          </button>
+          <button onClick={() => setCards((cs) => cs.filter((c) => c.id !== card.id))} aria-label="Close" className="-mt-1 -mr-1 flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100">
+            <X className="size-4" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const countBadge = (n: number) => (
+  <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[11px] font-bold text-white ring-2 ring-white">{n > 99 ? "99+" : n}</span>
+);
+
+/** Staff reading the website: one round button to the desk, with what is waiting. */
+export function DeskButton() {
+  const { me, can } = useAuth();
+  const nav = useNavigate();
+  const on = !!me && can("chat.desk");
+  const n = useChatUnread(on);
+  if (!on) return null;
+  return (
+    <>
+      <MessageCards meId={me.id} shut peopleOnly onOpen={(c) => nav(`/desk?c=${c}`)} />
+      <Link to="/desk" title="Open the chat desk" aria-label="Open the chat desk" className="fixed right-4 bottom-4 z-40 flex size-14 items-center justify-center rounded-full bg-slate-900 text-white shadow-xl ring-4 ring-white hover:scale-105 sm:right-5 sm:bottom-5 print:hidden">
+        <MessagesSquare className="size-6" />
+        {n > 0 && countBadge(n)}
+      </Link>
+    </>
+  );
+}
+
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<string | undefined>();
+  const { me } = useAuth();
+  const waiting = useChatUnread(!!me);
   useEffect(() => {
     openListener = (t) => {
       setDraft(t);
@@ -50,8 +116,9 @@ export function ChatWidget() {
         aria-label={open ? "Close chat" : "Open chat"}
       >
         {open ? <X className="size-6" /> : <MessageCircle className="size-6" />}
-        {!open && <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-accent-500 text-[11px] font-bold text-slate-900">AI</span>}
+        {!open && (waiting > 0 ? countBadge(waiting) : <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-accent-500 text-[11px] font-bold text-slate-900">AI</span>)}
       </button>
+      {me && <MessageCards meId={me.id} shut={!open} onOpen={() => setOpen(true)} />}
     </>
   );
 }
@@ -112,8 +179,8 @@ export function ChatPanel({ draft, onClose, full }: { draft?: string; onClose?: 
           }}
         />
       ) : mine.isLoading || !conv ? (
-        <div className="flex flex-1 items-center justify-center">
-          <Spinner />
+        <div className="flex-1 overflow-hidden bg-slate-50">
+          <SkeletonRows />
         </div>
       ) : (
         <>
@@ -146,7 +213,7 @@ export function ChatPanel({ draft, onClose, full }: { draft?: string; onClose?: 
               >
                 Back to <FteName />
               </button>
-              {agent && <CallButtons conversationId={conv.id} peerName={agent.name} disabled={agent.online ? null : `${agent.name} is offline right now`} className="[&_button]:p-1" />}
+              {agent && <CallButtons conversationId={conv.id} peerName={agent.name} away={!agent.online} className="[&_button]:p-1" />}
             </div>
           )}
           <Composer conversationId={conv.id} initial={draft} onSent={(m) => setMessages((p) => (p.some((x) => x.id === m.id) ? p : [...p, m]))} />

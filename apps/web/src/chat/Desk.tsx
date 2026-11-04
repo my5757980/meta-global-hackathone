@@ -6,8 +6,9 @@ import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useLiveEvent } from "../lib/sse";
 import { ago } from "../lib/format";
-import { Avatar, Badge, Button, Card, Empty, Field, Input, Modal, Spinner, Tabs, clsx } from "../ui";
-import { Composer, MessageList, useConversation, type ChatMsg } from "./ChatThread";
+import { useChatUnread } from "../lib/chatUnread";
+import { Avatar, Badge, Button, Card, Empty, Field, Input, Modal, Tabs, clsx } from "../ui";
+import { Composer, MessageList, SkeletonRows, useConversation, type ChatMsg } from "./ChatThread";
 import { CallButtons } from "./calls";
 import { FteName, useFte } from "../lib/site";
 
@@ -43,7 +44,7 @@ interface Member {
   online: boolean;
 }
 interface ConvDetail {
-  conversation: { id: string; holder: string; kind: string; title: string | null; fteSummary: string | null };
+  conversation: { id: string; holder: string; kind: string; title: string | null; fteSummary: string | null; assignedUserId: string | null };
   messages: ChatMsg[];
   customer: { id: string; name: string; email: string; phone: string; kind: string; countryCode: string; company: string | null; online: boolean } | null;
   members: Member[];
@@ -57,11 +58,12 @@ export default function Desk() {
   const qc = useQueryClient();
   const [sp, setSp] = useSearchParams();
   const tab = (sp.get("tab") === "team" ? "team" : "buyers") as "buyers" | "team";
-  const [scope, setScope] = useState<"mine" | "all" | "agents">(can("chat.view_all") ? "all" : "mine");
+  const [scope, setScope] = useState<"mine" | "all" | "agents">(can("chat.view_all") ? "agents" : "mine"); // who sees everything starts from the agents, then that agent's customers
   const [agent, setAgent] = useState<{ id: string; name: string } | null>(null);
   const selected = sp.get("c");
+  const waiting = useChatUnread(true);
   const byAgent = tab === "buyers" && scope === "agents";
-  const agents = useQuery({ queryKey: ["desk-agents"], queryFn: () => api.get<{ id: string; name: string; kind: string; n: number }[]>("/api/chat/desk-agents"), enabled: byAgent });
+  const agents = useQuery({ queryKey: ["desk-agents"], queryFn: () => api.get<{ id: string; name: string; kind: string; n: number; unread: number }[]>("/api/chat/desk-agents"), enabled: byAgent });
   const list = useQuery({
     queryKey: ["desk", tab === "team" ? "team" : scope, agent?.id ?? null],
     queryFn: () => api.get<ConvRow[]>(`/api/chat/conversations?scope=${tab === "team" ? "team" : byAgent ? "all" : scope}${byAgent && agent ? `&agent=${agent.id}` : ""}`),
@@ -73,7 +75,9 @@ export default function Desk() {
     void qc.invalidateQueries({ queryKey: ["desk"] });
     void qc.invalidateQueries({ queryKey: ["team"] });
   }, [qc]);
+  const refreshAgents = useCallback(() => void qc.invalidateQueries({ queryKey: ["desk-agents"] }), [qc]);
   useLiveEvent("message", refresh);
+  useLiveEvent("message", refreshAgents);
   useLiveEvent("holder", refresh);
   useLiveEvent("presence", onPresence);
   const [newGroup, setNewGroup] = useState(false);
@@ -91,9 +95,24 @@ export default function Desk() {
     <div className="grid h-[calc(100vh-7.5rem)] min-h-[520px] gap-4 lg:grid-cols-[22rem_1fr]">
       <Card padded={false} className={clsx("flex min-h-0 flex-col", selected && "hidden lg:flex")}>
         <div className="space-y-2 border-b border-slate-100 p-3">
-          <p className="flex items-center gap-2 font-semibold text-slate-900">
-            <MessagesSquare className="size-4" /> Chat desk
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="flex items-center gap-2 font-semibold text-slate-900">
+              <MessagesSquare className="size-4" /> Chat desk
+            </p>
+            {waiting > 0 && (
+              <button
+                onClick={() => {
+                  const c = list.data?.find((x) => x.unread > 0);
+                  if (c) return open(c.id);
+                  const a = agents.data?.find((x) => x.unread > 0);
+                  if (a) setAgent({ id: a.id, name: a.name });
+                }}
+                className="rounded-full bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-700"
+              >
+                Waiting for you ({waiting > 99 ? "99+" : waiting})
+              </button>
+            )}
+          </div>
           <Tabs
             value={tab}
             onChange={(v) => setSp(v === "team" ? { tab: "team" } : {})}
@@ -124,7 +143,7 @@ export default function Desk() {
                 )}
               </div>
               {team.isLoading ? (
-                <Spinner />
+                <SkeletonRows rows={1} />
               ) : (
                 <div className="scrollbar-thin -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
                   {team.data?.map((p) => (
@@ -144,9 +163,7 @@ export default function Desk() {
           )}
           {byAgent && !agent ? (
             agents.isLoading ? (
-              <div className="flex justify-center p-6">
-                <Spinner />
-              </div>
+              <SkeletonRows />
             ) : !agents.data?.length ? (
               <p className="p-6 text-center text-sm text-slate-500">No agent has a buyer's chat yet.</p>
             ) : (
@@ -155,16 +172,15 @@ export default function Desk() {
                   <Avatar name={a.name} kind={a.kind === "fte" ? "fte" : "staff"} size={38} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold text-slate-900">{a.name}</span>
-                    <span className="block text-xs text-slate-500">{a.n} customer{a.n === 1 ? "" : "s"}</span>
+                    <span className="block text-xs text-slate-500">{a.n} conversation{a.n === 1 ? "" : "s"}</span>
                   </span>
+                  {a.unread > 0 && <Badge tone="red">{a.unread} new</Badge>}
                   <ChevronRight className="size-4 shrink-0 text-slate-400" />
                 </button>
               ))
             )
           ) : list.isLoading ? (
-            <div className="flex justify-center p-6">
-              <Spinner />
-            </div>
+            <SkeletonRows />
           ) : !list.data?.length ? (
             <p className="p-6 text-center text-sm text-slate-500">{tab === "team" ? "No team chats yet — tap a colleague to start one." : "No conversations yet."}</p>
           ) : (
@@ -294,8 +310,8 @@ function DeskThread({ id, meId, onBack, onLeft }: { id: string; meId: string; on
   const [manage, setManage] = useState(false);
   if (q.isLoading || !q.data)
     return (
-      <Card className="flex items-center justify-center">
-        <Spinner />
+      <Card padded={false} className="overflow-hidden">
+        <SkeletonRows rows={6} />
       </Card>
     );
   const c = q.data.conversation;
@@ -320,7 +336,9 @@ function DeskThread({ id, meId, onBack, onLeft }: { id: string; meId: string; on
           : peer?.lastSeenAt
             ? `last seen ${ago(peer.lastSeenAt)}`
             : "offline";
-  const callable = c.kind === "customer" ? q.data.customer?.online : c.kind === "staff_dm" ? peer?.online : false;
+  const peerHere = c.kind === "customer" ? q.data.customer?.online : peer?.online;
+  // the phone is for the two people in the conversation: reading another agent's thread gives none
+  const canRing = c.kind !== "group" && (c.kind !== "customer" || c.holder === "fte" || !c.assignedUserId || c.assignedUserId === meId);
   return (
     <Card padded={false} className="flex min-h-0 flex-col overflow-hidden">
       <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
@@ -332,7 +350,7 @@ function DeskThread({ id, meId, onBack, onLeft }: { id: string; meId: string; on
           <p className="truncate font-semibold text-slate-900">{name}</p>
           <p className={clsx("truncate text-xs", sub.startsWith("●") ? "text-emerald-600" : "text-slate-500")}>{sub}</p>
         </div>
-        {c.kind !== "group" && <CallButtons conversationId={id} peerName={name} disabled={callable ? null : `${name} is offline — calls need them online`} />}
+        {canRing && <CallButtons conversationId={id} peerName={name} away={!peerHere} />}
         {c.kind === "group" && (
           <Button variant="secondary" size="sm" onClick={() => setManage(true)}>
             <Users className="size-4" /> Members
@@ -374,9 +392,8 @@ function DeskThread({ id, meId, onBack, onLeft }: { id: string; meId: string; on
 
 function GroupMembers({ open, onClose, group, members, meId, onLeft }: { open: boolean; onClose: () => void; group: { id: string; title: string | null }; members: Member[]; meId: string; onLeft: () => void }) {
   const qc = useQueryClient();
-  const { can } = useAuth();
   const owner = members.find((m) => m.role === "owner");
-  const canManage = owner?.id === meId || can("chat.view_all");
+  const canManage = owner?.id === meId; // changing a group is its maker's; leaving is anyone's
   const team = useQuery({ queryKey: ["team"], queryFn: () => api.get<Colleague[]>("/api/chat/team"), enabled: open && canManage });
   const [title, setTitle] = useState(group.title ?? "");
   const [adding, setAdding] = useState<string[]>([]);
@@ -414,7 +431,7 @@ function GroupMembers({ open, onClose, group, members, meId, onLeft }: { open: b
                 <span className="min-w-0 flex-1 truncate text-sm text-slate-800">
                   {m.name} {m.id === meId && <span className="text-slate-400">(you)</span>}
                 </span>
-                {m.role === "owner" && <Badge tone="blue">owner</Badge>}
+                <span className="shrink-0 text-xs text-slate-500">{m.role === "owner" ? "Made the group" : m.online ? "Online" : "Member"}</span>
                 {canManage && m.id !== meId && (
                   <button onClick={() => void run(() => api.del(`/api/chat/groups/${group.id}/members/${m.id}`))} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove ${m.name}`}>
                     <UserMinus className="size-4" />
@@ -424,6 +441,7 @@ function GroupMembers({ open, onClose, group, members, meId, onLeft }: { open: b
             ))}
           </ul>
         </div>
+        {canManage && team.data && !outside.length && <p className="text-sm text-slate-500">Everybody on the desk is already in this group.</p>}
         {canManage && outside.length > 0 && (
           <div className="space-y-2">
             <PeoplePicker people={outside} picked={adding} setPicked={setAdding} />
@@ -436,6 +454,7 @@ function GroupMembers({ open, onClose, group, members, meId, onLeft }: { open: b
         <Button
           variant="secondary"
           onClick={() =>
+            window.confirm(`Leave "${group.title ?? "this group"}"?`) &&
             void run(async () => {
               await api.post(`/api/chat/groups/${group.id}/leave`);
               onClose();

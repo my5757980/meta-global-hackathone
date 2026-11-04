@@ -123,7 +123,11 @@ export interface InvoiceVehicleInput {
   cnfUsd: number;
 }
 
+/** What a car with no details yet is called: only the consignee is needed to ask, and the Supervisor can fill in the rest. */
+export const VEHICLE_TBC = "Vehicle to be confirmed";
+
 export interface InvoiceRequestInput {
+  salesperson?: string | null;
   leadId: string;
   consigneeName: string;
   consigneePhone: string;
@@ -174,7 +178,7 @@ export async function requestInvoice(input: InvoiceRequestInput, actor: Actor) {
         consigneeAddress: input.consigneeAddress ?? null,
         consigneeCountryCode: input.consigneeCountryCode,
         consigneePortId: input.consigneePortId ?? null,
-        salesperson: actor.name,
+        salesperson: input.salesperson?.trim() || actor.name,
         m3Rate: input.m3Rate ?? null,
         exchangeRate: input.exchangeRate ?? null,
         totalPushUsd: totalPush,
@@ -281,6 +285,7 @@ export async function markInvoiceSent(id: string, actor: Actor) {
     if (inv.status !== "approved") throw conflict("Only an approved invoice can be marked as sent");
     if (!inv.finalPdfFileId) throw conflict("Add the final invoice PDF first: upload it, or use the generated one");
     await tx.update(s.invoices).set({ status: "sent", sentAt: new Date() }).where(eq(s.invoices.id, id));
+    if (inv.requestedBy && inv.requestedBy !== actor.userId) await notify([inv.requestedBy], { type: "invoice_approved", title: `Invoice ${inv.number} sent`, body: `Your invoice for ${inv.consigneeName} has been approved and sent to the client.`, link: `/crm/invoices/${id}` }, tx);
     await audit(tx, { actorUserId: actor.userId, actorKind: actor.kind, action: "invoice.sent", entity: "invoice", entityId: id, summary: `Marked invoice ${inv.number} as sent` });
     return { ok: true };
   });
@@ -367,6 +372,7 @@ export async function attachFinalPdf(id: string, fileId: string, how: "Uploaded"
 }
 
 export interface InvoiceEditInput {
+  salesperson?: string | null;
   consigneeName: string;
   consigneePhone: string;
   consigneeEmail?: string | null;
@@ -431,6 +437,7 @@ export async function editInvoice(id: string, input: InvoiceEditInput, actor: Ac
     await tx
       .update(s.invoices)
       .set({
+        salesperson: input.salesperson?.trim() || inv.salesperson,
         consigneeName: input.consigneeName,
         consigneePhone: input.consigneePhone,
         consigneeEmail: input.consigneeEmail || null,

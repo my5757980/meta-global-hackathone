@@ -147,6 +147,7 @@ async function buildHistory(conversationId: string, soraId: string): Promise<Cha
     }
     if (parts.length) {
       if (text) parts.unshift({ type: "text", text });
+      if (m.kind === "image" && ids.length > parts.filter((p) => (p as { type: string }).type === "image_url").length) parts.unshift({ type: "text", text: `[The buyer sent ${ids.length} pictures together. You can see only the first ones here.]` });
       out.unshift({ role: "user", content: parts as never });
     } else {
       out.unshift({ role: "user", content: text || (m.kind === "voice" ? "[voice note]" : m.kind === "image" ? "[picture]" : "") });

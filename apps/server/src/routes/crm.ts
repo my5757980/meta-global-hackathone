@@ -116,7 +116,7 @@ crmRouter.post(
   "/leads",
   h(async (req) => {
     const u = requirePerm(req, "crm.leads.create");
-    const b = parse(z.object({ customerName: z.string().trim().min(2).max(120), contactPerson: z.string().trim().min(2).max(80), phone: z.string().trim().min(6).max(30), email: z.string().trim().email().max(120).optional().or(z.literal("")), address: z.string().max(200).optional(), countryCode: z.string().length(2), portId: z.string().min(8) }), req.body);
+    const b = parse(z.object({ customerName: z.string().trim().max(120).optional().or(z.literal("")), contactPerson: z.string().trim().min(2).max(80), phone: z.string().trim().min(6).max(30), email: z.string().trim().email().max(120).optional().or(z.literal("")), address: z.string().max(200).optional(), countryCode: z.string().length(2), portId: z.string().min(8) }), req.body);
     // Another agent's client is refused, not quietly opened: the owner stays, the attempt is on record, and the Supervisors know.
     const taken = await findLeadByContact(b.phone, b.email || null);
     if (taken && taken.ownerUserId && taken.ownerUserId !== u.id) {
@@ -127,7 +127,7 @@ crmRouter.post(
       await emit("lead.duplicate_attempt", { leadId: taken.id, byName: u.name, ownerName: owner?.name ?? null });
       throw conflict(`This client is already registered under ${owner?.name ?? "another agent"} since ${new Date(taken.createdAt).toISOString().slice(0, 10)}. The Supervisor has been told.`);
     }
-    const r = await findOrCreateLead({ ...b, email: b.email || null, ownerUserId: u.id, source: "manual" }, actor(u));
+    const r = await findOrCreateLead({ ...b, customerName: b.customerName || b.contactPerson, email: b.email || null, ownerUserId: u.id, source: "manual" }, actor(u));
     return { lead: r.lead, duplicate: !r.created };
   }),
 );
@@ -146,10 +146,10 @@ crmRouter.post(
 crmRouter.patch(
   "/leads/:id",
   h(async (req) => {
-    const u = requirePerm(req, "crm.leads.edit");
+    const u = requirePerm(req, "crm.access"); // an agent edits their own lead; who holds crm.leads.edit edits any (checked below)
     const b = parse(
       z.object({
-        customerName: z.string().trim().min(2).max(120),
+        customerName: z.string().trim().max(120).optional().or(z.literal("")),
         contactPerson: z.string().trim().min(2).max(80),
         phone: z.string().trim().min(6).max(30),
         email: z.string().trim().toLowerCase().email().max(120).nullable().optional().or(z.literal("")),
@@ -161,6 +161,7 @@ crmRouter.patch(
     );
     const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, String(req.params.id))).limit(1);
     if (!lead || (!can(u, "crm.leads.view_all") && lead.ownerUserId !== u.id)) throw notFound();
+    if (!can(u, "crm.leads.edit") && lead.ownerUserId !== u.id) throw forbidden("You can only edit your own leads");
     const [country] = await db().select({ code: s.countries.code }).from(s.countries).where(eq(s.countries.code, b.countryCode)).limit(1);
     if (!country) throw bad("Choose a country from the list");
     if (b.portId) {
@@ -169,7 +170,7 @@ crmRouter.patch(
     }
     const dup = await findLeadByContact(b.phone, b.email || null);
     if (dup && dup.id !== lead.id) throw conflict(`This phone or e-mail already belongs to ${dup.customerName}`);
-    await db().update(s.leads).set({ customerName: b.customerName, contactPerson: b.contactPerson, phone: b.phone, email: b.email || null, address: b.address || null, countryCode: b.countryCode, portId: b.portId || null, updatedAt: new Date() }).where(eq(s.leads.id, lead.id));
+    await db().update(s.leads).set({ customerName: b.customerName || b.contactPerson, contactPerson: b.contactPerson, phone: b.phone, email: b.email || null, address: b.address || null, countryCode: b.countryCode, portId: b.portId || null, updatedAt: new Date() }).where(eq(s.leads.id, lead.id));
     await audit(db(), { actorUserId: u.id, actorKind: "human", action: "lead.edited", entity: "lead", entityId: lead.id, summary: `${u.name} edited the details of ${b.customerName}` });
     // a customer who had no e-mail gets the website account as soon as one is known
     if (lead.isCustomer && b.email) await ensureWebsiteAccount(lead.id);

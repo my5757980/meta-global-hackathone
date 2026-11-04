@@ -94,7 +94,7 @@ export function NewLeadModal({ open, onClose }: { open: boolean; onClose: () => 
       }
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Customer / business name *">
+        <Field label="Customer / business name">
           <Input value={f.customerName} onChange={set("customerName")} />
         </Field>
         <Field label="Contact person *">
@@ -169,7 +169,7 @@ export function EditLeadModal({ lead, onClose, onDone }: { lead: { id: string; c
       }
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Customer / business name *">
+        <Field label="Customer / business name">
           <Input value={f.customerName} onChange={set("customerName")} />
         </Field>
         <Field label="Contact person *">
@@ -193,7 +193,7 @@ export function EditLeadModal({ lead, onClose, onDone }: { lead: { id: string; c
 
 /** Agent's invoice request: several vehicles ("Add more"), prices optional (Supervisor can price later). */
 export function RequestInvoiceModal({ lead, onClose, onDone }: { lead: { id: string; customerName: string; phone: string; email: string | null; address: string | null; countryCode: string | null; portId: string | null }; onClose: () => void; onDone: (id: string) => void }) {
-  const [c, setC] = useState({ consigneeName: lead.customerName, consigneePhone: lead.phone, consigneeEmail: lead.email ?? "", consigneeAddress: lead.address ?? "", consigneeCountryCode: lead.countryCode ?? "", consigneePortId: lead.portId ?? "" });
+  const [c, setC] = useState({ consigneeName: lead.customerName, consigneePhone: lead.phone, consigneeEmail: lead.email ?? "", consigneeAddress: lead.address ?? "", consigneeCountryCode: lead.countryCode ?? "", consigneePortId: lead.portId ?? "", salesperson: "" });
   const [rows, setRows] = useState<VehicleRow[]>([emptyRow()]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -222,9 +222,10 @@ export function RequestInvoiceModal({ lead, onClose, onDone }: { lead: { id: str
                   leadId: lead.id,
                   ...c,
                   consigneeEmail: c.consigneeEmail || undefined,
+                  salesperson: c.salesperson.trim() || undefined,
                   consigneePortId: c.consigneePortId || null,
                   vehicles: rows
-                    .filter((r0) => r0.unitLabel.trim())
+                    .filter((r0, i) => i === 0 || r0.unitLabel.trim())
                     .map((r0) => ({ vehicleId: r0.vehicleId, unitLabel: r0.unitLabel, year: r0.year ? Number(r0.year) : null, color: r0.color || null, chassisNo: r0.chassisNo || null, engine: r0.engine || null, transmission: r0.transmission || null, fuel: r0.fuel || null, pushUsd: Number(r0.pushUsd) || 0, cnfUsd: Number(r0.cnfUsd) || 0 })),
                 });
                 onDone(r.id);
@@ -254,6 +255,9 @@ export function RequestInvoiceModal({ lead, onClose, onDone }: { lead: { id: str
         <PortPicker country={c.consigneeCountryCode} port={c.consigneePortId} onCountry={(v) => setC((x) => ({ ...x, consigneeCountryCode: v }))} onPort={(v) => setC((x) => ({ ...x, consigneePortId: v }))} />
         <Field label="Address">
           <Input value={c.consigneeAddress} onChange={(e) => setC({ ...c, consigneeAddress: e.target.value })} />
+        </Field>
+        <Field label="Sales person">
+          <Input value={c.salesperson} placeholder="Your own name, if left empty" onChange={(e) => setC({ ...c, salesperson: e.target.value })} />
         </Field>
       </div>
       <p className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Vehicles (prices optional — the Supervisor can price later)</p>
@@ -295,7 +299,7 @@ function VehicleRowsEditor({ rows, setRows }: { rows: VehicleRow[]; setRows: Rea
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-5">
-              <RowField label="Make & model *" className="sm:col-span-2">
+              <RowField label="Make & model" className="sm:col-span-2">
                 <Input value={r.unitLabel} onChange={(e) => upd(i, "unitLabel", e.target.value)} />
               </RowField>
               <RowField label="Year">
@@ -354,6 +358,7 @@ export interface EditableInvoice {
   consigneeAddress: string | null;
   consigneeCountryCode: string | null;
   consigneePortId: string | null;
+  salesperson?: string | null;
   m3Rate: number | null;
   exchangeRate: number | null;
   advancePercent: number;
@@ -375,7 +380,7 @@ export interface EditableVehicle {
 /** Supervisor: change the consignee, the terms, the prices and the whole vehicle list. */
 export function EditInvoiceModal({ invoice, vehicles, onClose, onDone }: { invoice: EditableInvoice; vehicles: EditableVehicle[]; onClose: () => void; onDone: () => void }) {
   const [c, setC] = useState({ consigneeName: invoice.consigneeName, consigneePhone: invoice.consigneePhone, consigneeEmail: invoice.consigneeEmail ?? "", consigneeAddress: invoice.consigneeAddress ?? "", consigneeCountryCode: invoice.consigneeCountryCode ?? "", consigneePortId: invoice.consigneePortId ?? "" });
-  const [terms, setTerms] = useState({ m3Rate: invoice.m3Rate ? String(invoice.m3Rate) : "", exchangeRate: invoice.exchangeRate ? String(invoice.exchangeRate) : "", advancePercent: String(invoice.advancePercent) });
+  const [terms, setTerms] = useState({ salesperson: invoice.salesperson ?? "", m3Rate: invoice.m3Rate ? String(invoice.m3Rate) : "", exchangeRate: invoice.exchangeRate ? String(invoice.exchangeRate) : "", advancePercent: String(invoice.advancePercent) });
   const num = (n: number | null | undefined) => (n ? String(n) : "");
   const [rows, setRows] = useState<VehicleRow[]>(vehicles.map((v) => ({ id: v.id, vehicleId: v.vehicleId ?? null, unitLabel: v.unitLabel, year: num(v.year), color: v.color ?? "", chassisNo: v.chassisNo ?? "", engine: v.engine ?? "", transmission: v.transmission ?? "", fuel: v.fuel ?? "", pushUsd: num(v.pushUsd), cnfUsd: num(v.cnfUsd) })));
   const [err, setErr] = useState<string | null>(null);
@@ -393,6 +398,7 @@ export function EditInvoiceModal({ invoice, vehicles, onClose, onDone }: { invoi
         m3Rate: terms.m3Rate ? Number(terms.m3Rate) : null,
         exchangeRate: terms.exchangeRate ? Number(terms.exchangeRate) : null,
         advancePercent: Number(terms.advancePercent) || undefined,
+        salesperson: terms.salesperson.trim() || null,
         vehicles: rows
           .filter((r) => r.unitLabel.trim())
           .map((r) => ({ id: r.id ?? null, vehicleId: r.vehicleId, unitLabel: r.unitLabel.trim(), year: r.year ? Number(r.year) : null, color: r.color || null, chassisNo: r.chassisNo || null, engine: r.engine || null, transmission: r.transmission || null, fuel: r.fuel || null, pushUsd: Number(r.pushUsd) || 0, cnfUsd: Number(r.cnfUsd) || 0 })),
@@ -443,6 +449,9 @@ export function EditInvoiceModal({ invoice, vehicles, onClose, onDone }: { invoi
       </div>
       <p className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Terms</p>
       <div className="grid gap-3 sm:grid-cols-3">
+        <Field label="Sales person">
+          <Input value={terms.salesperson} onChange={(e) => setTerms({ ...terms, salesperson: e.target.value })} />
+        </Field>
         <Field label="M3 rate ($)">
           <Input type="number" min={0} value={terms.m3Rate} onChange={(e) => setTerms({ ...terms, m3Rate: e.target.value })} />
         </Field>

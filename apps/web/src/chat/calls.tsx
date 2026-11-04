@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from "lucide-react";
 import { api } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { useLiveEvent } from "../lib/sse";
 import { notifyDesktop } from "../lib/desktopNotify";
 import { Avatar, clsx } from "../ui";
 import { FteCallPanel } from "./FteCall";
+import { openChatWith } from "./ChatWidget";
 
 /**
  * Voice and video calls, browser to browser (WebRTC). The server rings the other side and relays the
@@ -14,6 +17,7 @@ import { FteCallPanel } from "./FteCall";
 type Media = "audio" | "video";
 interface Call {
   id: string;
+  conversationId?: string;
   media: Media;
   peerName: string;
   role: "caller" | "callee";
@@ -22,7 +26,7 @@ interface Call {
   startedAt?: number;
   fte?: { conversationId: string; greeting: string }; // the AI employee answered: no peer connection, she takes turns
 }
-type SignalEvent = { type: string; callId: string; data?: unknown; media?: Media; from?: { id: string; name: string }; status?: string; seconds?: number };
+type SignalEvent = { type: string; callId: string; conversationId?: string; data?: unknown; media?: Media; from?: { id: string; name: string }; status?: string; seconds?: number };
 
 let iceServers: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
 let starter: ((conversationId: string, media: Media, peerName: string) => Promise<void>) | null = null;
@@ -61,8 +65,15 @@ function tone(kind: "ring" | "back") {
   }
 }
 
-export function CallLayer() {
+/** What the screen says when a call is over. */
+const endNote = (status: string | undefined, role: "caller" | "callee") =>
+  ({ ended: "Call ended", declined: role === "caller" ? "They are busy right now" : "Call declined", cancelled: role === "callee" ? "Missed call" : "Call cancelled", missed: role === "callee" ? "Missed call" : "No answer", failed: "The call could not connect" })[status ?? "ended"] ?? "Call ended";
+
+export function CallLayer({ desk }: { desk?: boolean }) {
   const [call, setCall] = useState<Call | null>(null);
+  const nav = useNavigate();
+  const { pathname } = useLocation();
+  const { me } = useAuth();
   const [muted, setMuted] = useState(false);
   const [camOff, setCamOff] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -118,8 +129,8 @@ export function CallLayer() {
     p.onconnectionstatechange = () => {
       if (p.connectionState === "connected") setCall((c) => (c ? { ...c, phase: "active", startedAt: c.startedAt ?? Date.now() } : c));
       if (p.connectionState === "failed") {
-        void signal(id, "end");
-        endShown("The connection failed — the network may block direct calls");
+        void signal(id, "end", { failed: true });
+        endShown("The call could not connect. Their network may block calls — try a message.");
       }
     };
     local.current?.getTracks().forEach((t) => p.addTrack(t, local.current!));
@@ -172,7 +183,7 @@ export function CallLayer() {
       const c = current.current;
       if (e.type === "ring") {
         if (c) return; // already busy here; the caller will hear no answer
-        setCall({ id: e.callId, media: e.media ?? "audio", peerName: e.from?.name ?? "Caller", role: "callee", phase: "incoming" });
+        setCall({ id: e.callId, conversationId: e.conversationId, media: e.media ?? "audio", peerName: e.from?.name ?? "Caller", role: "callee", phase: "incoming" });
         ringer.current = tone("ring");
         notifyDesktop(`Incoming ${e.media === "video" ? "video" : "voice"} call`, `${e.from?.name ?? "Someone"} is calling you`, undefined, { tag: e.callId });
         return;
@@ -186,8 +197,7 @@ export function CallLayer() {
         return;
       }
       if (e.type === "ended") {
-        const note = e.status === "ended" ? "Call ended" : e.status === "declined" ? (c.role === "caller" ? `${c.peerName} declined the call` : "Call declined") : c.role === "caller" ? "No answer" : "Missed call";
-        endShown(note);
+        endShown(endNote(e.status, c.role));
         return;
       }
       try {
@@ -213,7 +223,7 @@ export function CallLayer() {
           await flushIce();
         }
       } catch {
-        void signal(c.id, "end");
+        void signal(c.id, "end", { failed: true });
         endShown("The call could not connect");
       }
     },
@@ -255,6 +265,12 @@ export function CallLayer() {
     setCall({ ...call, phase: "connecting" });
     makePc(call.id);
     void signal(call.id, "accept");
+    // answering opens the caller's conversation, the way a phone does: the person on the line is the person on the screen
+    if (call.conversationId) {
+      if (me?.kind !== "staff") {
+        if (pathname !== "/chat") openChatWith();
+      } else if (desk) nav(`/desk?c=${call.conversationId}`);
+    }
   };
   const decline = () => {
     void signal(call.id, "decline");
@@ -339,7 +355,7 @@ export function CallLayer() {
 }
 
 /** Call buttons for a conversation header. */
-export function CallButtons({ conversationId, peerName, disabled, className }: { conversationId: string; peerName: string; disabled?: string | null; className?: string }) {
+export function CallButtons({ conversationId, peerName, away, className }: { conversationId: string; peerName: string; away?: boolean; className?: string }) {
   const [err, setErr] = useState<string | null>(null);
   const go = async (media: Media) => {
     setErr(null);
@@ -352,10 +368,10 @@ export function CallButtons({ conversationId, peerName, disabled, className }: {
   };
   return (
     <div className={clsx("relative flex items-center gap-1", className)}>
-      <button onClick={() => void go("audio")} disabled={!!disabled} title={disabled ?? `Voice call ${peerName}`} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-40" aria-label="Voice call">
+      <button onClick={() => void go("audio")} title={away ? `Voice call — ${peerName} is away, so it will ring their phone` : `Voice call ${peerName}`} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100" aria-label="Voice call">
         <Phone className="size-4" />
       </button>
-      <button onClick={() => void go("video")} disabled={!!disabled} title={disabled ?? `Video call ${peerName}`} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-40" aria-label="Video call">
+      <button onClick={() => void go("video")} title={away ? `Video call — ${peerName} is away, so it will ring their phone` : `Video call ${peerName}`} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100" aria-label="Video call">
         <Video className="size-4" />
       </button>
       {err && <p className="absolute top-full right-0 z-20 mt-1 w-64 rounded-xl bg-rose-50 p-2 text-xs text-rose-700 shadow ring-1 ring-rose-100">{err}</p>}

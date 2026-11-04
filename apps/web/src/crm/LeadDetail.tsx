@@ -45,7 +45,7 @@ export default function LeadDetail() {
         <h1 className="text-2xl font-bold text-slate-900">{lead.customerName}</h1>
         <StatusBadge status={lead.status} label={LEAD_STATUS_LABELS[lead.status as keyof typeof LEAD_STATUS_LABELS]} />
         <div className="ml-auto flex flex-wrap gap-2">
-          {can("crm.leads.edit") && (
+          {(can("crm.leads.edit") || lead.ownerUserId === me?.id) && (
             <Button variant="secondary" onClick={() => setEditing(true)}>
               <Pencil className="size-4" /> Edit
             </Button>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Bot, Check, ChevronLeft, ChevronRight, Copy, Download, FileText, Gavel, History, Printer, Search, X, ZoomIn } from "lucide-react";
 import { api, qs } from "../lib/api";
@@ -92,12 +92,13 @@ function TokyoClock() {
 /** Staff see whether the demo feeds are running; buyers do not need to. */
 function FeedLine() {
   const { can } = useAuth();
-  const q = useQuery({ queryKey: ["feed-signal"], queryFn: () => api.get<{ status: string; text: string }>("/api/auction/signal"), enabled: can("auction.admin"), refetchInterval: 60_000 });
+  const stats = useLocation().pathname.startsWith("/auction/statistics"); // past prices have their own sentence
+  const q = useQuery({ queryKey: ["feed-signal", stats], queryFn: () => api.get<{ status: string; text: string; sync?: string }>(`/api/auction/signal${stats ? "?for=statistics" : ""}`), enabled: can("auction.admin"), refetchInterval: 60_000 });
   if (!can("auction.admin") || !q.data) return null;
   const ok = q.data.status === "working";
   return (
     <span className={clsx("hidden shrink-0 items-center gap-1 text-xs sm:flex", ok ? "text-emerald-700" : "text-rose-700")}>
-      <span className={clsx("size-2 rounded-full", ok ? "bg-emerald-500" : "bg-rose-500")} /> {q.data.text}
+      <span className={clsx("size-2 rounded-full", ok ? "bg-emerald-500" : "bg-rose-500")} /> {q.data.text}{q.data.sync ? ` · ${q.data.sync}` : ""}
     </span>
   );
 }
@@ -388,7 +389,7 @@ export function AuctionList() {
                 </Button>
               </div>
             </form>
-            <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+            <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-3">
               {column("Auction date", "saleDate", facets.data?.saleDates, (r) => shortDay(r.v))}
               <div className="min-w-0">
                 <p className="mb-1.5 rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">Make</p>
@@ -1158,7 +1159,7 @@ export function AuctionStatistics() {
             {facets.data?.makes.map((m) => <option key={m.v}>{m.v}</option>)}
           </Select>
           {box("model", "Model name", "Model name, like Prius")}
-          {box("chassis", "Chassis no. or model code", "Chassis no. or model code")}
+          {box("chassis", "Chassis no. or model code", "Chassis or model code")}
           {box("lots", "Lot numbers", "Lot no. (1234, 5678)")}
           <div className="grid grid-cols-2 gap-2">
             {box("yearMin", "Year from", "Year from")}
@@ -1371,7 +1372,7 @@ export function AuctionMe() {
             {tile("Orders placed", d.orders.length, `${d.orders.filter((o) => ["pending", "approved", "confirmed"].includes(o.status)).length} in progress`)}
             {tile("Enquiries", d.enquiries.length, `${d.enquiries.filter((e) => e.status === "new" || e.status === "open").length} awaiting a reply`)}
             {tile("Lots available", d.onSale.toLocaleString("en-US"), "updated through the day")}
-            {tile("Past prices", d.pastResults.toLocaleString("en-US"), <Link className="font-semibold text-brand-700" to="/auction/statistics">past auction results</Link>)}
+            {tile("Past prices", d.pastResults.toLocaleString("en-US"), <Link className="inline-block py-1.5 font-semibold text-brand-700" to="/auction/statistics">past auction results</Link>)}
           </div>
         )}
         <Card>

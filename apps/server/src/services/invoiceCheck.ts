@@ -1,7 +1,7 @@
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import * as s from "../db/schema";
-import { getInvoiceFull } from "./crm";
+import { getInvoiceFull, VEHICLE_TBC } from "./crm";
 import { quote } from "./pricing";
 import { envelope, pricingPolicy } from "./settings";
 
@@ -35,6 +35,7 @@ export async function invoiceRubric(invoiceId: string) {
 
   add("Consignee is complete", !!inv.consigneeName && !!inv.consigneePhone && !!inv.consigneeCountryCode && !!inv.consigneePortId, `name "${inv.consigneeName}", phone "${inv.consigneePhone}", country ${inv.consigneeCountryCode ?? "missing"}, port ${full.port?.name ?? "missing"}`);
   add("It is still waiting for a decision", inv.status === "pending", `status ${inv.status}`);
+  add("Every car is named", full.vehicles.every((v) => v.unitLabel && v.unitLabel !== VEHICLE_TBC), full.vehicles.map((v) => v.unitLabel).join(", "));
   add("Every car has a price", full.vehicles.length > 0 && full.vehicles.every((v) => Number(v.cnfUsd) > 0), full.vehicles.map((v) => `${v.unitLabel} $${Number(v.cnfUsd)}`).join("; "));
 
   // no other live invoice holds the same car, and no car has been sold from under this one

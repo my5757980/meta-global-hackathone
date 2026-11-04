@@ -212,7 +212,7 @@ function AdminDashboard() {
             <ul className="divide-y divide-slate-100 text-sm">
               {d.latestCustomers.map((c) => (
                 <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
-                  <Link to={`/admin/customers/${c.id}`} className="min-w-0 font-medium text-brand-700">{c.name}<span className="block text-xs font-normal text-slate-500">{c.email}</span></Link>
+                  <Link to={`/admin/customers/${c.id}`} className="max-w-full min-w-0 font-medium [overflow-wrap:anywhere] text-brand-700">{c.name}<span className="block text-xs font-normal text-slate-500">{c.email}</span></Link>
                   <span className="text-xs whitespace-nowrap text-slate-500">{ago(c.createdAt)}</span>
                 </li>
               ))}
@@ -238,7 +238,7 @@ export function AdminOverview() {
     { to: "/admin/content", label: "Site content", desc: "Guides, services, FAQ, testimonials, partners, locations", icon: <LayoutList className="size-5" />, show: can("website.content.manage") },
     { to: "/admin/messages", label: "Messages", desc: "Contact form enquiries", icon: <Mail className="size-5" />, show: can("website.content.manage") },
     { to: "/admin/settings", label: "Branding", desc: "Name, colours, bank & contact", icon: <Palette className="size-5" />, show: can("website.settings.manage") },
-    { to: "/admin/roles", label: "Roles & permissions", desc: "What each role may do", icon: <ShieldCheck className="size-5" />, show: can("auction.roles.manage") },
+    { to: "/admin/roles", label: "Roles & permissions", desc: "What each role may do", icon: <ShieldCheck className="size-5" />, show: can("auction.roles.view") },
   ].filter((c) => c.show);
   return (
     <div>

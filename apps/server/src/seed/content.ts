@@ -150,17 +150,17 @@ export const PARTNERS = [
 ];
 
 export const LOCATIONS = [
-  { name: "Head office & yard — Yokohama", address: "1-2-3 Minato, Yokohama, Kanagawa, Japan (demo address)", phone: "+81 3 0000 0000", email: "sales@hikari-motors.example" },
-  { name: "East Africa office — Mombasa", address: "Moi Avenue, Mombasa, Kenya (demo address)", phone: "+254 700 000 000", email: "kenya@hikari-motors.example" },
-  { name: "Caribbean office — Kingston", address: "Knutsford Boulevard, Kingston, Jamaica (demo address)", phone: "+1 876 000 0000", email: "caribbean@hikari-motors.example" },
-  { name: "South Asia office — Karachi", address: "Shahrah-e-Faisal, Karachi, Pakistan (demo address)", phone: "+92 21 0000 0000", email: "pakistan@hikari-motors.example" },
+  { name: "Head office & yard — Yokohama", mapUrl: "https://www.google.com/maps/search/?api=1&query=Yokohama%2C%20Japan", address: "1-2-3 Minato, Yokohama, Kanagawa, Japan (demo address)", phone: "+81 3 0000 0000", email: "sales@hikari-motors.example" },
+  { name: "East Africa office — Mombasa", mapUrl: "https://www.google.com/maps/search/?api=1&query=Mombasa%2C%20Kenya", address: "Moi Avenue, Mombasa, Kenya (demo address)", phone: "+254 700 000 000", email: "kenya@hikari-motors.example" },
+  { name: "Caribbean office — Kingston", mapUrl: "https://www.google.com/maps/search/?api=1&query=Kingston%2C%20Jamaica", address: "Knutsford Boulevard, Kingston, Jamaica (demo address)", phone: "+1 876 000 0000", email: "caribbean@hikari-motors.example" },
+  { name: "South Asia office — Karachi", mapUrl: "https://www.google.com/maps/search/?api=1&query=Karachi%2C%20Pakistan", address: "Shahrah-e-Faisal, Karachi, Pakistan (demo address)", phone: "+92 21 0000 0000", email: "pakistan@hikari-motors.example" },
 ];
 
 export const PAGES = [
   {
     slug: "about",
     title: "About Hikari Motors",
-    body: `Hikari Motors is a **demo exporter** used to show AutoFTE — a platform any Japanese used-car exporter can run under its own name.\n\nWe buy from Japan's auction halls and our own stock yard in Yokohama, inspect every car, and ship to buyers across Africa, the Caribbean, the Pacific and Asia.\n\n### How we work\n- **Sora**, our AI sales executive (built with Meta's Muse Spark Open), answers buyers day and night, searches stock and auctions, reads auction sheets and quotes the landed price to the buyer's port.\n- **A team of Digital FTEs does the back office.** One checks and approves each invoice, one reads payment slips, one files your shipping documents, each inside limits the company sets.\n- **People decide what matters.** Anything above those limits reaches the owner, and you can always ask to speak to a person.\n- **Everything is on record.** Leads, invoices, payments, units, documents and shipping progress live in one system, and buyers see their own records in their account.`,
+    body: `Hikari Motors is a **demo exporter** used to show AutoFTE — a platform any Japanese used-car exporter can run under its own name.\n\nWe buy from Japan's auction halls and our own stock yard in Yokohama, inspect every car, and ship to buyers across Africa, the Caribbean, the Pacific and Asia.\n\n### How we work\n- **Sora**, our AI sales executive (built with Meta's Muse Spark Open), answers buyers day and night, searches stock and auctions, reads auction sheets and quotes the landed price to the buyer's port.\n- **A team of Digital FTEs does the back office.** One checks and approves each invoice, one reads payment slips, one files your shipping documents, each inside limits the company sets.\n- **People decide what matters.** Anything above those limits reaches the owner, and you can always ask to speak to a person.\n- **Everything is on record.** Leads, invoices, payments, units, documents and shipping progress live in one system, and buyers see their own records in their account.\n\n## A word from our director\n\nWe started with one idea: a buyer far from Japan should know as much about a car as we do. So every car comes with its sheet, its photos and a straight price to your port. *(Demo text: Hikari Motors is fictional.)*\n\n## What we aim for\n\n**Our vision:** buying a car from Japan should feel as safe as buying one down the road.\n\n**Our mission:** reliable sourcing, clear prices, and a person or a Digital FTE who answers at any hour.\n\n## For buyers and trade partners\n\nWhether you want one car for your family or a container for your yard, the same team and the same open numbers serve you. [Talk to us](/contact).`,
   },
   {
     slug: "how-to-buy",

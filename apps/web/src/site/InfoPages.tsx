@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Building2, Check, ChevronRight, ClipboardCheck, Copy, Car, FileText, Gavel, Headphones, Landmark, Mail, MapPin, Phone, Ship } from "lucide-react";
+import { Building2, Check, ChevronRight, ClipboardCheck, Clock, Copy, Car, FileText, Gavel, Headphones, Landmark, Mail, MapPin, Phone, Ship } from "lucide-react";
 import { api } from "../lib/api";
 import { date, miniMarkdown } from "../lib/format";
 import { useFte, useSite } from "../lib/site";
@@ -80,7 +80,8 @@ export function FaqView() {
 }
 
 export function LocationsView() {
-  const q = useQuery({ queryKey: ["locations"], queryFn: () => api.get<{ name: string; address: string; phone: string; email: string }[]>("/api/public/locations") });
+  const site = useSite();
+  const q = useQuery({ queryKey: ["locations"], queryFn: () => api.get<{ name: string; address: string; phone: string; email: string; mapUrl?: string | null }[]>("/api/public/locations") });
   return (
     <PageShell title="Our locations">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -98,6 +99,10 @@ export function LocationsView() {
             <p className="mt-1 flex items-center gap-2 text-sm text-slate-600">
               <Mail className="size-4" /> {l.email}
             </p>
+            <p className="mt-1 flex items-center gap-2 text-sm text-slate-600">
+              <Clock className="size-4" /> {site?.hours}
+            </p>
+            {l.mapUrl && <a href={l.mapUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-semibold text-brand-700">Open the map →</a>}
           </Card>
         ))}
       </div>
@@ -117,6 +122,34 @@ export function PartnersView() {
           </Card>
         ))}
       </div>
+      <div className="mt-8 grid gap-4 md:grid-cols-3">
+        {[
+          ["Finding the car", "Membership in trade bodies and halls gets us to more cars, sooner."],
+          ["Checking it", "Inspection partners give you a second pair of eyes before you pay."],
+          ["Getting it to you", "Shipping and courier partners move the car and its papers to your port."],
+        ].map(([h2, d]) => (
+          <Card key={h2}>
+            <p className="font-semibold text-slate-900">{h2}</p>
+            <p className="mt-1 text-sm text-slate-600">{d}</p>
+          </Card>
+        ))}
+      </div>
+      <h2 className="mt-8 mb-3 text-lg font-bold text-slate-900">How a purchase runs through them</h2>
+      <ol className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+        {[
+          ["Tell us what you need", "The kind of car, the budget, the port."],
+          ["We search the network", "Our stock, this week's auctions, partner yards."],
+          ["You check it", "The sheet, the photos, the price, the documents."],
+          ["We prepare the export", "Paperwork, inspection and the ship."],
+        ].map(([h2, d], i) => (
+          <li key={h2} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-bold text-brand-700">Step {i + 1}</p>
+            <p className="font-semibold text-slate-900">{h2}</p>
+            <p className="mt-1 text-sm text-slate-600">{d}</p>
+          </li>
+        ))}
+      </ol>
+      <Link to="/contact" className="mt-6 inline-flex h-10 items-center rounded-xl bg-brand-600 px-4 text-sm font-semibold text-white hover:bg-brand-700">Ask about a partner</Link>
     </PageShell>
   );
 }
@@ -321,6 +354,21 @@ export function ContactView() {
           <p className="mt-2 flex items-center gap-2 text-sm text-slate-600">
             <Mail className="size-4" /> {site?.email}
           </p>
+          <p className="mt-2 flex items-center gap-2 text-sm text-slate-600">
+            <Clock className="size-4" /> {site?.hours}
+          </p>
+          {site?.whatsapp && (
+            <a href={`https://wa.me/${site.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex h-10 items-center rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700">
+              Open WhatsApp
+            </a>
+          )}
+          <p className="mt-5 font-semibold text-slate-900">A faster answer: tell us</p>
+          <ul className="mt-2 space-y-1 text-sm text-slate-600">
+            <li><strong className="text-slate-800">The car:</strong> make, model, year, mileage, condition.</li>
+            <li><strong className="text-slate-800">The destination:</strong> country and port.</li>
+            <li><strong className="text-slate-800">The budget:</strong> what you can spend, delivered.</li>
+          </ul>
+          <Link to="/locations" className="mt-4 block text-sm font-semibold text-brand-700">Find the nearest office →</Link>
         </Card>
       </div>
     </PageShell>

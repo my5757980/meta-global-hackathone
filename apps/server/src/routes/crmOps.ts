@@ -7,14 +7,14 @@
 import { Router } from "express";
 import multer from "multer";
 import archiver from "archiver";
-import { and, asc, desc, eq, gte, ilike, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, lt, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { PROGRESS_STAGES, UNIT_FOLDERS, ROLE_LABELS, type RoleSlug } from "@autofte/shared";
 import { db } from "../db/client";
 import * as s from "../db/schema";
 import { bad, conflict, forbidden, h, notFound, parse } from "../lib/http";
-import { can, clearPermCache, requirePerm, type AuthUser } from "../auth/session";
-import { attachFinalPdf, deleteInvoice, editInvoice, getInvoiceFull, removeFinalPdf, requestInvoice, type Actor } from "../services/crm";
+import { permsForRole, can, clearPermCache, requirePerm, type AuthUser } from "../auth/session";
+import { VEHICLE_TBC, attachFinalPdf, deleteInvoice, editInvoice, getInvoiceFull, removeFinalPdf, requestInvoice, type Actor } from "../services/crm";
 import { notify, usersWithPerm } from "../services/notify";
 import { audit } from "../services/audit";
 import { emit } from "../services/events";
@@ -62,14 +62,17 @@ crmOps.post(
         consigneeCountryCode: z.string().length(2),
         consigneePortId: z.string().optional().nullable(),
         advancePercent: z.number().int().min(1).max(100).optional(),
-        vehicles: z.array(vehicleSchema).min(1).max(50),
+        salesperson: z.string().trim().max(120).optional(),
+        vehicles: z.array(vehicleSchema.extend({ unitLabel: z.string().trim().max(120).default("") })).max(50).default([]),
       }),
       req.body,
     );
     const [lead] = await db().select().from(s.leads).where(eq(s.leads.id, b.leadId)).limit(1);
     if (!lead || (lead.ownerUserId !== u.id && !can(u, "crm.leads.view_all"))) throw notFound("Lead not found");
     if (lead.status !== "in_progress" && lead.status !== "new") throw conflict(`This lead is "${lead.status.replace("_", " ")}" — an invoice can be requested for an in-progress lead`);
-    const vehicles = b.vehicles.filter((v) => v.unitLabel.trim());
+    // only the consignee is needed to ask: a car with no details stays on the invoice for the Supervisor to fill in
+    const named = b.vehicles.filter((v, i) => i === 0 || v.unitLabel).map((v) => ({ ...v, unitLabel: v.unitLabel || VEHICLE_TBC }));
+    const vehicles = named.length ? named : [{ unitLabel: VEHICLE_TBC, pushUsd: 0, cnfUsd: 0 }];
     return requestInvoice({ ...b, consigneeEmail: b.consigneeEmail || null, vehicles }, actor(u));
   }),
 );
@@ -90,6 +93,7 @@ crmOps.put(
         m3Rate: z.number().min(0).max(100000).optional().nullable(),
         exchangeRate: z.number().min(0).max(100000).optional().nullable(),
         advancePercent: z.number().int().min(1).max(100).optional(),
+        salesperson: z.string().trim().max(120).optional().nullable(),
         vehicles: z.array(vehicleSchema.extend({ id: z.string().optional().nullable() })).min(1).max(50),
       }),
       req.body,
@@ -208,14 +212,15 @@ crmOps.get(
     const u = requirePerm(req, "crm.access");
     const full = await invoiceVisible(u, String(req.params.id));
     const units = await db().select().from(s.units).where(eq(s.units.invoiceId, full.invoice.id));
+    const canCost = can(u, "crm.units.costing");
     const out = [];
     for (const un of units) {
       const docs = await db().select({ id: s.unitDocuments.id, folder: s.unitDocuments.folder, fileId: s.files.id, name: s.files.originalName, mime: s.files.mime, size: s.files.size, createdAt: s.unitDocuments.createdAt }).from(s.unitDocuments).innerJoin(s.files, eq(s.files.id, s.unitDocuments.fileId)).where(eq(s.unitDocuments.unitId, un.id)).orderBy(asc(s.unitDocuments.createdAt));
-      const [fin] = await db().select().from(s.unitFinancials).where(eq(s.unitFinancials.unitId, un.id)).limit(1);
+      const [fin] = canCost ? await db().select().from(s.unitFinancials).where(eq(s.unitFinancials.unitId, un.id)).limit(1) : [];
       out.push({ unit: un, documents: docs, financials: fin ?? null, profit: fin ? computeProfit(fin) : null });
     }
     const progress = await db().select().from(s.vehicleProgress).where(inArray(s.vehicleProgress.invoiceVehicleId, full.vehicles.map((v) => v.id).concat(["-"]))).orderBy(asc(s.vehicleProgress.createdAt));
-    return { units: out, progress, canManage: can(u, "crm.units.manage"), canProgress: can(u, "crm.progress.update"), canPay: can(u, "crm.payments.record"), folders: UNIT_FOLDERS, stages: PROGRESS_STAGES.slice(1) };
+    return { units: out, progress, canManage: can(u, "crm.units.manage"), canCost, canProgress: can(u, "crm.progress.update"), canPay: can(u, "crm.payments.record"), folders: UNIT_FOLDERS, stages: PROGRESS_STAGES.slice(1) };
   }),
 );
 
@@ -254,7 +259,7 @@ export function computeProfit(f: typeof s.unitFinancials.$inferSelect) {
 crmOps.put(
   "/units/:id/financials",
   h(async (req) => {
-    const u = requirePerm(req, "crm.units.manage");
+    const u = requirePerm(req, "crm.units.costing");
     const yen = z.coerce.number().int().min(0).default(0);
     const b = parse(
       z.object({ currency: z.enum(["JPY", "USD"]).default("JPY"), costUsd: z.coerce.number().min(0).optional().nullable(), lotNo: z.string().max(20).optional().nullable(), auctionName: z.string().max(80).optional().nullable(), buyingJpy: yen, domesticJpy: yen, storageJpy: yen, inspectJpy: yen, repairsJpy: yen, miscJpy: yen, agencyFeeJpy: yen, freightJpy: yen, dhlJpy: yen, auctionFeeJpy: yen, partsJpy: yen, vanningJpy: yen, docJpy: yen, fxRate: z.coerce.number().positive().optional().nullable(), sellingPriceUsd: z.coerce.number().min(0).optional().nullable() }),
@@ -297,7 +302,7 @@ crmOps.post(
 crmOps.get(
   "/invoices/:id/documents.zip",
   h(async (req, res) => {
-    const u = requirePerm(req, "crm.access");
+    const u = requirePerm(req, "crm.units.manage");
     const full = await invoiceVisible(u, String(req.params.id));
     const units = await db().select().from(s.units).where(eq(s.units.invoiceId, full.invoice.id));
     res.setHeader("Content-Type", "application/zip");
@@ -496,33 +501,43 @@ crmOps.get(
 crmOps.get(
   "/users",
   h(async (req) => {
-    requirePerm(req, "crm.users.manage");
+    requirePerm(req, "crm.users.view");
     const rows = await db()
-      .select({ id: s.users.id, name: s.users.name, email: s.users.email, username: s.users.username, phone: s.users.phone, kind: s.users.kind, isActive: s.users.isActive, showInChat: s.users.showInChat, title: s.users.title, lastSeenAt: s.users.lastSeenAt, createdAt: s.users.createdAt, role: s.roles.slug, roleName: s.roles.name, leads: sql<number>`(select count(*)::int from leads l where l.owner_user_id = ${s.users.id})` })
+      .select({ id: s.users.id, name: s.users.name, email: s.users.email, username: s.users.username, phone: s.users.phone, kind: s.users.kind, isActive: s.users.isActive, showInChat: s.users.showInChat, chatForced: s.users.chatForced, roleId: s.users.roleId, title: s.users.title, lastSeenAt: s.users.lastSeenAt, createdAt: s.users.createdAt, role: s.roles.slug, roleName: s.roles.name, leads: sql<number>`(select count(*)::int from leads l where l.owner_user_id = ${s.users.id})` })
       .from(s.users)
       .leftJoin(s.roles, eq(s.roles.id, s.users.roleId))
       .where(inArray(s.users.kind, ["staff", "fte"]))
       .orderBy(asc(s.users.name));
-    const roles = await db().select().from(s.roles).where(inArray(s.roles.slug, ["admin", "manager", "supervisor", "agent", "accounts"]));
-    return { users: rows, roles: roles.map((r) => ({ id: r.id, slug: r.slug, name: ROLE_LABELS[r.slug as RoleSlug] ?? r.name })) };
+    const roles = await db().select().from(s.roles).where(notInArray(s.roles.slug, ["customer", "fte"]));
+    const deskRoles = new Set<string>();
+    for (const r of roles) if ((await permsForRole(r.id)).has("chat.desk")) deskRoles.add(r.id);
+    return { users: rows.map(({ roleId, ...x }) => ({ ...x, deskByRole: !!roleId && deskRoles.has(roleId) })), roles: roles.map((r) => ({ id: r.id, slug: r.slug, name: ROLE_LABELS[r.slug as RoleSlug] ?? r.name })) };
   }),
 );
 
-const userSchema = z.object({ name: z.string().trim().min(2).max(80), email: z.string().trim().toLowerCase().email().max(120), username: z.string().trim().min(2).max(40).optional(), phone: z.string().max(30).optional(), roleSlug: z.enum(["admin", "manager", "supervisor", "agent", "accounts"]), title: z.string().max(80).optional() });
+/** A role a person can hold: built in, or one the company added. */
+async function staffRole(slug: string) {
+  const [role] = await db().select().from(s.roles).where(eq(s.roles.slug, slug)).limit(1);
+  if (!role || slug === "customer" || slug === "fte") throw bad("Choose a role from the list");
+  return role;
+}
+
+const userSchema = z.object({ name: z.string().trim().min(2).max(80), email: z.string().trim().toLowerCase().email().max(120), username: z.string().trim().min(2).max(40).optional(), phone: z.string().max(30).optional(), roleSlug: z.string().trim().min(2).max(40), title: z.string().max(80).optional() });
 
 crmOps.post(
   "/users",
   h(async (req) => {
-    const u = requirePerm(req, "crm.users.manage");
+    const u = requirePerm(req, "crm.users.create");
     const b = parse(userSchema, req.body);
     if (b.roleSlug === "admin" && !can(u, "system.demo.reset")) throw forbidden("Only an Admin can create another Admin");
     if (u.roleSlug === "supervisor" && b.roleSlug !== "agent") throw forbidden("A Supervisor creates agents");
     const [dup] = await db().select({ id: s.users.id }).from(s.users).where(sql`lower(${s.users.email}) = ${b.email}`).limit(1);
     if (dup) throw conflict("An account with this e-mail already exists");
-    const [role] = await db().select().from(s.roles).where(eq(s.roles.slug, b.roleSlug)).limit(1);
+    const role = await staffRole(b.roleSlug);
+    const label = ROLE_LABELS[b.roleSlug as RoleSlug] ?? role.name;
     const password = randomPassword().slice(0, 14);
-    const [created] = await db().insert(s.users).values({ kind: "staff", name: b.name, email: b.email, username: b.username ?? null, phone: b.phone ?? null, roleId: role!.id, title: b.title ?? ROLE_LABELS[b.roleSlug], passwordHash: await hashPassword(password) }).returning({ id: s.users.id });
-    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "user.created", entity: "user", entityId: created!.id, summary: `${u.name} created ${b.name} (${ROLE_LABELS[b.roleSlug]})` });
+    const [created] = await db().insert(s.users).values({ kind: "staff", name: b.name, email: b.email, username: b.username ?? null, phone: b.phone ?? null, roleId: role.id, title: b.title ?? label, passwordHash: await hashPassword(password) }).returning({ id: s.users.id });
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "user.created", entity: "user", entityId: created!.id, summary: `${u.name} created ${b.name} (${label})` });
     return { id: created!.id, oneTimePassword: password };
   }),
 );
@@ -530,20 +545,24 @@ crmOps.post(
 crmOps.put(
   "/users/:id",
   h(async (req) => {
-    const u = requirePerm(req, "crm.users.manage");
-    const b = parse(z.object({ roleSlug: z.enum(["admin", "manager", "supervisor", "agent", "accounts"]).optional(), isActive: z.boolean().optional(), title: z.string().max(80).optional(), showInChat: z.boolean().optional() }), req.body);
+    const u = requirePerm(req, "crm.users.edit");
+    const b = parse(z.object({ roleSlug: z.string().trim().min(2).max(40).optional(), isActive: z.boolean().optional(), title: z.string().max(80).optional(), chatVisibility: z.enum(["role", "yes", "no"]).optional(), showInChat: z.boolean().optional() }), req.body);
     const [target] = await db().select().from(s.users).where(eq(s.users.id, String(req.params.id))).limit(1);
     if (!target || target.kind !== "staff") throw notFound();
     if (target.id === u.id && b.isActive === false) throw bad("You cannot switch yourself off");
     const patch: Partial<typeof s.users.$inferInsert> = { updatedAt: new Date() };
     if (b.roleSlug) {
       if (b.roleSlug === "admin" && !can(u, "system.demo.reset")) throw forbidden("Only an Admin can make an Admin");
-      const [role] = await db().select().from(s.roles).where(eq(s.roles.slug, b.roleSlug)).limit(1);
-      patch.roleId = role!.id;
+      patch.roleId = (await staffRole(b.roleSlug)).id;
     }
     if (b.isActive !== undefined) patch.isActive = b.isActive;
     if (b.title !== undefined) patch.title = b.title;
     if (b.showInChat !== undefined) patch.showInChat = b.showInChat;
+    if (b.chatVisibility) {
+      patch.showInChat = b.chatVisibility !== "no";
+      patch.chatForced = b.chatVisibility === "yes";
+      b.showInChat = patch.showInChat;
+    }
     await db().update(s.users).set(patch).where(eq(s.users.id, target.id));
     if (b.isActive === false) {
       await db().delete(s.sessions).where(eq(s.sessions.userId, target.id)); // switched off = signed out everywhere
@@ -558,9 +577,13 @@ crmOps.put(
 crmOps.post(
   "/users/:id/reset-password",
   h(async (req) => {
-    const u = requirePerm(req, "crm.users.manage");
+    const u = requirePerm(req, "crm.users.password");
     const [target] = await db().select().from(s.users).where(eq(s.users.id, String(req.params.id))).limit(1);
     if (!target || target.kind !== "staff") throw notFound();
+    // the Admin resets anybody below, a Manager anybody below; nobody resets the Admin, who has the recovery key
+    const [targetRole] = target.roleId ? await db().select({ slug: s.roles.slug }).from(s.roles).where(eq(s.roles.id, target.roleId)).limit(1) : [];
+    const allowed = targetRole && targetRole.slug !== "admin" && (u.roleSlug === "admin" || targetRole.slug !== "manager");
+    if (!allowed) throw forbidden("You are not allowed to reset this person's password");
     const password = randomPassword().slice(0, 14);
     await db().update(s.users).set({ passwordHash: await hashPassword(password), mustChangePassword: true }).where(eq(s.users.id, target.id));
     await db().delete(s.sessions).where(eq(s.sessions.userId, target.id));
@@ -569,11 +592,41 @@ crmOps.post(
   }),
 );
 
+/** Remove a login for good. Whoever has work on record stays, switched off: the history must keep its names. */
+crmOps.delete(
+  "/users/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "crm.users.delete");
+    const [target] = await db().select().from(s.users).where(eq(s.users.id, String(req.params.id))).limit(1);
+    if (!target || target.kind !== "staff") throw notFound("That login no longer exists");
+    if (target.id === u.id) throw bad("You cannot delete your own login");
+    const [role] = target.roleId ? await db().select({ slug: s.roles.slug }).from(s.roles).where(eq(s.roles.id, target.roleId)).limit(1) : [];
+    if (role?.slug === "admin") {
+      const [c] = await db().select({ n: sql<number>`count(*)::int` }).from(s.users).where(eq(s.users.roleId, target.roleId!));
+      if ((c?.n ?? 0) <= 1) throw conflict("This is the only administrator: make somebody else an administrator first");
+    }
+    try {
+      await db().transaction(async (tx) => {
+        await tx.delete(s.sessions).where(eq(s.sessions.userId, target.id));
+        await tx.delete(s.users).where(eq(s.users.id, target.id));
+        await audit(tx, { actorUserId: u.id, actorKind: "human", action: "user.deleted", entity: "user", summary: `${u.name} removed the login of ${target.name}` });
+      });
+    } catch (e) {
+      if ((e as { code?: string }).code === "23503" || /foreign key/i.test(String((e as Error).message))) throw conflict(`${target.name} has work on record, so the login cannot be removed. Switch it off instead`);
+      throw e;
+    }
+    return { ok: true };
+  }),
+);
+
 // ---------- units list ----------
 crmOps.get(
   "/units",
   h(async (req) => {
-    requirePerm(req, "crm.access");
+    const u = requirePerm(req, "crm.access");
+    const canCost = can(u, "crm.units.costing");
+    // an agent sees the units of their own invoices, and nobody else's
+    const mine = can(u, "crm.invoices.view_all") ? undefined : or(eq(s.invoices.requestedBy, u.id), sql`${s.invoices.leadId} in (select id from leads where owner_user_id = ${u.id})`);
     const term = String(req.query.q ?? "").trim();
     const like = `%${term}%`;
     const rows = await db()
@@ -582,10 +635,10 @@ crmOps.get(
       .innerJoin(s.invoices, eq(s.invoices.id, s.units.invoiceId))
       .leftJoin(s.users, eq(s.users.id, s.units.createdBy))
       .leftJoin(s.unitFinancials, eq(s.unitFinancials.unitId, s.units.id))
-      .where(term ? or(ilike(s.units.make, like), ilike(s.units.model, like), ilike(s.units.chassis, like), ilike(s.units.color, like), sql`"units"."year"::text ilike ${like}`) : undefined)
+      .where(and(mine, term ? or(ilike(s.units.make, like), ilike(s.units.model, like), ilike(s.units.chassis, like), ilike(s.units.color, like), sql`"units"."year"::text ilike ${like}`) : undefined))
       .orderBy(desc(s.units.createdAt))
       .limit(200);
-    return rows.map((r) => ({ ...r.unit, invoice: r.invoice, invoiceId: r.invoiceId, consignee: r.consignee, docs: r.docs, stage: r.stage, cover: r.cover, addedBy: r.addedBy, addedByKind: r.addedByKind, profitUsd: r.fin ? computeProfit(r.fin).profitUsd : null }));
+    return rows.map((r) => ({ ...r.unit, invoice: r.invoice, invoiceId: r.invoiceId, consignee: r.consignee, docs: r.docs, stage: r.stage, cover: r.cover, addedBy: r.addedBy, addedByKind: r.addedByKind, profitUsd: canCost && r.fin ? computeProfit(r.fin).profitUsd : null }));
   }),
 );
 
@@ -601,6 +654,7 @@ crmOps.get(
   h(async (req) => {
     const u = requirePerm(req, "crm.access");
     const un = await unitVisible(u, String(req.params.id));
+    const canCost = can(u, "crm.units.costing");
     const full = (await getInvoiceFull(un.invoiceId))!;
     const documents = await db().select({ id: s.unitDocuments.id, folder: s.unitDocuments.folder, fileId: s.files.id, name: s.files.originalName, mime: s.files.mime, size: s.files.size, createdAt: s.unitDocuments.createdAt }).from(s.unitDocuments).innerJoin(s.files, eq(s.files.id, s.unitDocuments.fileId)).where(eq(s.unitDocuments.unitId, un.id)).orderBy(asc(s.unitDocuments.createdAt));
     const [fin] = await db().select().from(s.unitFinancials).where(eq(s.unitFinancials.unitId, un.id)).limit(1);
@@ -616,11 +670,12 @@ crmOps.get(
       payments: full.payments.map((p) => ({ ...p, recordedByName: recorders.find((x) => x.id === p.recordedBy)?.name ?? null })),
       documents,
       cover,
-      financials: fin ?? null,
-      profit: fin ? computeProfit(fin) : null,
+      financials: canCost ? (fin ?? null) : null,
+      profit: canCost && fin ? computeProfit(fin) : null,
       progress,
       folders: UNIT_FOLDERS,
       canManage: can(u, "crm.units.manage"),
+      canCost,
     };
   }),
 );
@@ -669,7 +724,7 @@ crmOps.delete(
 crmOps.get(
   "/units/:id/documents.zip",
   h(async (req, res) => {
-    const u = requirePerm(req, "crm.access");
+    const u = requirePerm(req, "crm.units.manage");
     const un = await unitVisible(u, String(req.params.id));
     const docs = await db().select({ folder: s.unitDocuments.folder, fileId: s.unitDocuments.fileId }).from(s.unitDocuments).where(eq(s.unitDocuments.unitId, un.id));
     const safe = (x: string) => x.replace(/[\\/:*?"<>|]/g, "_");

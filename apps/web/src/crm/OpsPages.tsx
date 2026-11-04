@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Download, KeyRound, Plus, UserCheck, UserX } from "lucide-react";
+import { Trash2, Bot, Download, KeyRound, Plus, UserCheck, UserX } from "lucide-react";
 import { api, qs } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { ago, date, usd } from "../lib/format";
@@ -11,13 +11,13 @@ import { FteName } from "../lib/site";
 export function UnitsPage() {
   const [term, setTerm] = useState("");
   const { can } = useAuth();
-  const canSeeProfit = can("crm.units.manage");
+  const canSeeProfit = can("crm.units.costing");
   const q = useQuery({ queryKey: ["units", term], queryFn: () => api.get<{ id: string; make: string; model: string; year: number; chassis: string; color: string; drive: string | null; fuel: string | null; mileageKm: number | null; location: string; invoice: string; invoiceId: string; consignee: string; docs: number; stage: string | null; cover: string | null; addedBy: string | null; addedByKind: string | null; profitUsd: number | null }[]>(`/api/crm/units${qs({ q: term })}`) });
   return (
     <div>
       <PageHeader title="Units" subtitle="Every physical vehicle bought for an invoice, with its documents, stage and profit" />
       <div className="mb-4 max-w-md">
-        <Input key={term} aria-label="Search units" placeholder="Search by make, model, year, chassis, colour" defaultValue={term} onKeyDown={(e) => e.key === "Enter" && setTerm((e.target as HTMLInputElement).value)} onBlur={(e) => e.target.value !== term && setTerm(e.target.value)} />
+        <Input key={term} aria-label="Search units" placeholder="Make, model, year, chassis, colour" defaultValue={term} onKeyDown={(e) => e.key === "Enter" && setTerm((e.target as HTMLInputElement).value)} onBlur={(e) => e.target.value !== term && setTerm(e.target.value)} />
       </div>
       {q.isLoading ? (
         <Skeleton className="h-80" />
@@ -257,7 +257,8 @@ function AgentDetail({ who, from, to, onClose }: { who: { id: string; name: stri
 export function UsersPage() {
   const qc = useQueryClient();
   const { me, can } = useAuth();
-  const q = useQuery({ queryKey: ["users"], queryFn: () => api.get<{ users: { id: string; name: string; email: string; kind: string; isActive: boolean; title: string; lastSeenAt: string | null; role: string; roleName: string; leads: number; showInChat: boolean }[]; roles: { slug: string; name: string }[] }>("/api/crm/users") });
+  const canChange = can("crm.users.edit"); // a Supervisor sees the list and creates agents, no more
+  const q = useQuery({ queryKey: ["users"], queryFn: () => api.get<{ users: { id: string; name: string; email: string; kind: string; isActive: boolean; title: string; lastSeenAt: string | null; role: string; roleName: string; leads: number; showInChat: boolean; chatForced: boolean; deskByRole: boolean }[]; roles: { slug: string; name: string }[] }>("/api/crm/users") });
   const [create, setCreate] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);
   const [transfer, setTransfer] = useState(false);
@@ -274,9 +275,11 @@ export function UsersPage() {
                 Transfer agent data
               </Button>
             )}
-            <Button onClick={() => setCreate(true)}>
-              <Plus className="size-4" /> New user
-            </Button>
+            {can("crm.users.create") && (
+              <Button onClick={() => setCreate(true)}>
+                <Plus className="size-4" /> New user
+              </Button>
+            )}
           </>
         }
       />
@@ -293,7 +296,7 @@ export function UsersPage() {
                 <p className="text-xs text-slate-500">{u.email}</p>
               </td>
               <td className="px-4 py-3">
-                {u.kind === "fte" || u.id === me?.id ? (
+                {u.kind === "fte" || u.id === me?.id || !canChange ? (
                   <Badge tone={u.kind === "fte" ? "violet" : "blue"}>{u.roleName}</Badge>
                 ) : (
                   <Select
@@ -319,17 +322,25 @@ export function UsersPage() {
               <td className="px-4 py-3">{u.leads}</td>
               <td className="px-4 py-3 text-xs">{ago(u.lastSeenAt)}</td>
               <td className="px-4 py-3">
-                {u.kind === "staff" ? (
-                  <input
-                    type="checkbox"
-                    aria-label={`Show ${u.name} in the chat`}
-                    className="size-4 accent-brand-600"
-                    checked={u.showInChat}
-                    onChange={async (e) => {
-                      await api.put(`/api/crm/users/${u.id}`, { showInChat: e.target.checked });
-                      refresh();
-                    }}
-                  />
+                {u.kind === "staff" && !canChange ? (
+                  <span className="text-[11px] text-slate-500">{(u.chatForced || (u.showInChat && u.deskByRole)) ? "In the list" : "Not in the list"}</span>
+                ) : u.kind === "staff" ? (
+                  <span className="block">
+                    <select
+                      aria-label={`Show ${u.name} in the chat`}
+                      className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                      value={u.chatForced ? "yes" : u.showInChat ? "role" : "no"}
+                      onChange={async (e) => {
+                        await api.put(`/api/crm/users/${u.id}`, { chatVisibility: e.target.value });
+                        refresh();
+                      }}
+                    >
+                      <option value="role">Decide from their role</option>
+                      <option value="yes">Always show</option>
+                      <option value="no">Never show</option>
+                    </select>
+                    <span className="mt-0.5 block text-[11px] text-slate-500">{(u.chatForced || (u.showInChat && u.deskByRole)) ? "In the list" : "Not in the list"}{u.chatForced ? " · set by hand" : !u.showInChat ? " · held back by hand" : ""}</span>
+                  </span>
                 ) : (
                   "—"
                 )}
@@ -338,28 +349,50 @@ export function UsersPage() {
               <td className="px-4 py-3">
                 {u.kind === "staff" && u.id !== me?.id && (
                   <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={async () => {
-                        await api.put(`/api/crm/users/${u.id}`, { isActive: !u.isActive });
-                        refresh();
-                      }}
-                      aria-label={u.isActive ? "Switch off" : "Switch on"}
-                    >
-                      {u.isActive ? <UserX className="size-4" /> : <UserCheck className="size-4" />}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={async () => {
-                        const r = await api.post<{ oneTimePassword: string }>(`/api/crm/users/${u.id}/reset-password`);
-                        setSecret(`New password for ${u.name}: ${r.oneTimePassword}`);
-                      }}
-                      aria-label="Reset password"
-                    >
-                      <KeyRound className="size-4" />
-                    </Button>
+                    {canChange && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          await api.put(`/api/crm/users/${u.id}`, { isActive: !u.isActive });
+                          refresh();
+                        }}
+                        aria-label={u.isActive ? "Switch off" : "Switch on"}
+                      >
+                        {u.isActive ? <UserX className="size-4" /> : <UserCheck className="size-4" />}
+                      </Button>
+                    )}
+                    {can("crm.users.delete") && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Remove the login of ${u.name}`}
+                        onClick={async () => {
+                          if (!window.confirm(`Remove the login of ${u.name} for good?`)) return;
+                          try {
+                            await api.del(`/api/crm/users/${u.id}`);
+                            refresh();
+                          } catch (ex) {
+                            alert((ex as Error).message);
+                          }
+                        }}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
+                    {can("crm.users.password") && u.role !== "admin" && (me?.role === "admin" || u.role !== "manager") && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          const r = await api.post<{ oneTimePassword: string }>(`/api/crm/users/${u.id}/reset-password`);
+                          setSecret(`New password for ${u.name}: ${r.oneTimePassword}`);
+                        }}
+                        aria-label="Reset password"
+                      >
+                        <KeyRound className="size-4" />
+                      </Button>
+                    )}
                   </div>
                 )}
               </td>
@@ -369,7 +402,7 @@ export function UsersPage() {
       )}
       {create && q.data && (
         <CreateUser
-          roles={q.data.roles}
+          roles={me?.role === "supervisor" ? q.data.roles.filter((r) => r.slug === "agent") : q.data.roles}
           onClose={() => setCreate(false)}
           onDone={(pw, name) => {
             setCreate(false);

@@ -1048,7 +1048,7 @@ function LinkLead({ customerId, onClose, onLinked }: { customerId: string; onClo
 
 /* ======================== Roles & permissions ======================== */
 interface RolesData {
-  roles: { id: string; slug: string; name: string; locked: boolean; perms: string[] }[];
+  roles: { id: string; slug: string; name: string; locked: boolean; isSystem: boolean; people: number; perms: string[] }[];
   permissions: { key: string; label: string; area: string }[];
 }
 const AREAS: Record<string, string> = { website: "Website admin", crm: "CRM", auction: "Auction", chat: "Chat", fte: "Digital FTE", system: "System" };
@@ -1057,15 +1057,16 @@ export function AdminRoles() {
   const { can, refresh: refreshMe } = useAuth();
   const qc = useQueryClient();
   const flash = useFlash();
-  const q = useQuery({ queryKey: ["admin/roles"], queryFn: () => api.get<RolesData>("/api/admin/roles"), enabled: can("auction.roles.manage") });
+  const q = useQuery({ queryKey: ["admin/roles"], queryFn: () => api.get<RolesData>("/api/admin/roles"), enabled: can("auction.roles.view") });
   const [roleId, setRoleId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Set<string> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [roleName, setRoleName] = useState("");
   const role = q.data?.roles.find((r) => r.id === roleId) ?? q.data?.roles.find((r) => r.slug === "manager") ?? q.data?.roles[0];
   useEffect(() => {
     setDraft(null);
   }, [role?.id]);
-  if (!can("auction.roles.manage")) return <Denied />;
+  if (!can("auction.roles.view")) return <Denied />;
   if (q.isLoading || !q.data || !role) return <Skeleton className="h-96" />;
   const current = draft ?? new Set(role.perms);
   const dirty = !!draft && (draft.size !== role.perms.length || role.perms.some((p) => !draft.has(p)));
@@ -1090,6 +1091,17 @@ export function AdminRoles() {
     }
   };
   const areas = [...new Set(q.data.permissions.map((p) => p.area))];
+  const mayTick = can("auction.roles.permissions");
+  const roleAct = async (fn: () => Promise<unknown>, done: string) => {
+    try {
+      await fn();
+      flash.ok(done);
+      setRoleName("");
+      await qc.invalidateQueries({ queryKey: ["admin/roles"] });
+    } catch (e) {
+      flash.err(e);
+    }
+  };
   return (
     <div className="max-w-4xl">
       <PageHeader
@@ -1101,6 +1113,37 @@ export function AdminRoles() {
       <div className="mb-4">
         <Tabs value={role.id} onChange={setRoleId} items={q.data.roles.filter((r) => r.slug !== "fte" && r.slug !== "customer").map((r) => ({ value: r.id, label: r.name, count: r.perms.length }))} />
       </div>
+      {(can("auction.roles.create") || (!role.isSystem && (can("auction.roles.rename") || can("auction.roles.delete")))) && (
+        <div className="mb-4 flex flex-wrap items-end gap-2 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+          <Field label="Role name" className="min-w-52 flex-1">
+            <Input value={roleName} maxLength={40} onChange={(e) => setRoleName(e.target.value)} placeholder="e.g. Yard clerk" />
+          </Field>
+          {can("auction.roles.create") && (
+            <Button
+              disabled={roleName.trim().length < 2}
+              onClick={() =>
+                void roleAct(async () => {
+                  const r = await api.post<{ id: string }>("/api/admin/roles", { label: roleName.trim() });
+                  setRoleId(r.id); // straight on to the tick boxes: a role that permits nothing is the state nobody meant to leave behind
+                }, `${roleName.trim()} added. Now tick what it may do.`)
+              }
+            >
+              Add role
+            </Button>
+          )}
+          {!role.isSystem && can("auction.roles.rename") && (
+            <Button variant="secondary" disabled={roleName.trim().length < 2} onClick={() => void roleAct(() => api.patch(`/api/admin/roles/${role.id}`, { label: roleName.trim() }), `Renamed to ${roleName.trim()}.`)}>
+              Rename {role.name}
+            </Button>
+          )}
+          {!role.isSystem && can("auction.roles.delete") && (
+            <Button variant="secondary" onClick={() => window.confirm(`Remove the role ${role.name}?`) && void roleAct(async () => { await api.del(`/api/admin/roles/${role.id}`); setRoleId(null); }, `${role.name} removed.`)}>
+              Remove {role.name}
+            </Button>
+          )}
+        </div>
+      )}
+      <p className="mb-3 text-sm text-slate-500">{role.people} {role.people === 1 ? "person holds" : "people hold"} {role.name}.{role.isSystem ? " A built-in role keeps its name." : ""}</p>
       {role.locked ? <p className="mb-4 flex items-center gap-2 rounded-xl bg-brand-50 px-4 py-2.5 text-sm font-semibold text-brand-700 ring-1 ring-brand-100"><ShieldCheck className="size-4" /> The Admin role always has every permission, so nobody can lock the company out of its own system.</p> : null}
       <div className="space-y-3">
         {areas.map((area) => {
@@ -1115,7 +1158,7 @@ export function AdminRoles() {
               <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
                 {items.map((p) => (
                   <label key={p.key} className={clsx("flex items-start gap-2 rounded-lg px-1 py-1 text-sm", role.locked ? "text-slate-500" : "cursor-pointer text-slate-700 hover:bg-slate-50")}>
-                    <input type="checkbox" className="mt-0.5 size-4 shrink-0 rounded" disabled={role.locked} checked={role.locked || current.has(p.key)} onChange={(e) => toggle(p.key, e.target.checked)} />
+                    <input type="checkbox" className="mt-0.5 size-4 shrink-0 rounded" disabled={role.locked || !mayTick} checked={role.locked || current.has(p.key)} onChange={(e) => toggle(p.key, e.target.checked)} />
                     <span>{p.label}</span>
                   </label>
                 ))}
@@ -1124,7 +1167,7 @@ export function AdminRoles() {
           );
         })}
       </div>
-      {!role.locked ? (
+      {!role.locked && mayTick ? (
         <div className="sticky bottom-0 mt-4 flex justify-end gap-2 bg-slate-100 py-3">
           <Button variant="secondary" disabled={!dirty} onClick={() => setDraft(null)}>Undo changes</Button>
           <Button loading={saving} disabled={!dirty} onClick={() => void save()}><Save className="size-4" /> Save {role.name}</Button>

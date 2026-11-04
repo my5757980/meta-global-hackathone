@@ -203,25 +203,34 @@ export async function deskConversations(u: AuthUser, scope: "mine" | "all" | "te
 }
 
 /** See-everything staff: each agent with how many buyers' chats are theirs, to drill down agent, then customers. */
-export async function deskAgents() {
-  const r = await db().execute(sql`select u.id, u.name, u.kind, count(distinct c.id)::int as n
+export async function deskAgents(viewerId: string) {
+  const r = await db().execute(sql`select u.id, u.name, u.kind, count(distinct c.id)::int as n, max(c.last_message_at) as last_at,
+      coalesce(sum((select count(*) from chat_messages m where m.conversation_id = c.id and m.kind <> 'system' and m.sender_user_id is distinct from ${viewerId}
+        and m.created_at > coalesce((select last_read_at from chat_members cm where cm.conversation_id = c.id and cm.user_id = ${viewerId}), c.created_at))), 0)::int as unread
     from users u
     join chat_conversations c on c.kind = 'customer' and (c.assigned_user_id = u.id or exists (select 1 from leads l where l.customer_user_id = c.customer_user_id and l.owner_user_id = u.id))
     where u.kind in ('staff', 'fte')
     group by u.id, u.name, u.kind
-    order by n desc, u.name`);
-  return (r as unknown as { rows: { id: string; name: string; kind: string; n: number }[] }).rows;
+    order by last_at desc nulls last, u.name`);
+  return (r as unknown as { rows: { id: string; name: string; kind: string; n: number; unread: number }[] }).rows;
+}
+
+/** Messages written by others, in this person's conversations, after they last read them. */
+export async function unreadTotal(userId: string) {
+  const r = await db().execute(sql`select count(*)::int as n from chat_messages m join chat_members cm on cm.conversation_id = m.conversation_id and cm.user_id = ${userId}
+    where m.kind <> 'system' and m.sender_user_id is distinct from ${userId} and m.created_at > coalesce(cm.last_read_at, 'epoch')`);
+  return (r as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0;
 }
 
 /** Who a buyer can ask for in the chat: people on the chat desk, with a green dot. No e-mail or phone. */
 export async function peopleForBuyers() {
   const rows = await db()
-    .select({ id: s.users.id, name: s.users.name, title: s.users.title, roleId: s.users.roleId })
+    .select({ id: s.users.id, name: s.users.name, title: s.users.title, roleId: s.users.roleId, forced: s.users.chatForced })
     .from(s.users)
     .where(and(eq(s.users.kind, "staff"), eq(s.users.isActive, true), eq(s.users.showInChat, true)))
     .orderBy(asc(s.users.name));
   const out: { id: string; name: string; title: string | null; online: boolean }[] = [];
-  for (const r of rows) if ((await permsForRole(r.roleId)).has("chat.desk")) out.push({ id: r.id, name: r.name, title: r.title, online: isOnline(r.id) });
+  for (const r of rows) if (r.forced || (await permsForRole(r.roleId)).has("chat.desk")) out.push({ id: r.id, name: r.name, title: r.title, online: isOnline(r.id) });
   return out.sort((a, b) => Number(b.online) - Number(a.online));
 }
 
@@ -276,7 +285,7 @@ async function groupFor(me: AuthUser, id: string, ownerOnly: boolean) {
   if (!g || g.kind !== "group") throw notFound("Group not found");
   const [m] = await db().select().from(s.chatMembers).where(and(eq(s.chatMembers.conversationId, id), eq(s.chatMembers.userId, me.id))).limit(1);
   if (!m) throw forbidden("You are not in this group");
-  if (ownerOnly && m.role !== "owner" && !me.perms.has("chat.view_all")) throw forbidden("Only the group's owner can do this");
+  if (ownerOnly && m.role !== "owner") throw forbidden("Only the person who made this group can change it"); // a group is a room people were put in: an administrator gets no key to it
   return g;
 }
 

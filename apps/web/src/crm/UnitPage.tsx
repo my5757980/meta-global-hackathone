@@ -36,6 +36,7 @@ interface UnitFull {
   progress: { id: string; stage: string; stageDate: string; note: string | null }[];
   folders: string[];
   canManage: boolean;
+  canCost: boolean;
 }
 
 const FIELDS: [keyof Unit, string, "text" | "number"][] = [
@@ -96,7 +97,7 @@ export default function UnitPage() {
               <Pencil className="size-4" /> Edit
             </Button>
           )}
-          {d.documents.length > 0 && (
+          {d.canManage && d.documents.length > 0 && (
             <a href={`/api/crm/units/${u.id}/documents.zip`} className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
               <Download className="size-4" /> Download all documents (ZIP)
             </a>
@@ -125,7 +126,7 @@ export default function UnitPage() {
               <div className="flex justify-between border-t border-slate-100 pt-2"><dt className="font-semibold text-slate-900">Balance</dt><dd className="font-bold">{usd2(d.totals.balance)}</dd></div>
             </dl>
           </Card>
-          <Card>
+          {d.canCost && <Card>
             <p className="font-semibold text-slate-900">Costing & profit</p>
             {d.profit ? (
               <dl className="mt-3 space-y-1 text-sm">
@@ -139,7 +140,7 @@ export default function UnitPage() {
               <p className="mt-2 text-sm text-slate-500">No costing yet.</p>
             )}
             <Link to={`/crm/invoices/${d.invoice.id}`} className="mt-3 inline-block text-sm font-semibold text-brand-700">Edit on the invoice →</Link>
-          </Card>
+          </Card>}
           {d.progress.length > 0 && (
             <Card>
               <p className="mb-2 font-semibold text-slate-900">Shipping progress</p>

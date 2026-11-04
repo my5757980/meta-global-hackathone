@@ -53,7 +53,7 @@ export default function AccountInvoices() {
                 <Card className="transition hover:shadow-md">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     {inv.thumbnail && <img src={inv.thumbnail} alt="" loading="lazy" className="h-16 w-24 shrink-0 rounded-lg object-cover ring-1 ring-slate-200" />}
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 basis-48">
                       <p className="flex items-center gap-2 font-bold text-slate-900">
                         <FileText className="size-4 text-brand-600" /> Invoice {inv.number}
                       </p>

@@ -614,20 +614,69 @@ adminContentRouter.post(
 adminContentRouter.get(
   "/roles",
   h(async (req) => {
-    requirePerm(req, "auction.roles.manage");
+    requirePerm(req, "auction.roles.view");
     const roles = await db().select().from(s.roles).orderBy(asc(s.roles.name));
     const links = await db().select().from(s.rolePermissions);
+    const held = await db().select({ roleId: s.users.roleId, n: sql<number>`count(*)::int` }).from(s.users).groupBy(s.users.roleId);
     return {
-      roles: roles.map((r) => ({ id: r.id, slug: r.slug, name: r.name, locked: r.slug === "admin", perms: links.filter((l) => l.roleId === r.id).map((l) => l.permissionKey) })),
+      roles: roles.map((r) => ({ id: r.id, slug: r.slug, name: r.name, locked: r.slug === "admin", isSystem: r.isSystem, people: held.find((h0) => h0.roleId === r.id)?.n ?? 0, perms: links.filter((l) => l.roleId === r.id).map((l) => l.permissionKey) })),
       permissions: Object.entries(PERMISSIONS).map(([key, label]) => ({ key, label, area: key.split(".")[0] })),
     };
+  }),
+);
+
+adminContentRouter.post(
+  "/roles",
+  h(async (req) => {
+    const u = requirePerm(req, "auction.roles.create");
+    const { label } = parse(z.object({ label: z.string().trim().min(2, "Give the role a name").max(40) }), req.body);
+    const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    if (!slug) throw bad("Give the role a name");
+    const [same] = await db().select({ id: s.roles.id }).from(s.roles).where(eq(s.roles.slug, slug)).limit(1);
+    if (same) throw conflict("A role by that name already exists");
+    const [role] = await db().insert(s.roles).values({ slug, name: label, isSystem: false }).returning();
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "role.created", entity: "role", entityId: role!.id, summary: `${u.name} added the role ${label}` });
+    return { id: role!.id, slug };
+  }),
+);
+
+adminContentRouter.patch(
+  "/roles/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "auction.roles.rename");
+    const { label } = parse(z.object({ label: z.string().trim().min(2, "A role needs a name").max(40) }), req.body);
+    const [role] = await db().select().from(s.roles).where(eq(s.roles.id, String(req.params.id))).limit(1);
+    if (!role) throw notFound("Role not found");
+    if (role.isSystem) throw conflict("Built-in roles cannot be renamed");
+    await db().update(s.roles).set({ name: label }).where(eq(s.roles.id, role.id));
+    await audit(db(), { actorUserId: u.id, actorKind: "human", action: "role.renamed", entity: "role", entityId: role.id, summary: `${u.name} renamed ${role.name} to ${label}` });
+    return { ok: true };
+  }),
+);
+
+adminContentRouter.delete(
+  "/roles/:id",
+  h(async (req) => {
+    const u = requirePerm(req, "auction.roles.delete");
+    const [role] = await db().select().from(s.roles).where(eq(s.roles.id, String(req.params.id))).limit(1);
+    if (!role) throw notFound("Role not found");
+    if (role.isSystem) throw conflict("Built-in roles cannot be removed");
+    const [c] = await db().select({ n: sql<number>`count(*)::int` }).from(s.users).where(eq(s.users.roleId, role.id));
+    if ((c?.n ?? 0) > 0) throw conflict(`${role.name} is still held by ${c!.n} ${c!.n === 1 ? "person" : "people"}. Move them to another role first`);
+    await db().transaction(async (tx) => {
+      await tx.delete(s.rolePermissions).where(eq(s.rolePermissions.roleId, role.id));
+      await tx.delete(s.roles).where(eq(s.roles.id, role.id));
+      await audit(tx, { actorUserId: u.id, actorKind: "human", action: "role.deleted", entity: "role", summary: `${u.name} removed the role ${role.name}` });
+    });
+    clearPermCache();
+    return { ok: true };
   }),
 );
 
 adminContentRouter.put(
   "/roles/:id",
   h(async (req) => {
-    const u = requirePerm(req, "auction.roles.manage");
+    const u = requirePerm(req, "auction.roles.permissions");
     const id = String(req.params.id);
     const [role] = await db().select().from(s.roles).where(eq(s.roles.id, id)).limit(1);
     if (!role) throw notFound("Role not found");

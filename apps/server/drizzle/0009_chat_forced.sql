@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "chat_forced" boolean DEFAULT false NOT NULL;

@@ -23,6 +23,7 @@ import { reflexOn, sayInRoom, workforceOn } from "../fte/workerRun";
 import { workerDef } from "../fte/workforce";
 import { recordDecision, verifyLedger } from "../services/ledger";
 import { env } from "../env";
+import { ensureLotsOnSale } from "../services/demoFeed";
 
 export const fteRouter = Router();
 
@@ -72,6 +73,7 @@ fteRouter.post(
     await putSetting("demo.clockOffsetMs", next);
     await audit(db(), { actorUserId: u.id, actorKind: "human", action: "demo.clock", summary: b.reset ? `${u.name} reset the demo clock` : `${u.name} moved the demo clock forward ${b.advanceHours} h` });
     const settled = await settleAuctions();
+    await ensureLotsOnSale().catch((e) => console.error("[feed]", e));
     let ran = 0;
     for (let i = 0; i < 5; i++) {
       const n = await processDue(50);

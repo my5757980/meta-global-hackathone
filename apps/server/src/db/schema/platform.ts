@@ -51,6 +51,7 @@ export const users = pgTable(
     avatarUrl: text(),
     title: text(), // staff job title shown in chat
     showInChat: boolean().notNull().default(true),
+    chatForced: boolean().notNull().default(false), // "always show": on the chat desk whatever their role says
     lastSeenAt: timestamp({ withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

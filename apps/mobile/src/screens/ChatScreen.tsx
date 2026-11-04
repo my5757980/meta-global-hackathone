@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, errText } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useCalls } from "../lib/calls";
+import { setOpenConversation } from "../lib/chime";
 import { onLive } from "../lib/live";
 import { absUrl, getServer, protectedSource } from "../lib/config";
 import { secs, time, usd } from "../lib/format";
@@ -16,6 +17,82 @@ import type { ChatCard, ChatMsg } from "../lib/types";
 import { uploadChatFile } from "../lib/upload";
 import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Screen, T, useKeyboardLift } from "../ui";
 import { DeskHome } from "./DeskScreen";
+
+const MAX_BATCH = 20; // pictures in one go
+const MAX_VOICE_SECS = 300; // a long voice note is a phone call
+
+/** "Today", "Yesterday", or the date: the line between one day and the next. */
+function dayOf(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  const y = new Date(now);
+  y.setDate(now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return "Today";
+  if (d.toDateString() === y.toDateString()) return "Yesterday";
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** The line a call leaves in the conversation, the same words the website writes. */
+function callLine(m: ChatMsg, mine: boolean) {
+  const meta = m.meta as { media?: string; status?: string; seconds?: number } | null;
+  const what = meta?.media === "video" ? "Video call" : "Voice call";
+  const small = what.toLowerCase();
+  switch (meta?.status) {
+    case "ended":
+      return { line: `${what} · ${secs(meta.seconds ?? 0)}`, missed: false };
+    case "missed":
+    case "cancelled":
+      return mine ? { line: `${what} — ${meta.status === "missed" ? "no answer" : "cancelled"}`, missed: false } : { line: `Missed ${small}`, missed: true };
+    case "declined":
+      return { line: mine ? `${what} — declined` : `${what} — you declined`, missed: false };
+    case "failed":
+      return { line: `${what} — could not connect`, missed: false };
+    default:
+      return { line: m.body || "Call", missed: false };
+  }
+}
+
+/** A picture, opened: every picture in the conversation a swipe away, and "2 / 5" says how many there are. */
+function PictureViewer({ shots, at, onClose }: { shots: string[]; at: number; onClose: () => void }) {
+  const { width, height } = useWindowDimensions();
+  const [i, setI] = useState(at);
+  return (
+    <Modal visible animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: "#000" }}>
+        <FlatList
+          key={`${width}x${height}`}
+          data={shots}
+          horizontal
+          pagingEnabled
+          initialScrollIndex={at}
+          getItemLayout={(_, n) => ({ length: width, offset: width * n, index: n })}
+          keyExtractor={(u) => u}
+          showsHorizontalScrollIndicator={false}
+          scrollEventThrottle={32}
+          onScroll={(e) => {
+            const n = Math.round(e.nativeEvent.contentOffset.x / width);
+            if (n !== i && n >= 0 && n < shots.length) setI(n);
+          }}
+          renderItem={({ item }) => (
+            <View style={{ width, height, alignItems: "center", justifyContent: "center" }}>
+              <Image source={protectedSource(item)} style={{ width, height }} contentFit="contain" />
+            </View>
+          )}
+        />
+        <View pointerEvents="box-none" style={st.viewerBar}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close picture" onPress={onClose} style={st.viewerBtn}>
+            <Ionicons name="close" size={24} color="#fff" />
+          </Pressable>
+          {shots.length > 1 ? (
+            <View style={st.viewerCount}>
+              <T style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>{i + 1} / {shots.length}</T>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 export default function ChatScreen() {
   const route = useRoute<any>();
@@ -81,14 +158,15 @@ export function Conversation({ draft, draftKey, desk }: { draft?: string; draftK
   const col = useColors();
   const lift = useKeyboardLift();
   const { startCall } = useCalls();
-  const [conv, setConv] = useState<{ id: string; holder: string } | null>(null);
+  const [conv, setConv] = useState<{ id: string; holder: string; assignedUserId?: string | null } | null>(null);
+  const [batch, setBatch] = useState<{ n: number; of: number } | null>(null);
   const [agent, setAgent] = useState<{ id: string; name: string; title?: string | null; online: boolean } | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState<null | "send" | "image" | "voice">(null);
   const [waitAfter, setWaitAfter] = useState<string | null>(null); // id of my last message; cleared by a reply
-  const [viewer, setViewer] = useState<string | null>(null);
+  const [viewer, setViewer] = useState<number | null>(null);
   const [receipts, setReceipts] = useState<{ deliveredAt: string | null; readAt: string | null } | null>(null);
   const [people, setPeople] = useState<{ id: string; name: string; title: string | null; online: boolean }[] | null>(null);
   const [asking, setAsking] = useState(false);
@@ -103,11 +181,11 @@ export function Conversation({ draft, draftKey, desk }: { draft?: string; draftK
   const lastSeen = useRef("");
   const poll = useCallback(async () => {
     try {
-      const r = await api.get<{ conversation: { id: string; holder: string }; messages: ChatMsg[]; agent: { id: string; name: string; title?: string | null; online: boolean } | null }>(desk ? `/api/chat/conversations/${desk.id}` : "/api/chat/mine?channel=app");
+      const r = await api.get<{ conversation: { id: string; holder: string; assignedUserId?: string | null }; messages: ChatMsg[]; agent: { id: string; name: string; title?: string | null; online: boolean } | null }>(desk ? `/api/chat/conversations/${desk.id}` : "/api/chat/mine?channel=app");
       setAgent((a) => (a?.id === r.agent?.id && a?.online === r.agent?.online ? a : r.agent));
       misses.current = 0;
       setError(null);
-      setConv((c) => (c && c.id === r.conversation.id && c.holder === r.conversation.holder ? c : r.conversation));
+      setConv((c) => (c && c.id === r.conversation.id && c.holder === r.conversation.holder && c.assignedUserId === r.conversation.assignedUserId ? c : r.conversation));
       const rc = await api.get<{ deliveredAt: string | null; readAt: string | null }>(`/api/chat/conversations/${r.conversation.id}/receipts`).catch(() => null);
       if (rc) setReceipts((old) => (old?.readAt === rc.readAt && old?.deliveredAt === rc.deliveredAt ? old : rc));
       // redraw only when something changed (a new message, or a transcript arriving on a voice note)
@@ -130,6 +208,13 @@ export function Conversation({ draft, draftKey, desk }: { draft?: string; draftK
       const t = setInterval(() => void poll(), 3000);
       return () => clearInterval(t);
     }, [poll]),
+  );
+  // no tone for the conversation being looked at
+  useFocusEffect(
+    useCallback(() => {
+      setOpenConversation(conv?.id ?? null);
+      return () => setOpenConversation(null);
+    }, [conv?.id]),
   );
 
   // what the live stream says arrives at once; the three-second check above is what covers a lost connection
@@ -232,20 +317,37 @@ export function Conversation({ draft, draftKey, desk }: { draft?: string; draftK
       setBusy(null);
     }
   };
+  /** Several pictures, one at a time and in the order chosen: "Sending 2 of 5" says the rest are coming. If one fails the rest are held back, and the person is told. */
   const sendPicture = async () => {
     try {
-      const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.7 });
-      const a = r.canceled ? null : r.assets?.[0];
-      if (!a) return;
+      const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.7, allowsMultipleSelection: true, selectionLimit: MAX_BATCH, orderedSelection: true });
+      const list = r.canceled ? [] : (r.assets ?? []).slice(0, MAX_BATCH);
+      if (!list.length) return;
       setBusy("image");
       setError(null);
-      const mime = a.mimeType && /^image\/(png|jpeg|webp)$/.test(a.mimeType) ? a.mimeType : "image/jpeg";
-      const id = await uploadChatFile(a.uri, mime, a.fileName ?? (mime === "image/png" ? "photo.png" : "photo.jpg"));
-      await post({ kind: "image", fileIds: [id], body: text.trim() });
-      setText("");
+      const ids: string[] = [];
+      let failed: string | null = null;
+      for (let k = 0; k < list.length; k++) {
+        const a = list[k]!;
+        if (list.length > 1) setBatch({ n: k + 1, of: list.length });
+        const mime = a.mimeType && /^image\/(png|jpeg|webp)$/.test(a.mimeType) ? a.mimeType : "image/jpeg";
+        try {
+          ids.push(await uploadChatFile(a.uri, mime, a.fileName ?? (mime === "image/png" ? `photo-${k + 1}.png` : `photo-${k + 1}.jpg`)));
+        } catch (e) {
+          failed = errText(e);
+          break;
+        }
+      }
+      setBatch(null);
+      if (ids.length) await post({ kind: "image", fileIds: ids, body: failed ? "" : text.trim() });
+      if (failed) {
+        const left = list.length - ids.length;
+        setError(`${failed} ${left} picture${left === 1 ? " was" : "s were"} not sent.`);
+      } else setText("");
     } catch (e) {
       setError(errText(e));
     } finally {
+      setBatch(null);
       setBusy(null);
     }
   };
@@ -290,21 +392,35 @@ export function Conversation({ draft, draftKey, desk }: { draft?: string; draftK
     }
   };
 
+  // five minutes and the recording sends itself
+  useEffect(() => {
+    if (rec.isRecording && (rec.durationMillis ?? 0) >= MAX_VOICE_SECS * 1000) void stopVoice(true);
+  }, [rec.isRecording, rec.durationMillis]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const data = useMemo(() => [...messages].reverse(), [messages]);
+  // every picture in the conversation, in order: what the full-screen view swipes through
+  const shots = useMemo(() => messages.flatMap((m) => (m.kind === "image" ? m.fileIds.map((f) => `/api/chat/media/${f}?m=${m.id}`) : [])), [messages]);
+  const openShot = useCallback((path: string) => setViewer(Math.max(0, shots.indexOf(path))), [shots]);
+  // the phone is for the two people in the conversation: reading another agent's thread gives none
+  const canRing = !desk || desk.kind !== "customer" || conv?.holder === "fte" || !conv?.assignedUserId || conv.assignedUserId === me?.id;
   const typingLabel = conv?.holder === "human" ? "Our team will reply here" : `${site.ftEName} is typing…`;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, paddingBottom: lift }}>
       {desk && desk.kind !== "group" ? (
         <View style={{ flexDirection: "row" }}>
-          <Pressable accessibilityLabel={`Voice call ${desk.name}`} onPress={() => void call("audio")} style={[st.personBar, { flex: 1 }]}>
-            <Ionicons name="call-outline" size={16} color={col.brand} />
-            <T style={{ color: col.brand, fontWeight: "700", fontSize: 13 }}>Voice</T>
-          </Pressable>
-          <Pressable accessibilityLabel={`Video call ${desk.name}`} onPress={() => void call("video")} style={[st.personBar, { flex: 1 }]}>
-            <Ionicons name="videocam-outline" size={16} color={col.brand} />
-            <T style={{ color: col.brand, fontWeight: "700", fontSize: 13 }}>Video</T>
-          </Pressable>
+          {canRing ? (
+            <>
+              <Pressable accessibilityLabel={`Voice call ${desk.name}`} onPress={() => void call("audio")} style={[st.personBar, { flex: 1 }]}>
+                <Ionicons name="call-outline" size={16} color={col.brand} />
+                <T style={{ color: col.brand, fontWeight: "700", fontSize: 13 }}>Voice</T>
+              </Pressable>
+              <Pressable accessibilityLabel={`Video call ${desk.name}`} onPress={() => void call("video")} style={[st.personBar, { flex: 1 }]}>
+                <Ionicons name="videocam-outline" size={16} color={col.brand} />
+                <T style={{ color: col.brand, fontWeight: "700", fontSize: 13 }}>Video</T>
+              </Pressable>
+            </>
+          ) : null}
           {desk.kind === "customer" ? (
             <Pressable accessibilityLabel={conv?.holder === "fte" ? `Take over from ${site.ftEName}` : `Hand back to ${site.ftEName}`} onPress={() => void take(conv?.holder === "fte")} style={[st.personBar, { flex: 1.4 }]}>
               <Ionicons name={conv?.holder === "fte" ? "hand-left-outline" : "sparkles-outline"} size={16} color={C.violet} />
@@ -356,7 +472,7 @@ export function Conversation({ draft, draftKey, desk }: { draft?: string; draftK
             <T lines={1} style={{ fontWeight: "700", color: C.ink }}>
               {agent.name}
             </T>
-            <T style={{ fontSize: 12, color: agent.online ? C.green : C.muted }}>{agent.online ? "Online" : "Away: they will see a missed call"}</T>
+            <T style={{ fontSize: 12, color: agent.online ? C.green : C.muted }}>{agent.online ? "Online" : "Away: a call will ring their phone"}</T>
           </View>
           <Pressable accessibilityLabel={`Voice call ${agent.name}`} onPress={() => void call("audio")} style={st.iconBtn}>
             <Ionicons name="call-outline" size={22} color={col.brand} />
@@ -396,10 +512,31 @@ export function Conversation({ draft, draftKey, desk }: { draft?: string; draftK
               <Empty icon="chatbubbles-outline" title={`Say hello to ${site.ftEName}`} text="Ask for a price to your port, a car in stock, or your invoice." />
             </View>
           }
-          renderItem={({ item }) => <Bubble m={item} mine={item.senderUserId === me?.id} onImage={setViewer} receipts={receipts} />}
+          renderItem={({ item, index }) => {
+            const day = dayOf(item.createdAt);
+            const older = data[index + 1];
+            return (
+              <View>
+                {!older || dayOf(older.createdAt) !== day ? (
+                  <View style={{ alignItems: "center", marginVertical: 8 }}>
+                    <View style={st.dayLine}>
+                      <T style={{ fontSize: 11, fontWeight: "700", color: C.muted }}>{day}</T>
+                    </View>
+                  </View>
+                ) : null}
+                <Bubble m={item} mine={item.senderUserId === me?.id} onImage={openShot} receipts={receipts} />
+              </View>
+            );
+          }}
         />
       )}
 
+      {batch ? (
+        <View style={st.sending} accessibilityLiveRegion="polite">
+          <ActivityIndicator color={col.brand} size="small" />
+          <T style={{ color: C.text, fontSize: 13 }}>Sending {batch.n} of {batch.of} photos…</T>
+        </View>
+      ) : null}
       <View style={st.composer}>
         {rec.isRecording ? (
           <>
@@ -408,7 +545,7 @@ export function Conversation({ draft, draftKey, desk }: { draft?: string; draftK
             </Pressable>
             <View style={st.recording}>
               <View style={st.dot} />
-              <T style={{ color: C.ink, fontWeight: "700" }}>Recording {secs((rec.durationMillis ?? 0) / 1000)}</T>
+              <T style={{ color: C.ink, fontWeight: "700" }}>Recording… {secs((rec.durationMillis ?? 0) / 1000)}</T>
             </View>
             <Pressable accessibilityLabel="Send voice note" onPress={() => void stopVoice(true)} style={[st.sendBtn, { backgroundColor: col.brand }]}>
               <Ionicons name="send" size={18} color="#fff" />
@@ -433,12 +570,7 @@ export function Conversation({ draft, draftKey, desk }: { draft?: string; draftK
         )}
       </View>
 
-      <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)}>
-        <Pressable style={st.viewer} onPress={() => setViewer(null)}>
-          {viewer ? <Image source={protectedSource(viewer)} style={{ width: "100%", height: "80%" }} contentFit="contain" /> : null}
-          <T style={{ color: "#fff", marginTop: 12 }}>Tap to close</T>
-        </Pressable>
-      </Modal>
+      {viewer !== null && shots.length ? <PictureViewer shots={shots} at={Math.min(viewer, shots.length - 1)} onClose={() => setViewer(null)} /> : null}
     </View>
   );
 }
@@ -472,11 +604,24 @@ function Bubble({ m, mine, onImage, receipts }: { m: ChatMsg; mine: boolean; onI
   const read = !!receipts?.readAt && new Date(receipts.readAt).getTime() >= at;
   const delivered = read || (!!receipts?.deliveredAt && new Date(receipts.deliveredAt).getTime() >= at);
   const { site } = useSite();
-  if (m.kind === "system" || m.kind === "call")
+  if (m.kind === "call") {
+    const c = callLine(m, mine);
+    const video = (m.meta as { media?: string } | null)?.media === "video";
+    return (
+      <View style={{ alignItems: "center", marginVertical: 4 }}>
+        <View style={[st.system, { flexDirection: "row", alignItems: "center", gap: 6 }, c.missed ? { backgroundColor: C.redBg } : null]}>
+          <Ionicons name={video ? "videocam-outline" : "call-outline"} size={14} color={c.missed ? C.red : C.text} />
+          <T style={{ color: c.missed ? C.red : C.text, fontSize: 12, fontWeight: c.missed ? "700" : "400" }}>{c.line}</T>
+          <T style={{ color: C.muted, fontSize: 11 }}>{time(m.createdAt)}</T>
+        </View>
+      </View>
+    );
+  }
+  if (m.kind === "system")
     return (
       <View style={{ alignItems: "center", marginVertical: 4 }}>
         <View style={st.system}>
-          <T style={{ color: C.text, fontSize: 12, textAlign: "center" }}>{m.kind === "call" ? `📞 ${m.body || "Call"}` : m.body}</T>
+          <T style={{ color: C.text, fontSize: 12, textAlign: "center" }}>{m.body}</T>
         </View>
       </View>
     );
@@ -660,14 +805,18 @@ const st = StyleSheet.create({
   bubble: { borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
   theirs: { backgroundColor: "#fff", borderBottomLeftRadius: 4, borderWidth: StyleSheet.hairlineWidth, borderColor: C.line },
   system: { backgroundColor: "#e2e8f0", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6, maxWidth: "90%" },
-  photo: { width: 220, height: 160, borderRadius: 12, backgroundColor: "#e2e8f0" },
+  photo: { width: 220, height: 160, borderRadius: 12, backgroundColor: "#e2e8f0", marginBottom: 4 },
+  dayLine: { backgroundColor: "#e2e8f0", borderRadius: 9, paddingHorizontal: 11, paddingVertical: 4 },
+  sending: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 6, paddingHorizontal: 14, backgroundColor: "#eef2ff", borderTopWidth: StyleSheet.hairlineWidth, borderColor: C.line },
+  viewerBar: { position: "absolute", top: 0, left: 0, right: 0, paddingTop: 44, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  viewerBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
+  viewerCount: { backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 },
   composer: { flexDirection: "row", alignItems: "flex-end", gap: 8, padding: 8, backgroundColor: "#fff", borderTopWidth: StyleSheet.hairlineWidth, borderColor: C.line },
   input: { flex: 1, minHeight: 44, maxHeight: 120, paddingTop: 11 },
   iconBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   recording: { flex: 1, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, borderRadius: 22, backgroundColor: C.redBg },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.red },
-  viewer: { flex: 1, backgroundColor: "rgba(0,0,0,0.92)", alignItems: "center", justifyContent: "center", padding: 12 },
   avatar: { alignItems: "center", justifyContent: "center" },
   carCard: { width: 170, borderRadius: 12, overflow: "hidden", backgroundColor: "#fff", borderWidth: StyleSheet.hairlineWidth, borderColor: C.line },
   cardBox: { backgroundColor: "#fff", borderRadius: 12, padding: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: C.line },
