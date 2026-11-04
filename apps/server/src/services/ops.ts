@@ -183,7 +183,7 @@ export async function paperworkFor(stage: string, unit: typeof s.units.$inferSel
         buf = readFileSync(abs);
         mime = "image/jpeg";
       } else {
-        buf = Buffer.from(new Resvg(carSvg({ body: "SUV", color: colorHex(unit.color ?? ""), view: "side" }), { fitTo: { mode: "width", value: 800 } }).render().asPng());
+        buf = Buffer.from(new Resvg(carSvg({ body: "SUV", color: colorHex(unit.color ?? ""), view: "side" }), { fitTo: { mode: "width", value: 800 }, font: resvgFonts }).render().asPng());
       }
     } else {
       const extra: [string, string][] = d.title === "BILL OF LADING" ? [["Vessel", "Pacific Star V.026"], ["Port of loading", "Yokohama, Japan"]] : d.title === "COURIER RECEIPT" ? [["Courier", "Harbor Express Courier"], ["Tracking No.", `HX${unit.id.slice(-8).toUpperCase()}`]] : [["Issued by", "Yokohama Vehicle Yard"]];
