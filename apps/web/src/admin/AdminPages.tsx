@@ -881,7 +881,7 @@ export function AdminSettings() {
 }
 
 /* ============================ Messages ============================ */
-interface Msg { id: string; name: string; email: string; phone: string | null; subject: string | null; message: string; handled: boolean; createdAt: string }
+interface Msg { id: string; name: string; email: string; phone: string | null; subject: string | null; message: string; reply?: string | null; handled: boolean; createdAt: string }
 export function AdminMessages() {
   const { can } = useAuth();
   const qc = useQueryClient();
@@ -928,6 +928,7 @@ export function AdminMessages() {
               </div>
               {m.subject && <p className="mt-2 text-sm font-medium text-slate-700">{m.subject}</p>}
               <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{m.message}</p>
+              {m.reply && <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950"><p className="mb-1 text-xs font-semibold text-emerald-800">Answered by the CRM desk</p><p className="whitespace-pre-wrap">{m.reply}</p></div>}
             </Card>
           ))}
         </div>
